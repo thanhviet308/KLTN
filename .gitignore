@@ -1,5 +1,8 @@
 node_modules/
+/docs/
 dist/
+dist-test/
+*.tsbuildinfo
 build/
 coverage/
 .env
