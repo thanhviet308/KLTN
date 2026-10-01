@@ -4,6 +4,27 @@
 
 > Dự án đang trong giai đoạn phát triển. Các chức năng dưới đây là phạm vi dự kiến xây dựng.
 
+## Chạy backend hiện tại
+
+Backend đã có kết nối PostgreSQL bằng `pg`, kiểm tra cấu hình và health endpoints. Chưa triển khai bảng nghiệp vụ, auth hoặc chat.
+
+1. Chạy PostgreSQL; tạo database `realtime_chat` và tài khoản riêng `realtime_chat_app` có quyền trên database đó.
+2. Sao chép `apps/api/.env.example` thành `apps/api/.env`, điền mật khẩu thực vào `DATABASE_URL` (URL-encode ký tự đặc biệt). Không commit `.env`.
+3. Chạy các lệnh từ gốc repository:
+
+```powershell
+npm.cmd ci
+npm.cmd run dev:api
+```
+
+Local hiện tại đã được cấu hình tại `127.0.0.1:5432`, database `realtime_chat`. Backend dùng tài khoản riêng không có quyền superuser; database `mydatabase` được giữ nguyên.
+
+- Liveness: `GET http://127.0.0.1:3000/api/v1/health/live`.
+- Readiness: `GET http://127.0.0.1:3000/api/v1/health/ready` kiểm tra DB thật; trả 503 nếu DB không đáp ứng.
+- Kiểm tra code: `npm.cmd run check`.
+
+Pool tối đa 10 connection mỗi process, có timeout và được đóng khi shutdown. Startup dừng nếu không kết nối được database. Cách quản lý pool theo [tài liệu node-postgres](https://node-postgres.com/apis/pool).
+
 ## Mục tiêu
 
 Hệ thống hướng đến nhu cầu trao đổi thông tin cá nhân, học tập và làm việc nhóm. Người dùng có thể trò chuyện và thực hiện cuộc gọi trên nhiều thiết bị, đồng thời sử dụng AI để hỗ trợ tổng hợp nội dung và phản hồi trong quá trình giao tiếp.

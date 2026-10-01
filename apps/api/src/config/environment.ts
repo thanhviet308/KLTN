@@ -3,7 +3,13 @@ export interface Environment {
   HOST: string;
   PORT: number;
   WEB_ORIGIN: string;
+  DATABASE_URL: string;
 }
+
+export type HttpEnvironment = Pick<
+  Environment,
+  'NODE_ENV' | 'HOST' | 'PORT' | 'WEB_ORIGIN'
+>;
 
 export function validateEnvironment(
   input: Record<string, unknown>,
@@ -51,5 +57,34 @@ export function validateEnvironment(
     );
   }
 
-  return { NODE_ENV: mode, HOST: host, PORT: port, WEB_ORIGIN: origin };
+  const databaseUrl = input.DATABASE_URL;
+  if (typeof databaseUrl !== 'string' || !databaseUrl.trim()) {
+    throw new Error('DATABASE_URL is required');
+  }
+  try {
+    const database = new URL(databaseUrl);
+    if (
+      !['postgres:', 'postgresql:'].includes(database.protocol) ||
+      !database.hostname ||
+      !database.username ||
+      !database.password ||
+      database.pathname.length <= 1 ||
+      database.hash ||
+      databaseUrl !== databaseUrl.trim()
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      'DATABASE_URL must be a PostgreSQL URL with credentials and a database name',
+    );
+  }
+
+  return {
+    NODE_ENV: mode,
+    HOST: host,
+    PORT: port,
+    WEB_ORIGIN: origin,
+    DATABASE_URL: databaseUrl,
+  };
 }

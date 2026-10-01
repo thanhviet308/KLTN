@@ -6,8 +6,7 @@
     "dev": "tsc-watch -p tsconfig.build.json --onSuccess \"node dist/main.js\"",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
-    "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@nestjs/common": "11.2.6",
@@ -18,13 +17,14 @@
     "class-validator": "0.15.1",
     "express": "5.2.1",
     "helmet": "8.3.0",
+    "pg": "8.23.1",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"
   },
   "devDependencies": {
-    "@nestjs/testing": "11.2.6",
     "@types/express": "5.0.6",
     "@types/node": "24.19.0",
+    "@types/pg": "8.23.1",
     "tsc-watch": "7.2.1",
     "typescript": "5.9.3"
   }

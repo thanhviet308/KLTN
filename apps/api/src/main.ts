@@ -4,12 +4,12 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { configureApp } from './configure-app';
-import type { Environment } from './config/environment';
+import type { Environment, HttpEnvironment } from './config/environment';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   const config = app.get(ConfigService<Environment, true>);
-  const env: Environment = {
+  const env: HttpEnvironment = {
     NODE_ENV: config.get('NODE_ENV', { infer: true }),
     HOST: config.get('HOST', { infer: true }),
     PORT: config.get('PORT', { infer: true }),

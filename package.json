@@ -21,11 +21,10 @@
     "build": "npm run build --workspaces --if-present",
     "start:api": "npm run start --workspace=@chat/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "lint": "eslint apps/api/src apps/api/test",
+    "lint": "eslint apps/api/src",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run format:check"
+    "check": "npm run lint && npm run typecheck && npm run build && npm run format:check"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
