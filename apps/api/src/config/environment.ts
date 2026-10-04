@@ -4,6 +4,7 @@ export interface Environment {
   PORT: number;
   WEB_ORIGIN: string;
   DATABASE_URL: string;
+  JWT_ACCESS_SECRET: string;
 }
 
 export type HttpEnvironment = Pick<
@@ -57,7 +58,26 @@ export function validateEnvironment(
     );
   }
 
-  const databaseUrl = input.DATABASE_URL;
+  const databaseUrl = validateDatabaseUrl(input.DATABASE_URL);
+
+  const jwtSecret = input.JWT_ACCESS_SECRET;
+  if (typeof jwtSecret !== 'string' || !/^[a-f0-9]{64}$/.test(jwtSecret)) {
+    throw new Error(
+      'JWT_ACCESS_SECRET must be 32 random bytes encoded as 64 lowercase hex characters',
+    );
+  }
+
+  return {
+    NODE_ENV: mode,
+    HOST: host,
+    PORT: port,
+    WEB_ORIGIN: origin,
+    DATABASE_URL: databaseUrl,
+    JWT_ACCESS_SECRET: jwtSecret,
+  };
+}
+
+export function validateDatabaseUrl(databaseUrl: unknown): string {
   if (typeof databaseUrl !== 'string' || !databaseUrl.trim()) {
     throw new Error('DATABASE_URL is required');
   }
@@ -80,11 +100,5 @@ export function validateEnvironment(
     );
   }
 
-  return {
-    NODE_ENV: mode,
-    HOST: host,
-    PORT: port,
-    WEB_ORIGIN: origin,
-    DATABASE_URL: databaseUrl,
-  };
+  return databaseUrl;
 }

@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import { validateEnvironment } from './config/environment';
 import { HealthModule } from './modules/health/health.module';
 import { DatabaseModule } from './modules/database/database.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { DatabaseModule } from './modules/database/database.module';
     }),
     DatabaseModule,
     HealthModule,
+    AuthModule,
+    UsersModule,
   ],
 })
 export class AppModule {}

@@ -6,10 +6,10 @@
 
 ## Chạy backend hiện tại
 
-Backend dùng NestJS + TypeORM + PostgreSQL. Đã có entity và migration cho toàn bộ mô hình dữ liệu trong doc 02: tài khoản, bạn bè, chat, tệp, cuộc gọi, thông báo, AI, báo cáo và audit; chưa triển khai API nghiệp vụ.
+Backend dùng NestJS + TypeORM + PostgreSQL. Đã có schema đầy đủ theo doc 02 và API đăng ký, đăng nhập, refresh, đăng xuất, lấy tài khoản hiện tại. Hướng dẫn sử dụng và bảo mật nằm trong [Users và Authentication](docs/09-users-authentication.md).
 
 1. Chạy PostgreSQL; tạo database `realtime_chat` và tài khoản riêng `realtime_chat_app` có quyền trên database đó.
-2. Sao chép `apps/api/.env.example` thành `apps/api/.env`, điền mật khẩu thực vào `DATABASE_URL` (URL-encode ký tự đặc biệt). Không commit `.env`.
+2. Sao chép `apps/api/.env.example` thành `apps/api/.env`, điền mật khẩu thực vào `DATABASE_URL` (URL-encode ký tự đặc biệt) và sinh `JWT_ACCESS_SECRET` theo doc 09. Không commit `.env`.
 3. Chạy các lệnh từ gốc repository:
 
 ```powershell

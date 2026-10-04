@@ -14,6 +14,7 @@ export function configureApp(
   app.setGlobalPrefix('api/v1');
   app.use((_request: Request, response: Response, next: NextFunction) => {
     response.setHeader('x-request-id', randomUUID());
+    response.setHeader('Cache-Control', 'no-store');
     next();
   });
   app.use(helmet());
