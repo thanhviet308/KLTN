@@ -6,7 +6,7 @@
 
 ## Chạy backend hiện tại
 
-Backend đã có kết nối PostgreSQL bằng `pg`, kiểm tra cấu hình và health endpoints. Chưa triển khai bảng nghiệp vụ, auth hoặc chat.
+Backend dùng NestJS + TypeORM + PostgreSQL. Đã có entity và migration cho toàn bộ mô hình dữ liệu trong doc 02: tài khoản, bạn bè, chat, tệp, cuộc gọi, thông báo, AI, báo cáo và audit; chưa triển khai API nghiệp vụ.
 
 1. Chạy PostgreSQL; tạo database `realtime_chat` và tài khoản riêng `realtime_chat_app` có quyền trên database đó.
 2. Sao chép `apps/api/.env.example` thành `apps/api/.env`, điền mật khẩu thực vào `DATABASE_URL` (URL-encode ký tự đặc biệt). Không commit `.env`.
@@ -14,16 +14,24 @@ Backend đã có kết nối PostgreSQL bằng `pg`, kiểm tra cấu hình và 
 
 ```powershell
 npm.cmd ci
+npm.cmd run db:migrate
 npm.cmd run dev:api
 ```
 
-Local hiện tại đã được cấu hình tại `127.0.0.1:5432`, database `realtime_chat`. Backend dùng tài khoản riêng không có quyền superuser; database `mydatabase` được giữ nguyên.
+Local đã được tạo lại tại `127.0.0.1:5432`, database `realtime_chat`, dùng tài khoản riêng `realtime_chat_app` không có quyền superuser. Mật khẩu được sinh ngẫu nhiên và chỉ lưu trong `.env`.
 
 - Liveness: `GET http://127.0.0.1:3000/api/v1/health/live`.
 - Readiness: `GET http://127.0.0.1:3000/api/v1/health/ready` kiểm tra DB thật; trả 503 nếu DB không đáp ứng.
 - Kiểm tra code: `npm.cmd run check`.
+- Xem trạng thái migration: `npm.cmd run db:show`.
 
-Pool tối đa 10 connection mỗi process, có timeout và được đóng khi shutdown. Startup dừng nếu không kết nối được database. Cách quản lý pool theo [tài liệu node-postgres](https://node-postgres.com/apis/pool).
+`db:migrate` chạy migration TypeORM cho 17 bảng nghiệp vụ (15 bảng trong doc 02 và 2 bảng lịch sử hỗ trợ); `typeorm_migrations` theo dõi phiên bản và `typeorm_metadata` lưu thông tin generated columns, tổng cộng 19 bảng. Entity nằm trong `apps/api/src/modules/database/entities`, migration trong `apps/api/src/modules/database/migrations`. Migration chạy trong transaction, có advisory lock chống chạy đồng thời. Không còn runner SQL hoặc bảng `schema_migrations` cũ.
+
+TypeORM quản lý entity, relation, repository và connection pool. `pg` là driver PostgreSQL mà TypeORM sử dụng. Luôn dùng `synchronize: false`, `dropSchema: false`, `migrationsRun: false`; thay đổi schema qua migration được review, chạy riêng trước API theo [hướng dẫn TypeORM](https://typeorm.io/docs/migrations/why/).
+
+Xem [thiết kế database và quy trình migration](docs/08-thiet-ke-database-typeorm.md) cho quan hệ, ràng buộc, quyền truy cập và các giới hạn hiện tại.
+
+Pool tối đa 10 connection mỗi process, có timeout và được TypeORM đóng khi shutdown. Startup dừng nếu không kết nối được database; readiness trả 503 khi database không đáp ứng.
 
 ## Mục tiêu
 
