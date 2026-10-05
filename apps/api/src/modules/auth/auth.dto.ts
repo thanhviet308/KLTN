@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsString,
+  IsUUID,
   Length,
   Matches,
   MaxLength,
@@ -30,6 +31,13 @@ export class LoginDto {
 }
 
 export class RegisterDto {
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{43}$/)
+  verificationToken!: string;
+
+  @IsString()
+  @Length(6, 128)
+  confirmPassword!: string;
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
@@ -38,7 +46,7 @@ export class RegisterDto {
   email!: string;
 
   @IsString()
-  @Length(15, 128)
+  @Length(6, 128)
   password!: string;
 
   @Transform(({ value }: { value: unknown }) =>
@@ -55,4 +63,22 @@ export class RefreshDto {
   @IsString()
   @Matches(/^[A-Za-z0-9_-]{43}$/)
   refreshToken?: string;
+}
+
+export class RequestRegistrationCodeDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsEmail()
+  @MaxLength(254)
+  email!: string;
+}
+
+export class VerifyRegistrationCodeDto {
+  @IsUUID('4')
+  challengeId!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/)
+  code!: string;
 }

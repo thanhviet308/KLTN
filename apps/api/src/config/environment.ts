@@ -5,6 +5,11 @@ export interface Environment {
   WEB_ORIGIN: string;
   DATABASE_URL: string;
   JWT_ACCESS_SECRET: string;
+  SMTP_HOST?: string;
+  SMTP_PORT?: string;
+  SMTP_USER?: string;
+  SMTP_PASSWORD?: string;
+  SMTP_FROM?: string;
 }
 
 export type HttpEnvironment = Pick<
@@ -74,6 +79,16 @@ export function validateEnvironment(
     WEB_ORIGIN: origin,
     DATABASE_URL: databaseUrl,
     JWT_ACCESS_SECRET: jwtSecret,
+    SMTP_HOST:
+      typeof input.SMTP_HOST === 'string' ? input.SMTP_HOST : undefined,
+    SMTP_PORT:
+      typeof input.SMTP_PORT === 'string' ? input.SMTP_PORT : undefined,
+    SMTP_USER:
+      typeof input.SMTP_USER === 'string' ? input.SMTP_USER : undefined,
+    SMTP_PASSWORD:
+      typeof input.SMTP_PASSWORD === 'string' ? input.SMTP_PASSWORD : undefined,
+    SMTP_FROM:
+      typeof input.SMTP_FROM === 'string' ? input.SMTP_FROM : undefined,
   };
 }
 

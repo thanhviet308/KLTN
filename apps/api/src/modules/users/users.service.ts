@@ -17,9 +17,13 @@ export class UsersService {
     @InjectRepository(User) private readonly users: Repository<User>,
   ) {}
 
-  async createAccount(input: CreateAccountInput): Promise<User> {
+  async createAccount(
+    input: CreateAccountInput,
+    manager?: EntityManager,
+  ): Promise<User> {
+    const repository = manager ? manager.getRepository(User) : this.users;
     try {
-      return await this.users.save({
+      return await repository.save({
         email: input.email,
         displayName: input.displayName,
         passwordHash: input.passwordHash,

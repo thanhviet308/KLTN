@@ -18,6 +18,7 @@ import { Notification } from './entities/notification.entity';
 import { AiJob } from './entities/ai-job.entity';
 import { Report } from './entities/report.entity';
 import { AuditLog } from './entities/audit-log.entity';
+import { RegistrationVerification } from './entities/registration-verification.entity';
 
 export function typeormOptions(databaseUrl: string): PostgresConnectionOptions {
   return {
@@ -25,6 +26,7 @@ export function typeormOptions(databaseUrl: string): PostgresConnectionOptions {
     url: databaseUrl,
     schema: 'public',
     entities: [
+      RegistrationVerification,
       User,
       Session,
       SessionRefreshToken,

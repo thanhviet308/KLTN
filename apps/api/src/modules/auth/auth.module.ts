@@ -9,6 +9,8 @@ import { AuthGuard } from './auth.guard';
 import { AuthRateLimit, AuthRateLimitGuard } from './auth-rate-limit';
 import { PasswordService } from './password.service';
 import { UsersModule } from '../users/users.module';
+import { RegistrationService } from './registration.service';
+import { VerificationMailService } from './verification-mail.service';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { UsersModule } from '../users/users.module';
   ],
   controllers: [AuthController],
   providers: [
+    RegistrationService,
+    VerificationMailService,
     AuthService,
     PasswordService,
     AuthRateLimit,

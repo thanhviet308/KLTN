@@ -17,6 +17,7 @@
     "trailingComma": "all"
   },
   "scripts": {
+    "dev:web": "npm run dev --workspace=@chat/web",
     "db:migrate": "npm run db:migrate --workspace=@chat/api",
     "db:show": "npm run db:show --workspace=@chat/api",
     "dev:api": "npm run dev --workspace=@chat/api",

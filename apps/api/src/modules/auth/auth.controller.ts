@@ -14,7 +14,14 @@ import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment';
 import { AuthService } from './auth.service';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- ValidationPipe needs runtime DTO metadata.
-import { LoginDto, RefreshDto, RegisterDto } from './auth.dto';
+import {
+  LoginDto,
+  RefreshDto,
+  RegisterDto,
+  RequestRegistrationCodeDto,
+  VerifyRegistrationCodeDto,
+} from './auth.dto';
+import { RegistrationService } from './registration.service';
 import { Public } from './auth.decorators';
 import { AuthRateLimit, AuthRateLimitGuard } from './auth-rate-limit';
 import { authError } from './auth-error';
@@ -30,6 +37,8 @@ export class AuthController {
     @Inject(ConfigService)
     private readonly config: ConfigService<Environment, true>,
     @Inject(AuthRateLimit) private readonly limiter: AuthRateLimit,
+    @Inject(RegistrationService)
+    private readonly registration: RegistrationService,
   ) {}
 
   private client(request: Request, response: Response): 'web' | 'android' {
@@ -114,6 +123,30 @@ export class AuthController {
       expires: result.sessionExpiresAt,
     });
     return body;
+  }
+
+  @Post('register/request-code')
+  @Public()
+  @HttpCode(200)
+  requestRegistrationCode(
+    @Body() input: RequestRegistrationCodeDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    this.client(request, response);
+    return this.registration.requestCode(input.email);
+  }
+
+  @Post('register/verify-code')
+  @Public()
+  @HttpCode(200)
+  verifyRegistrationCode(
+    @Body() input: VerifyRegistrationCodeDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    this.client(request, response);
+    return this.registration.verifyCode(input.challengeId, input.code);
   }
 
   @Post('register')

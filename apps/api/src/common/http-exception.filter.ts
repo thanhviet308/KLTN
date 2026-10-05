@@ -37,7 +37,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = 'Malformed JSON body';
     }
 
-    if (status < 500 && exception instanceof HttpException) {
+    const publicServiceError =
+      status === 503 &&
+      exception instanceof HttpException &&
+      typeof exception.getResponse() === 'object' &&
+      ['MAIL_NOT_CONFIGURED', 'MAIL_DELIVERY_FAILED', 'AUTH_BUSY'].includes(
+        String((exception.getResponse() as { code?: unknown }).code),
+      );
+    if (
+      (status < 500 || publicServiceError) &&
+      exception instanceof HttpException
+    ) {
       const body = exception.getResponse();
       if (typeof body === 'string') {
         message = body;
@@ -63,7 +73,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.error({ requestId, status, code: 'INTERNAL_SERVER_ERROR' });
     }
     response.status(status).json({
-      code: status >= 500 ? 'INTERNAL_SERVER_ERROR' : code,
+      code:
+        status >= 500 && !publicServiceError ? 'INTERNAL_SERVER_ERROR' : code,
       message,
       requestId,
     });

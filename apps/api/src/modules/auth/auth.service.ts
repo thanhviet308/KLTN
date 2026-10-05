@@ -11,6 +11,7 @@ import type { LoginDto, RegisterDto } from './auth.dto';
 import { authError } from './auth-error';
 import { userView } from '../users/user-view';
 import { UsersService } from '../users/users.service';
+import { RegistrationService } from './registration.service';
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const ACCESS_SECONDS = 15 * 60;
@@ -26,14 +27,28 @@ export class AuthService {
     @Inject(PasswordService) private readonly passwords: PasswordService,
     @Inject(JwtService) private readonly jwt: JwtService,
     @Inject(UsersService) private readonly users: UsersService,
+    @Inject(RegistrationService)
+    private readonly registration: RegistrationService,
   ) {}
 
   async register(input: RegisterDto, requestId: string) {
+    if (input.password !== input.confirmPassword)
+      throw authError(
+        400,
+        'PASSWORD_CONFIRMATION_MISMATCH',
+        'Passwords do not match',
+      );
     const passwordHash = await this.passwords.hash(input.password);
-    const user = await this.users.createAccount({
-      email: input.email,
-      displayName: input.displayName,
-      passwordHash,
+    const user = await this.db.transaction(async (manager) => {
+      await this.registration.consume(
+        input.email,
+        input.verificationToken,
+        manager,
+      );
+      return this.users.createAccount(
+        { email: input.email, displayName: input.displayName, passwordHash },
+        manager,
+      );
     });
     this.logger.log({ code: 'USER_REGISTERED', userId: user.id, requestId });
     return { user: userView(user) };

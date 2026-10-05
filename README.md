@@ -25,7 +25,9 @@ Local đã được tạo lại tại `127.0.0.1:5432`, database `realtime_chat`
 - Kiểm tra code: `npm.cmd run check`.
 - Xem trạng thái migration: `npm.cmd run db:show`.
 
-`db:migrate` chạy migration TypeORM cho 17 bảng nghiệp vụ (15 bảng trong doc 02 và 2 bảng lịch sử hỗ trợ); `typeorm_migrations` theo dõi phiên bản và `typeorm_metadata` lưu thông tin generated columns, tổng cộng 19 bảng. Entity nằm trong `apps/api/src/modules/database/entities`, migration trong `apps/api/src/modules/database/migrations`. Migration chạy trong transaction, có advisory lock chống chạy đồng thời. Không còn runner SQL hoặc bảng `schema_migrations` cũ.
+`db:migrate` chạy migration TypeORM cho 18 bảng ứng dụng (15 bảng ban đầu, 2 bảng lịch sử và 1 bảng xác minh đăng ký); `typeorm_migrations` theo dõi phiên bản và `typeorm_metadata` lưu thông tin generated columns, tổng cộng 20 bảng. Entity nằm trong `apps/api/src/modules/database/entities`, migration trong `apps/api/src/modules/database/migrations`. Migration chạy trong transaction, có advisory lock chống chạy đồng thời. Không còn runner SQL hoặc bảng `schema_migrations` cũ.
+
+Đăng ký Web có ba bước: email → mã xác minh → tên/mật khẩu/xác nhận mật khẩu. Cấu hình SMTP và hợp đồng API mới xem [doc 10](docs/10-dang-ky-xac-minh-email.md).
 
 TypeORM quản lý entity, relation, repository và connection pool. `pg` là driver PostgreSQL mà TypeORM sử dụng. Luôn dùng `synchronize: false`, `dropSchema: false`, `migrationsRun: false`; thay đổi schema qua migration được review, chạy riêng trước API theo [hướng dẫn TypeORM](https://typeorm.io/docs/migrations/why/).
 
