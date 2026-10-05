@@ -1,5 +1,24 @@
 # Giao diện tài khoản Halo
 
+Mục Đoạn chat dùng bố cục hai cột: danh sách trò chuyện bên trái và nội dung bên phải.
+Nhấn Nhắn mới rồi chọn một người bạn để mở trò chuyện riêng ngay.
+Tạo nhóm là hành động phụ; quản lý thành viên nằm trong nút Thông tin.
+Trên điện thoại, danh sách và nội dung được hiển thị lần lượt, có nút Quay lại.
+Các API theo doc 12: danh sách có phân trang, tạo trò chuyện riêng từ bạn bè,
+tạo nhóm với 1–49 người bạn, xem thành viên, đổi tên, thêm/xóa thành viên,
+cấp/gỡ quản trị, chuyển chủ nhóm và rời nhóm. Các thao tác quản lý hiện theo vai trò
+owner/admin/member; hành động xóa, chuyển quyền và rời nhóm cần xác nhận.
+Tạo nhóm giữ cùng clientRequestId khi thử lại cùng nội dung trong biểu mẫu.
+Danh sách thành viên và danh sách chọn bạn tải đủ các trang.
+Chưa có gửi tin nhắn hoặc cập nhật realtime trong backend của mốc này.
+
+Sau đăng nhập, Halo có các mục Bạn bè, Lời mời nhận, Lời mời đã gửi,
+Tìm bạn (theo tên hiển thị) và Tài khoản (sửa tên hiển thị).
+Danh sách hỗ trợ Xem thêm theo cursor của API. Có gửi, chấp nhận, từ chối,
+thu hồi lời mời và xác nhận trước khi hủy kết bạn.
+Các thao tác dùng access token trong bộ nhớ, gia hạn phiên và thử lại một lần khi nhận 401.
+Nút Tải lại cập nhật thay đổi từ người khác; backend hiện chưa có sự kiện realtime cho bạn bè.
+
 React + TypeScript + Vite. Chạy từ thư mục gốc:
 
 ```powershell

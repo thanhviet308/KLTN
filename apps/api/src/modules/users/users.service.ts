@@ -1,9 +1,15 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError } from 'typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { User } from '../database/entities/user.entity';
-import { userView } from './user-view';
+import { publicUserView, userView } from './user-view';
+import type { SearchUsersDto, UpdateProfileDto } from './users.dto';
+import { pageResult } from '../../common/page.dto';
 
 interface CreateAccountInput {
   email: string;
@@ -84,5 +90,35 @@ export class UsersService {
   getCurrentProfile(user: User) {
     // The guard already fetched the current user; do not query it twice.
     return { user: userView(user) };
+  }
+
+  async updateProfile(id: string, input: UpdateProfileDto) {
+    return this.users.manager.transaction(async (manager) => {
+      const user = await manager
+        .getRepository(User)
+        .findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!user || user.status !== 'active')
+        throw new UnauthorizedException('Account is inactive');
+      user.displayName = input.displayName;
+      return { user: userView(await manager.getRepository(User).save(user)) };
+    });
+  }
+
+  async search(currentUserId: string, input: SearchUsersDto) {
+    // Escape SQL LIKE metacharacters: the search is literal, not a client pattern.
+    const text = input.query.replace(/[\\%_]/g, '\\$&');
+    const query = this.users
+      .createQueryBuilder('user')
+      .select(['user.id', 'user.displayName'])
+      .where("user.status = 'active'")
+      .andWhere('user.id <> :currentUserId', { currentUserId })
+      .andWhere("user.displayName ILIKE :name ESCAPE '\\'", {
+        name: `%${text}%`,
+      })
+      .orderBy('user.id', 'ASC')
+      .take(input.limit + 1);
+    if (input.cursor)
+      query.andWhere('user.id > :cursor', { cursor: input.cursor });
+    return pageResult((await query.getMany()).map(publicUserView), input.limit);
   }
 }

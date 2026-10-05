@@ -10,3 +10,7 @@ export function userView(user: User) {
     createdAt: user.createdAt,
   };
 }
+
+export function publicUserView(user: User) {
+  return { id: user.id, displayName: user.displayName };
+}

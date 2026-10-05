@@ -30,11 +30,12 @@ async function request<T>(
   path: string,
   body?: unknown,
   bearer?: string,
+  method?: string,
 ): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`/api/v1${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
+      method: method ?? (body === undefined ? 'GET' : 'POST'),
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
@@ -76,13 +77,21 @@ export function refresh() {
 }
 
 export async function me(): Promise<User> {
+  return (await authenticated<{ user: User }>('/users/me')).user;
+}
+
+export async function authenticated<T>(
+  path: string,
+  body?: unknown,
+  method?: string,
+): Promise<T> {
   if (!token || Date.now() >= expiresAt - 30000) await refresh();
   try {
-    return (await request<{ user: User }>('/users/me', undefined, token)).user;
+    return await request<T>(path, body, token, method);
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 401) throw error;
     await refresh();
-    return (await request<{ user: User }>('/users/me', undefined, token)).user;
+    return request<T>(path, body, token, method);
   }
 }
 
@@ -126,6 +135,38 @@ export function clearSession() {
 }
 
 export function errorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    const messages: Record<string, string> = {
+      FRIENDSHIP_REQUIRED:
+        'Bạn cần kết bạn với người này trước khi tạo hội thoại hoặc mời vào nhóm.',
+      CONVERSATION_NOT_FOUND:
+        'Hội thoại không còn tồn tại hoặc bạn không còn quyền truy cập.',
+      CONVERSATION_FORBIDDEN:
+        'Quyền của bạn trong nhóm đã thay đổi. Hãy tải lại hội thoại.',
+      DIRECT_CONVERSATION_IMMUTABLE:
+        'Không thể thay đổi thành viên hoặc tên của trò chuyện riêng.',
+      CONVERSATION_INPUT_INVALID:
+        'Thông tin hội thoại chưa hợp lệ. Kiểm tra tên nhóm và thành viên.',
+      IDEMPOTENCY_CONFLICT:
+        'Yêu cầu tạo nhóm đã thay đổi. Hãy kiểm tra thông tin và tạo lại.',
+      GROUP_MEMBER_LIMIT: 'Nhóm đã đủ giới hạn 50 thành viên.',
+      OWNER_TRANSFER_REQUIRED: 'Hãy chuyển quyền chủ nhóm trước khi rời nhóm.',
+      SELF_CONVERSATION: 'Bạn không thể tạo trò chuyện riêng với chính mình.',
+      ALREADY_FRIENDS: 'Hai bạn đã là bạn bè.',
+      INCOMING_REQUEST_EXISTS:
+        'Người này đã gửi lời mời cho bạn. Hãy mở mục Lời mời để phản hồi.',
+      USER_UNAVAILABLE: 'Người dùng này hiện không khả dụng.',
+      FRIEND_REQUEST_NOT_FOUND:
+        'Lời mời không còn tồn tại. Hãy tải lại danh sách.',
+      FRIEND_REQUEST_STATE_CONFLICT:
+        'Lời mời đã được xử lý. Hãy tải lại danh sách.',
+      FRIENDSHIP_STATE_CONFLICT:
+        'Quan hệ bạn bè đã thay đổi. Hãy tải lại danh sách.',
+      FRIEND_REQUEST_FORBIDDEN:
+        'Bạn không thể thực hiện thao tác này với lời mời.',
+    };
+    if (messages[error.code]) return messages[error.code];
+  }
   if (!(error instanceof ApiError)) return 'Có lỗi xảy ra. Vui lòng thử lại.';
   if (error.code === 'MAIL_NOT_CONFIGURED')
     return 'Chức năng gửi email chưa được cấu hình. Vui lòng thử lại sau.';

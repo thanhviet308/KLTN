@@ -21,11 +21,26 @@ import { User } from './user.entity';
   `(type = 'direct' AND title IS NULL AND direct_user_low_id IS NOT NULL AND direct_user_high_id IS NOT NULL AND direct_user_low_id < direct_user_high_id AND creator_id IN (direct_user_low_id, direct_user_high_id)) OR (type = 'group' AND direct_user_low_id IS NULL AND direct_user_high_id IS NULL AND title IS NOT NULL AND length(btrim(title)) > 0)`,
 )
 @Unique('conversations_direct_pair', ['directUserLowId', 'directUserHighId'])
+@Unique('conversations_creator_request', ['creatorId', 'clientRequestId'])
+@Check(
+  'conversations_request_shape',
+  "(type = 'direct' AND client_request_id IS NULL AND creation_fingerprint IS NULL) OR (type = 'group' AND ((client_request_id IS NULL AND creation_fingerprint IS NULL) OR (client_request_id IS NOT NULL AND creation_fingerprint ~ '^[0-9a-f]{64}$')))",
+)
 @Index('conversations_creator_idx', ['creatorId'])
 @Index('conversations_direct_high_idx', ['directUserHighId'], {
   where: "type = 'direct'",
 })
 export class Conversation {
+  @Column({ name: 'client_request_id', type: 'uuid', nullable: true })
+  clientRequestId!: string | null;
+  @Column({
+    name: 'creation_fingerprint',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+    select: false,
+  })
+  creationFingerprint!: string | null;
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ type: 'varchar', length: 16 }) type!: 'direct' | 'group';
   @Column({ type: 'varchar', length: 200, nullable: true }) title!:

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as api from './api';
+import { Home } from './Home';
 import './style.css';
 
 function App() {
@@ -245,20 +246,24 @@ function App() {
       setBusy(false);
     }
   }
-  async function signOut() {
-    setBusy(true);
-    setError('');
-    try {
-      await api.logout();
-      setUser(undefined);
-      setMode('login');
-      setNotice('Bạn đã đăng xuất an toàn.');
-    } catch (e) {
-      setError(api.errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  if (user)
+    return (
+      <Home
+        user={user}
+        onUser={setUser}
+        onLogout={async () => {
+          await api.logout();
+          setUser(undefined);
+          setMode('login');
+          setNotice('Bạn đã đăng xuất an toàn.');
+        }}
+        onExpired={() => {
+          api.clearSession();
+          setUser(undefined);
+          setNotice('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        }}
+      />
+    );
 
   return (
     <div className="page">
@@ -312,52 +317,6 @@ function App() {
               <span className="spinner" />
               Đang khôi phục phiên đăng nhập…
             </div>
-          ) : user ? (
-            <>
-              <span className="eyebrow dark">TÀI KHOẢN CỦA BẠN</span>
-              <div className="profile-avatar">
-                {Array.from(user.displayName)[0]?.toUpperCase()}
-              </div>
-              <h2 ref={heading} tabIndex={-1}>
-                Xin chào, {user.displayName}!
-              </h2>
-              <p className="intro">Bạn đã đăng nhập thành công vào Halo.</p>
-              <dl>
-                <div>
-                  <dt>Tên hiển thị</dt>
-                  <dd>{user.displayName}</dd>
-                </div>
-                <div>
-                  <dt>Email</dt>
-                  <dd>{user.email}</dd>
-                </div>
-                <div>
-                  <dt>Ngày tham gia</dt>
-                  <dd>
-                    {new Intl.DateTimeFormat('vi-VN').format(
-                      new Date(user.createdAt),
-                    )}
-                  </dd>
-                </div>
-              </dl>
-              <p className="session-note">
-                <span className="online-dot" /> Phiên đăng nhập được tự động gia
-                hạn.
-              </p>
-              {error && (
-                <div className="message error" role="alert">
-                  {error}
-                </div>
-              )}
-              <button
-                className="primary"
-                disabled={busy}
-                onClick={() => void signOut()}
-              >
-                {busy ? 'Đang đăng xuất…' : 'Đăng xuất'}
-                <span>↗</span>
-              </button>
-            </>
           ) : (
             <>
               <span className="eyebrow dark">BẮT ĐẦU KẾT NỐI</span>
