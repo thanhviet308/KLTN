@@ -59,7 +59,7 @@ export function typeormOptions(databaseUrl: string): PostgresConnectionOptions {
     invalidWhereValuesBehavior: { null: 'throw', undefined: 'throw' },
     poolSize: 10,
     extra: {
-      connectionTimeoutMillis: 3000,
+      connectionTimeoutMillis: 30000,
       idleTimeoutMillis: 10000,
       statement_timeout: 5000,
       query_timeout: 6000,

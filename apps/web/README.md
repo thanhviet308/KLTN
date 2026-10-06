@@ -10,7 +10,14 @@ cấp/gỡ quản trị, chuyển chủ nhóm và rời nhóm. Các thao tác qu
 owner/admin/member; hành động xóa, chuyển quyền và rời nhóm cần xác nhận.
 Tạo nhóm giữ cùng clientRequestId khi thử lại cùng nội dung trong biểu mẫu.
 Danh sách thành viên và danh sách chọn bạn tải đủ các trang.
-Chưa có gửi tin nhắn hoặc cập nhật realtime trong backend của mốc này.
+Theo doc 13–14, đoạn chat hỗ trợ gửi tin văn bản, lịch sử theo sequence,
+tải tin cũ, nhận tin realtime, đang nhập, xác nhận nhận/đọc và xem receipt.
+Enter để gửi, Shift + Enter để xuống dòng. Tin gửi lỗi giữ nội dung và có nút Gửi lại
+với cùng clientMessageId. Bản nháp giữ trong bộ nhớ khi chuyển hội thoại, mất khi tải lại trang.
+Socket subscribe trước đồng bộ bù; REST đồng bộ định kỳ 15 giây để phục hồi sự kiện bị lỡ.
+Sequence được so sánh bằng BigInt, nội dung tin được render dạng text.
+Chỉ ACK đọc khi tin nằm trong vùng đang xem và cửa sổ đang được lấy nét.
+Trạng thái nhận/đọc được lấy lại cho 10 tin gửi gần nhất và khi mở chi tiết trạng thái.
 
 Sau đăng nhập, Halo có các mục Bạn bè, Lời mời nhận, Lời mời đã gửi,
 Tìm bạn (theo tên hiển thị) và Tài khoản (sửa tên hiển thị).
@@ -29,7 +36,8 @@ npm.cmd run dev:web
 ```
 
 Mở **http://localhost:5173**. Backend cần `WEB_ORIGIN=http://localhost:5173`.
-Vite chuyển tiếp `/api` đến `http://127.0.0.1:3000`; trình duyệt gửi Origin thật để backend xác thực client web.
+Vite chuyển tiếp `/api` và WebSocket `/socket.io` đến `http://127.0.0.1:3000`;
+trình duyệt gửi Origin thật để backend xác thực client web. Restart Vite sau khi cập nhật cấu hình proxy.
 
 Giao diện gồm đăng ký nhiều bước (email → xác minh mã → tên/mật khẩu/xác nhận mật khẩu), đăng nhập và thông tin tài khoản từ `/users/me`. Cần cấu hình SMTP trong `apps/api/.env` để nhận mã email thật; xem [doc 10](../../docs/10-dang-ky-xac-minh-email.md).
 Đăng ký thành công chuyển về đăng nhập và giữ email. Không lưu mật khẩu hay token trong localStorage.
@@ -41,6 +49,7 @@ Lỗi kết nối giữ nguyên biểu mẫu hoặc tài khoản để người 
 Build: `npm.cmd run build --workspace=@chat/web`.
 Khi triển khai, phục vụ `dist` và reverse proxy `/api` đến backend trên cùng origin,
 đặt `WEB_ORIGIN` đúng địa chỉ HTTPS của web và `NODE_ENV=production` trên API.
+Reverse proxy `/socket.io` cần hỗ trợ WebSocket upgrade. Backend realtime hiện chạy một instance theo doc 14.
 
 Kiểm tra thực tế với API/DB đang chạy: đăng ký email mới, email trùng, mật khẩu dưới 6 ký tự,
 đăng nhập đúng/sai, tải lại trang, hết phiên, mất kết nối, đăng xuất rồi tải lại,

@@ -120,7 +120,7 @@ export class ConversationsService {
 
   // Mutation paths lock the conversation first; future message writes must use
   // the same lock to serialize sequence boundaries with membership changes.
-  private async access(
+  async requireAccess(
     manager: EntityManager,
     id: string,
     actorId: string,
@@ -187,7 +187,7 @@ export class ConversationsService {
           lock: { mode: 'pessimistic_write' },
         });
         if (existing) {
-          const { conversation, member } = await this.access(
+          const { conversation, member } = await this.requireAccess(
             manager,
             existing.id,
             actorId,
@@ -248,7 +248,7 @@ export class ConversationsService {
             'IDEMPOTENCY_CONFLICT',
             'Request ID was already used for a different payload',
           );
-        const { conversation, member } = await this.access(
+        const { conversation, member } = await this.requireAccess(
           manager,
           existing.id,
           actorId,
@@ -303,14 +303,18 @@ export class ConversationsService {
 
   async get(actorId: string, id: string) {
     return this.db.transaction(async (manager) => {
-      const { conversation, member } = await this.access(manager, id, actorId);
+      const { conversation, member } = await this.requireAccess(
+        manager,
+        id,
+        actorId,
+      );
       return { conversation: this.view(conversation, member) };
     });
   }
 
   async rename(actorId: string, id: string, title: string) {
     return this.db.transaction(async (manager) => {
-      const { conversation, member } = await this.access(
+      const { conversation, member } = await this.requireAccess(
         manager,
         id,
         actorId,
@@ -330,7 +334,7 @@ export class ConversationsService {
 
   async members(actorId: string, id: string, input: PageDto) {
     return this.db.transaction(async (manager) => {
-      await this.access(manager, id, actorId);
+      await this.requireAccess(manager, id, actorId);
       const query = manager
         .getRepository(ConversationMember)
         .createQueryBuilder('member')
@@ -358,7 +362,7 @@ export class ConversationsService {
 
   async addMember(actorId: string, id: string, userId: string) {
     return this.db.transaction(async (manager) => {
-      const { conversation, member } = await this.access(
+      const { conversation, member } = await this.requireAccess(
         manager,
         id,
         actorId,
@@ -397,7 +401,7 @@ export class ConversationsService {
 
   async removeMember(actorId: string, id: string, userId: string) {
     await this.db.transaction(async (manager) => {
-      const { conversation, member } = await this.access(
+      const { conversation, member } = await this.requireAccess(
         manager,
         id,
         actorId,
@@ -439,7 +443,7 @@ export class ConversationsService {
     role: 'admin' | 'member',
   ) {
     return this.db.transaction(async (manager) => {
-      const { conversation, member } = await this.access(
+      const { conversation, member } = await this.requireAccess(
         manager,
         id,
         actorId,
@@ -448,7 +452,12 @@ export class ConversationsService {
       this.requireGroup(conversation);
       if (member.role !== 'owner')
         fail(403, 'CONVERSATION_FORBIDDEN', 'Only the owner can change roles');
-      const { member: target } = await this.access(manager, id, userId, true);
+      const { member: target } = await this.requireAccess(
+        manager,
+        id,
+        userId,
+        true,
+      );
       if (target.role === 'owner')
         fail(
           409,
@@ -465,7 +474,7 @@ export class ConversationsService {
 
   async transfer(actorId: string, id: string, userId: string) {
     return this.db.transaction(async (manager) => {
-      const { conversation, member } = await this.access(
+      const { conversation, member } = await this.requireAccess(
         manager,
         id,
         actorId,
@@ -478,7 +487,12 @@ export class ConversationsService {
           'CONVERSATION_FORBIDDEN',
           'Only the owner can transfer ownership',
         );
-      const { member: target } = await this.access(manager, id, userId, true);
+      const { member: target } = await this.requireAccess(
+        manager,
+        id,
+        userId,
+        true,
+      );
       await this.activeUsers(manager, [actorId, userId]);
       if (actorId !== userId) {
         const members = manager.getRepository(ConversationMember);

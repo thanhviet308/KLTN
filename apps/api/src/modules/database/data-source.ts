@@ -7,7 +7,15 @@ import { typeormOptions } from './typeorm-options';
 
 const envFile = resolve(__dirname, '../../../.env');
 if (existsSync(envFile)) process.loadEnvFile(envFile);
-const options = typeormOptions(validateDatabaseUrl(process.env.DATABASE_URL));
+const migrationUrl = validateDatabaseUrl(
+  process.env.DATABASE_DIRECT_URL?.trim() || process.env.DATABASE_URL,
+);
+if (new URL(migrationUrl).hostname.includes('-pooler.')) {
+  throw new Error(
+    'Migrations require a direct connection: use a Neon hostname without -pooler in DATABASE_URL, or set DATABASE_DIRECT_URL',
+  );
+}
+const options = typeormOptions(migrationUrl);
 
 export default new DataSource({
   ...options,

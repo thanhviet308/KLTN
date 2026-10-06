@@ -79,6 +79,10 @@ export function refresh() {
 export async function me(): Promise<User> {
   return (await authenticated<{ user: User }>('/users/me')).user;
 }
+export async function accessToken() {
+  if (!token || Date.now() >= expiresAt - 30000) await refresh();
+  return token!;
+}
 
 export async function authenticated<T>(
   path: string,
@@ -137,6 +141,14 @@ export function clearSession() {
 export function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
     const messages: Record<string, string> = {
+      MESSAGE_SEND_FORBIDDEN:
+        'Bạn không còn quyền gửi tin nhắn trong cuộc trò chuyện này.',
+      MESSAGE_IDEMPOTENCY_CONFLICT:
+        'Nội dung gửi lại không khớp với tin nhắn ban đầu.',
+      MESSAGE_NOT_FOUND:
+        'Tin nhắn không còn tồn tại hoặc bạn không có quyền xem.',
+      MESSAGE_SEQUENCE_EXHAUSTED:
+        'Cuộc trò chuyện đã đạt giới hạn lưu tin nhắn.',
       FRIENDSHIP_REQUIRED:
         'Bạn cần kết bạn với người này trước khi tạo hội thoại hoặc mời vào nhóm.',
       CONVERSATION_NOT_FOUND:

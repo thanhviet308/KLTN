@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as api from './api';
+import { Chat } from './Chat';
 
 type Role = 'owner' | 'admin' | 'member';
 interface Peer {
@@ -495,13 +496,13 @@ export function Conversations({
           </div>
         )}
         {selected && !showInfo && (
-          <div className="chat-placeholder">
-            <span className="peer-avatar">
-              {Array.from(heading ?? 'H')[0]?.toUpperCase()}
-            </span>
-            <h2>{heading}</h2>
-            <p>Chưa hỗ trợ gửi tin nhắn trong phiên bản này.</p>
-          </div>
+          <Chat
+            key={selected.id}
+            conversationId={selected.id}
+            user={user}
+            peers={members.map((member) => member.user)}
+            onExpired={onExpired}
+          />
         )}
         {selected && showInfo && (
           <>
@@ -509,7 +510,6 @@ export function Conversations({
               {isGroup
                 ? `${members.length}/50 thành viên · ${roles[selected.membership.role]}`
                 : 'Trò chuyện riêng'}{' '}
-              · Tính năng gửi tin nhắn sẽ được bổ sung sau.
             </p>
             {manager && (
               <form

@@ -32,5 +32,6 @@ import { VerificationMailService } from './verification-mail.service';
     AuthRateLimitGuard,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
+  exports: [AuthService],
 })
 export class AuthModule {}

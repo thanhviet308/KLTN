@@ -783,6 +783,124 @@ a:focus-visible {
   padding: 0;
   overflow: hidden;
 }
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.connection-note {
+  font-size: 10px;
+  color: #7a8783;
+  padding: 8px 0;
+  margin: 0;
+}
+.message-timeline {
+  height: min(55dvh, 560px);
+  min-height: 300px;
+  overflow-y: auto;
+  padding: 20px 4px;
+  overscroll-behavior: contain;
+}
+.chat-message {
+  max-width: 80%;
+  width: fit-content;
+  margin: 0 0 18px;
+}
+.chat-message.mine {
+  margin-left: auto;
+}
+.chat-message > small {
+  display: block;
+  font-size: 10px;
+  color: #7a8783;
+  margin: 5px 3px;
+}
+.message-body {
+  padding: 12px 16px;
+  border-radius: 18px 18px 18px 4px;
+  background: #edf0e9;
+  color: #183633;
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mine .message-body {
+  background: #134e4a;
+  color: #fff;
+  border-radius: 18px 18px 4px 18px;
+}
+.message-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 9px;
+  color: #7a8783;
+  margin: 5px 3px;
+}
+.message-meta button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 9px;
+  color: #537565;
+}
+.mine .message-meta {
+  justify-content: flex-end;
+}
+.typing-note {
+  min-height: 18px;
+  margin: 8px 0;
+  font-size: 11px;
+  color: #7a8783;
+}
+.message-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.message-composer textarea {
+  font: inherit;
+  font-size: 13px;
+  background: white;
+  color: #183633;
+  resize: vertical;
+  min-height: 52px;
+  max-height: 180px;
+  border: 1px solid #dfe5de;
+  border-radius: 14px;
+  padding: 14px;
+  flex: 1;
+  min-width: 0;
+}
+.message-composer textarea:focus {
+  outline: 2px solid #8aaf7c;
+  outline-offset: -2px;
+}
+.message-composer button {
+  min-height: 52px;
+  flex-shrink: 0;
+}
+.receipt-panel {
+  border: 1px solid #dfe5de;
+  background: white;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 11px;
+}
+.receipt-panel > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.receipt-panel .retry {
+  margin: 0;
+}
+.receipt-panel ul {
+  padding-left: 20px;
+  line-height: 1.9;
+}
 .messenger-layout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
