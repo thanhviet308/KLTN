@@ -9,6 +9,7 @@ for tool in git docker flock curl; do
   command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 1; }
 done
 [[ -f deploy/vps/.env ]] || { echo 'Create deploy/vps/.env on the VPS first' >&2; exit 1; }
+[[ -f deploy/vps/postgres.env ]] || { echo 'Create deploy/vps/postgres.env on the VPS first' >&2; exit 1; }
 [[ "$(git branch --show-current)" == main ]] || { echo 'VPS checkout must be on main' >&2; exit 1; }
 
 # Serialize manual and automated deployment in this checkout.
@@ -37,8 +38,9 @@ elif docker image inspect pingpong-api:local >/dev/null 2>&1; then
   docker image tag pingpong-api:local pingpong-api:previous
 fi
 "${compose[@]}" build api
-"${compose[@]}" --profile tools run --rm -T migrate </dev/null
-"${compose[@]}" up -d --wait --wait-timeout 120 --force-recreate api
+"${compose[@]}" up -d --wait --wait-timeout 120 db
+"${compose[@]}" run --rm -T migrate </dev/null
+"${compose[@]}" up -d --no-deps --wait --wait-timeout 120 --force-recreate api
 curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors \
   --connect-timeout 5 --max-time 15 http://127.0.0.1:3000/api/v1/health/ready
 printf '\nBackend deployment completed: %s\n' "$expected_commit"

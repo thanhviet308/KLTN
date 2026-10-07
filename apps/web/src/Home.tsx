@@ -54,8 +54,10 @@ export function Home({
   const [confirm, setConfirm] = useState<Row>();
   const generation = useRef(0);
   const tabCache = useRef(
-    new Map<Tab, { rows: Row[]; cursor: string | null }>(),
+    new Map<Tab, { rows: Row[]; cursor: string | null; loadedAt: number }>(),
   );
+  const pendingLists = useRef(new Map<string, Promise<Page<Row | Peer>>>());
+  const cacheRevision = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -74,6 +76,7 @@ export function Home({
   }
   async function load(next?: string, search = submittedQuery) {
     const current = ++generation.current;
+    const revision = cacheRevision.current;
     setLoading(true);
     setError('');
     try {
@@ -88,10 +91,21 @@ export function Home({
         path = '/users';
         params.set('query', search);
       }
-      const page = await api.authenticated<Page<Row | Peer>>(
-        `${path}?${params}`,
-      );
-      if (current !== generation.current) return;
+      const requestPath = `${path}?${params}`;
+      let request = pendingLists.current.get(requestPath);
+      if (!request) {
+        request = api.authenticated<Page<Row | Peer>>(requestPath);
+        pendingLists.current.set(requestPath, request);
+        const pending = request;
+        void request
+          .finally(() => {
+            if (pendingLists.current.get(requestPath) === pending)
+              pendingLists.current.delete(requestPath);
+          })
+          .catch(() => {});
+      }
+      const page = await request;
+      if (!mounted.current || revision !== cacheRevision.current) return;
       const items: Row[] = page.items.map((item) =>
         'user' in item ? item : { id: item.id, user: item },
       );
@@ -104,7 +118,12 @@ export function Home({
             ),
           ]
         : items;
-      tabCache.current.set(tab, { rows: updated, cursor: page.nextCursor });
+      tabCache.current.set(tab, {
+        rows: updated,
+        cursor: page.nextCursor,
+        loadedAt: Date.now(),
+      });
+      if (current !== generation.current) return;
       setRows(updated);
       setCursor(page.nextCursor);
     } catch (e) {
@@ -122,7 +141,12 @@ export function Home({
     setNotice('');
     setConfirm(undefined);
     setSubmittedQuery('');
-    if (tab !== 'search' && tab !== 'profile' && tab !== 'conversations')
+    if (
+      tab !== 'search' &&
+      tab !== 'profile' &&
+      tab !== 'conversations' &&
+      (!cached || Date.now() - cached.loadedAt >= 30000)
+    )
       void load();
     else setLoading(false);
   }, [tab]);
@@ -139,6 +163,8 @@ export function Home({
     try {
       await work();
       if (!mounted.current) return;
+      cacheRevision.current++;
+      pendingLists.current.clear();
       tabCache.current.clear();
       setNotice(message);
       setConfirm(undefined);
@@ -337,7 +363,7 @@ export function Home({
                   </button>
                 </div>
               )}
-              {loading && (
+              {loading && rows.length === 0 && (
                 <p role="status" className="list-status">
                   Đang tải danh sách…
                 </p>

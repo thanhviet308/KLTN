@@ -1,4 +1,5 @@
 import { BACKEND_ORIGIN } from './config';
+import { clearHistoryCache } from './chat-history-cache';
 
 // Local development uses Vite's proxy so HttpOnly session cookies stay same-site.
 export const API_ORIGIN = import.meta.env.DEV ? '' : BACKEND_ORIGIN;
@@ -150,6 +151,7 @@ export async function logout() {
   clearSession();
 }
 export function clearSession() {
+  clearHistoryCache();
   token = undefined;
   expiresAt = 0;
 }
@@ -194,6 +196,8 @@ export function errorMessage(error: unknown) {
         'Bạn không thể thực hiện thao tác này với lời mời.',
     };
     if (messages[error.code]) return messages[error.code];
+    if (error.code === 'AUTH_BUSY')
+      return 'Máy chủ đang bận xử lý đăng nhập. Vui lòng thử lại sau vài giây.';
   }
   if (!(error instanceof ApiError)) return 'Có lỗi xảy ra. Vui lòng thử lại.';
   if (error.code === 'MAIL_NOT_CONFIGURED')

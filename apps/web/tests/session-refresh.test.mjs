@@ -57,6 +57,10 @@ async function client(key) {
     await readFile(new URL('../src/api.ts', import.meta.url), 'utf8')
   )
     .replace(
+      "import { clearHistoryCache } from './chat-history-cache';",
+      'const clearHistoryCache = () => {};',
+    )
+    .replace(
       "import { BACKEND_ORIGIN } from './config';",
       "const BACKEND_ORIGIN = '';",
     )

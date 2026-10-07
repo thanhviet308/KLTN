@@ -34,8 +34,12 @@ npm.cmd run dev:web
 ```
 
 Mở **http://localhost:5173**. Backend cần `WEB_ORIGIN=http://localhost:5173`.
-Vite chuyển tiếp `/api` và WebSocket `/socket.io` đến `https://pingpongapi.id.vn`;
+Vite chuyển tiếp `/api` và WebSocket `/socket.io` đến `http://127.0.0.1:3000`;
 trình duyệt gửi Origin thật để backend xác thực client web. Restart Vite sau khi cập nhật cấu hình proxy.
+Chạy backend bằng `npm run dev:api` ở một terminal riêng. Nếu backend dùng cổng khác,
+đặt `$env:DEV_API_TARGET='http://127.0.0.1:4000'` trước khi chạy `npm run dev:web`.
+Backend cần database dành cho test và các migration đã được áp dụng. Cấu hình production
+trong `src/config.ts` không thay đổi khi chạy local.
 
 Giao diện gồm đăng ký nhiều bước (email → xác minh mã → tên/mật khẩu/xác nhận mật khẩu), đăng nhập và thông tin tài khoản từ `/users/me`. Cần cấu hình SMTP trong `apps/api/.env` để nhận mã email thật; xem [doc 10](../../docs/10-dang-ky-xac-minh-email.md).
 Đăng ký thành công chuyển về đăng nhập và giữ email. Không lưu mật khẩu hay token trong localStorage.

@@ -97,7 +97,7 @@ function App() {
     setBooting(true);
     setError('');
     try {
-      setUser(await api.me());
+      setUser((await api.refresh()).user);
     } catch (e) {
       if (!(e instanceof api.ApiError) || e.status !== 401)
         setError(api.errorMessage(e));
@@ -228,8 +228,8 @@ function App() {
         setMode('login');
         setNotice('Tạo tài khoản thành công. Hãy đăng nhập để tiếp tục.');
       } else {
-        await api.login(email.trim(), password);
-        setUser(await api.me());
+        const session = await api.login(email.trim(), password);
+        setUser(session.user);
       }
       setPassword('');
       setVisible(false);

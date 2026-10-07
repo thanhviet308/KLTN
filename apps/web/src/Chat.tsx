@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import * as api from './api';
 import {
+  cachedHistory,
+  loadRecentHistory,
+  rememberHistory,
+} from './chat-history-cache';
+import {
   mergeMessages,
   mergeReceipt,
   type Message,
@@ -37,8 +42,9 @@ export function Chat({
   active?: boolean;
   onReadSequence?: (sequence: string) => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const draftKey = `${user.id}:${conversationId}`;
+  const [cached] = useState(() => cachedHistory(draftKey));
+  const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
   const [pending, setPending] = useState<Draft[]>(() =>
     (drafts.get(draftKey)?.pending ?? []).map((item) => ({
       ...item,
@@ -50,23 +56,37 @@ export function Chat({
   useEffect(() => {
     drafts.set(draftKey, { body, pending });
   }, [body, pending, draftKey]);
-  const [older, setOlder] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [older, setOlder] = useState<string | null>(cached?.older ?? null);
+  const [loading, setLoading] = useState(!cached);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
+  const [connectionDelayed, setConnectionDelayed] = useState(false);
+  const [connectionCode, setConnectionCode] = useState('');
+  useEffect(() => {
+    setConnectionDelayed(false);
+    if (connected) return;
+    const timer = setTimeout(() => setConnectionDelayed(true), 8000);
+    return () => clearTimeout(timer);
+  }, [connected]);
   const [unavailable, setUnavailable] = useState(false);
   const [typing, setTyping] = useState<Record<string, number>>({});
   const [receipts, setReceipts] = useState<
     Record<string, Record<string, Receipt>>
-  >({});
+  >(cached?.receipts ?? {});
   const [receiptMessage, setReceiptMessage] = useState<string>();
   const [receiptLoading, setReceiptLoading] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   const socket = useRef<Socket | undefined>(undefined);
-  const latest = useRef('0');
-  const messageCache = useRef<Message[]>([]);
-  const started = useRef(false);
+  const latest = useRef(cached?.messages.at(-1)?.sequence ?? '0');
+  const messageCache = useRef<Message[]>(cached?.messages ?? []);
+  // Revalidate recent history on reopen to pick up edits/deletions while closed.
+  const freshCache =
+    !!cached?.verifiedAt && Date.now() - cached.verifiedAt < 30000;
+  const started = useRef(freshCache);
+  useEffect(() => {
+    if (!loading) rememberHistory(draftKey, { messages, older, receipts });
+  }, [messages, older, receipts, loading, draftKey]);
   const alive = useRef(true);
   const nearBottom = useRef(true);
   const acked = useRef(new Set<string>());
@@ -163,10 +183,10 @@ export function Chat({
   useEffect(() => {
     alive.current = true;
     let syncing = false;
-    let syncAgain = false;
     let stopped = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let currentToken = '';
+    let lastSyncAt = 0;
     const client = io(`${api.API_ORIGIN}/chat`, {
       transports: ['websocket'],
       autoConnect: false,
@@ -174,33 +194,40 @@ export function Chat({
     });
     socket.current = client;
     async function sync() {
-      if (syncing) {
-        syncAgain = true;
+      if (syncing || Date.now() - lastSyncAt < 2000) {
         return;
       }
       syncing = true;
+      lastSyncAt = Date.now();
       try {
+        const initial = !started.current;
         if (!started.current) {
-          const page = await api.authenticated<History>(
-            `/conversations/${conversationId}/messages?direction=backward&limit=50`,
+          const page = await loadRecentHistory(draftKey, () =>
+            api.authenticated<History>(
+              `/conversations/${conversationId}/messages?direction=backward&limit=50`,
+            ),
           );
           if (stopped) return;
+          messageCache.current = [];
           accept(page.items, true);
           setOlder(page.nextCursor);
           started.current = true;
         }
-        let cursor: string | null = latest.current;
-        do {
-          const page: History = await api.authenticated(
-            `/conversations/${conversationId}/messages?direction=forward&limit=50&cursor=${cursor}`,
-          );
-          if (stopped) return;
-          accept(page.items, true);
-          cursor = page.nextCursor;
-        } while (cursor);
+        if (!stopped) setLoading(false);
+        if (!initial) {
+          let cursor: string | null = latest.current;
+          do {
+            const page: History = await api.authenticated(
+              `/conversations/${conversationId}/messages?direction=forward&limit=50&cursor=${cursor}`,
+            );
+            if (stopped) return;
+            accept(page.items, true);
+            cursor = page.nextCursor;
+          } while (cursor);
+        }
         for (const message of messageCache.current
           .filter((item) => item.senderId === user.id)
-          .slice(-10)) {
+          .slice(-1)) {
           const page = await api.authenticated<{ items: Receipt[] }>(
             `/conversations/${conversationId}/messages/${message.id}/receipts?limit=50`,
           );
@@ -218,10 +245,6 @@ export function Chat({
         }
       } finally {
         syncing = false;
-        if (syncAgain && !stopped) {
-          syncAgain = false;
-          void sync();
-        }
       }
     }
     async function connect(force = false) {
@@ -267,6 +290,7 @@ export function Chat({
               return;
             }
             setConnected(true);
+            setConnectionCode('');
             void sync();
           },
         );
@@ -312,6 +336,10 @@ export function Chat({
     client.on('connect_error', (failure) => {
       if (!stopped) {
         setConnected(false);
+        setConnectionCode(
+          (failure as Error & { data?: { code?: string } }).data?.code ??
+            failure.message,
+        );
         schedule(
           /AUTH|TOKEN|SESSION|CREDENTIAL/.test(
             (failure as Error & { data?: { code?: string } }).data?.code ??
@@ -330,7 +358,7 @@ export function Chat({
       );
     }, 1000);
     const interval = setInterval(() => {
-      void sync();
+      if (!client.connected) void sync();
       void api
         .accessToken()
         .then((token) => {
@@ -346,7 +374,8 @@ export function Chat({
         .catch(fail);
     }, 15000);
     const onFocus = () => {
-      if (document.visibilityState === 'visible') void sync();
+      if (document.visibilityState === 'visible' && !client.connected)
+        void sync();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
@@ -517,9 +546,11 @@ export function Chat({
     peers.find((peer) => peer.id === id)?.displayName ?? 'Thành viên';
   return (
     <div className="chat-panel">
-      {!connected && !unavailable && (
+      {!connected && connectionDelayed && !unavailable && (
         <p className="connection-note" role="status">
-          Kết nối trực tiếp đang gián đoạn. Đang thử kết nối lại.
+          {connectionCode === 'ORIGIN_FORBIDDEN'
+            ? 'Kết nối realtime bị từ chối. Kiểm tra WEB_ORIGIN của backend khớp địa chỉ đang mở.'
+            : 'Chưa kết nối realtime. Bạn vẫn có thể gửi tin; tin mới đang được cập nhật định kỳ.'}
         </p>
       )}
       {error && (

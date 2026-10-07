@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import * as api from './api';
 import { Chat } from './Chat';
+import { cachedHistory, loadRecentHistory } from './chat-history-cache';
+import type { History } from './chat-model';
 
 type Role = 'owner' | 'admin' | 'member';
 interface Peer {
@@ -88,6 +90,15 @@ export function Conversations({
   const listVersion = useRef(0);
   const listRequests = useRef(0);
   const handledRecipient = useRef<number | undefined>(undefined);
+  function preload(id: string) {
+    const key = `${user.id}:${id}`;
+    if (cachedHistory(key)) return;
+    void loadRecentHistory(key, () =>
+      api.authenticated<History>(
+        `/conversations/${id}/messages?direction=backward&limit=50`,
+      ),
+    ).catch(() => {});
+  }
   function fail(e: unknown) {
     if (e instanceof api.ApiError && e.status === 401) onExpired();
     else setError(api.errorMessage(e));
@@ -139,6 +150,8 @@ export function Conversations({
       );
       if (!background) setCursor(page.nextCursor);
       setListLoading(false);
+      if (!background && !next)
+        page.items.slice(0, 2).forEach((item) => preload(item.id));
     } finally {
       listRequests.current--;
     }
@@ -343,6 +356,8 @@ export function Conversations({
                   className={`${selected?.id === item.id ? 'selected' : ''}${item.unreadCount ? ' unread' : ''}`}
                   disabled={busy}
                   aria-current={selected?.id === item.id ? 'true' : undefined}
+                  onMouseEnter={() => preload(item.id)}
+                  onFocus={() => preload(item.id)}
                   onClick={() => {
                     setSelected(item);
                     setMembers(
@@ -360,7 +375,8 @@ export function Conversations({
                     setCreating(false);
                     setShowInfo(false);
                     setConfirmation(undefined);
-                    void run(() => detail(item.id));
+                    // Direct rows already contain the peer and membership.
+                    if (item.type === 'group') void detail(item.id).catch(fail);
                   }}
                 >
                   <span className="peer-avatar">

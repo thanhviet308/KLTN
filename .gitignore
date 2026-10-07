@@ -18,3 +18,5 @@ local.properties
 !debug.keystore
 credentials*.json
 service-account*.json
+deploy/vps/postgres.env
+deploy/vps/backups/

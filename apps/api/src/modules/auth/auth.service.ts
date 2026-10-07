@@ -55,11 +55,14 @@ export class AuthService {
   }
 
   async login(input: LoginDto, requestId: string) {
+    const startedAt = performance.now();
     const candidate = await this.users.findCredentialsByEmail(input.email);
+    const credentialsLoadedAt = performance.now();
     const valid = await this.passwords.verify(
       input.password,
       candidate?.passwordHash,
     );
+    const passwordVerifiedAt = performance.now();
     if (!valid || !candidate || candidate.status !== 'active') {
       this.logger.warn({ code: 'LOGIN_REJECTED', requestId });
       throw authError(
@@ -85,15 +88,20 @@ export class AuthService {
           'Email or password is incorrect',
         );
       }
-      const session = await manager.getRepository(Session).save({
+      const session = manager.getRepository(Session).create({
+        id: randomUUID(),
         userId: user.id,
         deviceName: input.deviceName ?? null,
         expiresAt: new Date(Date.now() + SESSION_MS),
       });
-      return this.issue(manager, session, user);
+      return this.issue(manager, session, user, true);
     });
     this.logger.log({
       code: 'LOGIN_SUCCEEDED',
+      durationMs: Math.round(performance.now() - startedAt),
+      credentialsMs: Math.round(credentialsLoadedAt - startedAt),
+      passwordVerifyMs: Math.round(passwordVerifiedAt - credentialsLoadedAt),
+      sessionIssueMs: Math.round(performance.now() - passwordVerifiedAt),
       userId: result.user.id,
       requestId,
     });
@@ -104,13 +112,40 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private async issue(manager: EntityManager, session: Session, user: User) {
+  private async issue(
+    manager: EntityManager,
+    session: Session,
+    user: User,
+    newSession = false,
+  ) {
     const refreshToken = randomBytes(32).toString('base64url');
-    await manager.getRepository(SessionRefreshToken).save({
-      sessionId: session.id,
-      tokenHash: this.hashToken(refreshToken),
-      expiresAt: session.expiresAt,
-    });
+    if (newSession) {
+      // Both records are created atomically in one round trip, under the user
+      // lock already acquired by login's transaction.
+      await manager.query(
+        `
+        WITH created_session AS (
+          INSERT INTO sessions (id, user_id, device_name, expires_at)
+          VALUES ($1, $2, $3, $4) RETURNING id
+        )
+        INSERT INTO session_refresh_tokens (session_id, token_hash, expires_at)
+        SELECT id, $5, $4 FROM created_session
+      `,
+        [
+          session.id,
+          user.id,
+          session.deviceName,
+          session.expiresAt,
+          this.hashToken(refreshToken),
+        ],
+      );
+    } else {
+      await manager.getRepository(SessionRefreshToken).insert({
+        sessionId: session.id,
+        tokenHash: this.hashToken(refreshToken),
+        expiresAt: session.expiresAt,
+      });
+    }
     const expiresIn = Math.min(
       ACCESS_SECONDS,
       Math.floor((session.expiresAt.getTime() - Date.now()) / 1000),

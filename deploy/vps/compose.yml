@@ -21,12 +21,45 @@ x-runtime: &runtime
       max-file: '3'
 
 services:
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    env_file:
+      - path: postgres.env
+        format: raw
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-app.sh:ro
+    shm_size: 128m
+    mem_limit: 1g
+    stop_grace_period: 60s
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+        ]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
   api:
     <<: *runtime
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - '127.0.0.1:3000:3000'
     stop_grace_period: 30s
@@ -35,7 +68,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/api/v1/health/live', {signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/api/v1/health/ready', {signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 30s
       timeout: 6s
       start_period: 45s
@@ -43,6 +76,14 @@ services:
 
   migrate:
     <<: *runtime
-    profiles: [tools]
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
     restart: 'no'
     command: [node, apps/api/dist/modules/database/migrate.js]
+
+volumes:
+  postgres_data:

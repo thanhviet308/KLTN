@@ -1,13 +1,14 @@
 import { defineConfig } from 'vite';
-import { BACKEND_ORIGIN } from './src/config';
+const developmentApi = process.env.DEV_API_TARGET ?? 'http://127.0.0.1:3000';
 
 export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': { target: BACKEND_ORIGIN, changeOrigin: true },
-      '/socket.io': { target: BACKEND_ORIGIN, changeOrigin: true, ws: true },
+      '/api': { target: developmentApi, changeOrigin: true },
+      // Preserve the browser Origin for the gateway's explicit origin check.
+      '/socket.io': { target: developmentApi, changeOrigin: false, ws: true },
     },
   },
 });
