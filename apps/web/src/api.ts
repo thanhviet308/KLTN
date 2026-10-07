@@ -1,3 +1,8 @@
+import { BACKEND_ORIGIN } from './config';
+
+// Local development uses Vite's proxy so HttpOnly session cookies stay same-site.
+export const API_ORIGIN = import.meta.env.DEV ? '' : BACKEND_ORIGIN;
+
 export interface User {
   id: string;
   email: string;
@@ -34,7 +39,7 @@ async function request<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`/api/v1${path}`, {
+    response = await fetch(`${API_ORIGIN}/api/v1${path}`, {
       method: method ?? (body === undefined ? 'GET' : 'POST'),
       credentials: 'include',
       headers: {

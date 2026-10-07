@@ -30,13 +30,11 @@ React + TypeScript + Vite. Chạy từ thư mục gốc:
 
 ```powershell
 npm.cmd install
-npm.cmd run dev:api
-# Trong terminal thứ hai:
 npm.cmd run dev:web
 ```
 
 Mở **http://localhost:5173**. Backend cần `WEB_ORIGIN=http://localhost:5173`.
-Vite chuyển tiếp `/api` và WebSocket `/socket.io` đến `http://127.0.0.1:3000`;
+Vite chuyển tiếp `/api` và WebSocket `/socket.io` đến `https://pingpongapi.id.vn`;
 trình duyệt gửi Origin thật để backend xác thực client web. Restart Vite sau khi cập nhật cấu hình proxy.
 
 Giao diện gồm đăng ký nhiều bước (email → xác minh mã → tên/mật khẩu/xác nhận mật khẩu), đăng nhập và thông tin tài khoản từ `/users/me`. Cần cấu hình SMTP trong `apps/api/.env` để nhận mã email thật; xem [doc 10](../../docs/10-dang-ky-xac-minh-email.md).
@@ -47,8 +45,9 @@ gia hạn trước khi access token hết hạn và thử lại một lần khi 
 Lỗi kết nối giữ nguyên biểu mẫu hoặc tài khoản để người dùng thử lại; đăng xuất chỉ hoàn tất sau phản hồi backend.
 
 Build: `npm.cmd run build --workspace=@chat/web`.
-Khi triển khai, phục vụ `dist` và reverse proxy `/api` đến backend trên cùng origin,
-đặt `WEB_ORIGIN` đúng địa chỉ HTTPS của web và `NODE_ENV=production` trên API.
+Domain BE được đặt chung tại `src/config.ts`: `https://pingpongapi.id.vn`.
+Bản production gọi trực tiếp domain này cho REST và Socket.IO; đặt `WEB_ORIGIN` đúng địa chỉ HTTPS của web và `NODE_ENV=production` trên API.
+Refresh cookie hiện dùng SameSite=Strict, nên FE production phải cùng site với API (ví dụ `app.pingpongapi.id.vn`). Nếu FE ở site khác, cần proxy cùng origin cho REST/socket hoặc thiết kế lại cookie/CSRF trước khi sử dụng.
 Reverse proxy `/socket.io` cần hỗ trợ WebSocket upgrade. Backend realtime hiện chạy một instance theo doc 14.
 
 Kiểm tra thực tế với API/DB đang chạy: đăng ký email mới, email trùng, mật khẩu dưới 6 ký tự,

@@ -1,12 +1,13 @@
 import { defineConfig } from 'vite';
+import { BACKEND_ORIGIN } from './src/config';
 
 export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': { target: 'http://127.0.0.1:3000' },
-      '/socket.io': { target: 'http://127.0.0.1:3000', ws: true },
+      '/api': { target: BACKEND_ORIGIN, changeOrigin: true },
+      '/socket.io': { target: BACKEND_ORIGIN, changeOrigin: true, ws: true },
     },
   },
 });

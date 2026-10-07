@@ -154,7 +154,7 @@ export function Chat({
     let stopped = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let currentToken = '';
-    const client = io('/chat', {
+    const client = io(`${api.API_ORIGIN}/chat`, {
       transports: ['websocket'],
       autoConnect: false,
       reconnection: false,
