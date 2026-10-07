@@ -14,6 +14,7 @@ async function bootstrap(): Promise<void> {
     HOST: config.get('HOST', { infer: true }),
     PORT: config.get('PORT', { infer: true }),
     WEB_ORIGIN: config.get('WEB_ORIGIN', { infer: true }),
+    TRUST_PROXY: config.get('TRUST_PROXY', { infer: true }),
   };
   configureApp(app, env);
   await app.listen(env.PORT, env.HOST);

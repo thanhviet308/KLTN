@@ -54,8 +54,7 @@ export class AuthRateLimitGuard implements CanActivate {
   canActivate(context: ExecutionContext) {
     const http = context.switchToHttp();
     const request = http.getRequest<Request>();
-    // Express does not trust forwarded IP headers. Configure proxy trust only
-    // for a verified deployment topology, never for arbitrary clients.
+    // Proxy trust is off by default; enable only for one verified reverse proxy.
     this.limiter.take(
       `ip:${request.ip ?? request.socket.remoteAddress}`,
       30,

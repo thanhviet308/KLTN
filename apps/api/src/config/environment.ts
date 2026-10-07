@@ -3,6 +3,7 @@ export interface Environment {
   HOST: string;
   PORT: number;
   WEB_ORIGIN: string;
+  TRUST_PROXY?: boolean;
   DATABASE_URL: string;
   JWT_ACCESS_SECRET: string;
   SMTP_HOST?: string;
@@ -14,7 +15,7 @@ export interface Environment {
 
 export type HttpEnvironment = Pick<
   Environment,
-  'NODE_ENV' | 'HOST' | 'PORT' | 'WEB_ORIGIN'
+  'NODE_ENV' | 'HOST' | 'PORT' | 'WEB_ORIGIN' | 'TRUST_PROXY'
 >;
 
 export function validateEnvironment(
@@ -64,6 +65,12 @@ export function validateEnvironment(
   }
 
   const databaseUrl = validateDatabaseUrl(input.DATABASE_URL);
+  const trustProxy = input.TRUST_PROXY ?? 'false';
+  if (
+    !['true', 'false', true, false].includes(trustProxy as string | boolean)
+  ) {
+    throw new Error('TRUST_PROXY must be true or false');
+  }
 
   const jwtSecret = input.JWT_ACCESS_SECRET;
   if (typeof jwtSecret !== 'string' || !/^[a-f0-9]{64}$/.test(jwtSecret)) {
@@ -77,6 +84,7 @@ export function validateEnvironment(
     HOST: host,
     PORT: port,
     WEB_ORIGIN: origin,
+    TRUST_PROXY: trustProxy === 'true' || trustProxy === true,
     DATABASE_URL: databaseUrl,
     JWT_ACCESS_SECRET: jwtSecret,
     SMTP_HOST:

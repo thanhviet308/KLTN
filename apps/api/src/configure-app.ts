@@ -2,7 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { json, urlencoded } from 'express';
-import type { NextFunction, Request, Response } from 'express';
+import type { Express, NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import type { HttpEnvironment } from './config/environment';
 import { HttpExceptionFilter } from './common/http-exception.filter';
@@ -11,6 +11,8 @@ export function configureApp(
   app: INestApplication,
   env: HttpEnvironment,
 ): void {
+  if (env.TRUST_PROXY)
+    (app.getHttpAdapter().getInstance() as Express).set('trust proxy', 1);
   app.setGlobalPrefix('api/v1');
   app.use((_request: Request, response: Response, next: NextFunction) => {
     response.setHeader('x-request-id', randomUUID());
