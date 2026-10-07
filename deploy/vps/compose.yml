@@ -3,7 +3,7 @@ name: pingpong-backend
 x-runtime: &runtime
   image: pingpong-api:local
   env_file:
-    - path: .env.production
+    - path: .env
       format: raw
   init: true
   read_only: true
