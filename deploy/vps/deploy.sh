@@ -37,7 +37,7 @@ elif docker image inspect pingpong-api:local >/dev/null 2>&1; then
   docker image tag pingpong-api:local pingpong-api:previous
 fi
 "${compose[@]}" build api
-"${compose[@]}" --profile tools run --rm migrate
+"${compose[@]}" --profile tools run --rm -T migrate </dev/null
 "${compose[@]}" up -d --wait --wait-timeout 120 --force-recreate api
 curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors \
   --connect-timeout 5 --max-time 15 http://127.0.0.1:3000/api/v1/health/ready

@@ -74,7 +74,8 @@ jobs:
           trap 'rm -f "$ssh_dir/key" "$ssh_dir/known_hosts"; rmdir "$ssh_dir"' EXIT
           printf '%s\n' "$VPS_SSH_KEY" > "$ssh_dir/key"
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          printf -v remote_command 'cd -- %q && bash -s -- %q' "$VPS_DEPLOY_PATH" "$GITHUB_SHA"
+          # Read the entire script before running commands that may consume stdin.
+          printf -v remote_command 'cd -- %q && deploy_script=$(cat) && bash -c "$deploy_script" -- %q' "$VPS_DEPLOY_PATH" "$GITHUB_SHA"
           ssh -i "$ssh_dir/key" -p "$VPS_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
