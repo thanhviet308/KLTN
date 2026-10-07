@@ -1,4 +1,4 @@
-# Giao diện tài khoản Halo
+# Giao diện tài khoản PingPong
 
 Mục Đoạn chat dùng bố cục hai cột: danh sách trò chuyện bên trái và nội dung bên phải.
 Nhấn Nhắn mới rồi chọn một người bạn để mở trò chuyện riêng ngay.
@@ -19,7 +19,7 @@ Sequence được so sánh bằng BigInt, nội dung tin được render dạng 
 Chỉ ACK đọc khi tin nằm trong vùng đang xem và cửa sổ đang được lấy nét.
 Trạng thái nhận/đọc được lấy lại cho 10 tin gửi gần nhất và khi mở chi tiết trạng thái.
 
-Sau đăng nhập, Halo có các mục Bạn bè, Lời mời nhận, Lời mời đã gửi,
+Sau đăng nhập, PingPong có các mục Bạn bè, Lời mời nhận, Lời mời đã gửi,
 Tìm bạn (theo tên hiển thị) và Tài khoản (sửa tên hiển thị).
 Danh sách hỗ trợ Xem thêm theo cursor của API. Có gửi, chấp nhận, từ chối,
 thu hồi lời mời và xác nhận trước khi hủy kết bạn.

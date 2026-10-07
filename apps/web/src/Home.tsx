@@ -143,7 +143,7 @@ export function Home({
     <div className="home-shell">
       <header className="home-header">
         <a href="/" className="brand">
-          <span className="brand-icon">H</span> Halo
+          <span className="brand-icon">P</span> PingPong
           <span className="brand-dot">.</span>
         </a>
         <span className="home-greeting">Chào {user.displayName}</span>
@@ -156,7 +156,7 @@ export function Home({
         </button>
       </header>
       <div className="home-layout">
-        <nav className="home-nav" aria-label="Điều hướng Halo">
+        <nav className="home-nav" aria-label="Điều hướng PingPong">
           {tabs.map(([key, label]) => (
             <button
               key={key}
@@ -203,7 +203,7 @@ export function Home({
           ) : tab === 'profile' ? (
             <section className="profile-panel">
               <p className="intro">
-                Tên hiển thị giúp bạn bè nhận ra bạn trên Halo.
+                Tên hiển thị giúp bạn bè nhận ra bạn trên PingPong.
               </p>
               <form
                 noValidate
@@ -342,7 +342,7 @@ export function Home({
                   </h2>
                   <p>
                     {tab === 'friends'
-                      ? 'Tìm bạn bè và gửi lời mời để kết nối trên Halo.'
+                      ? 'Tìm bạn bè và gửi lời mời để kết nối trên PingPong.'
                       : tab === 'search'
                         ? 'Thử tìm bằng tên hiển thị đầy đủ.'
                         : 'Các lời mời đang chờ sẽ xuất hiện tại đây.'}

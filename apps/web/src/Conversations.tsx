@@ -340,7 +340,7 @@ export function Conversations({
                 : 'Tạo nhóm'
               : selected
                 ? heading
-                : 'Halo'}
+                : 'PingPong'}
           </h2>
           <div className="peer-actions">
             {selected && (

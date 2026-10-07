@@ -268,8 +268,8 @@ function App() {
   return (
     <div className="page">
       <aside className="story">
-        <a className="brand" href="/" aria-label="Halo — trang chủ">
-          <span className="brand-icon">H</span> Halo
+        <a className="brand" href="/" aria-label="PingPong — trang chủ">
+          <span className="brand-icon">P</span> PingPong
           <span className="brand-dot">.</span>
         </a>
         <div className="story-content">
