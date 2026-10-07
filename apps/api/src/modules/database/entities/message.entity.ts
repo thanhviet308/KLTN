@@ -22,6 +22,14 @@ import { ConversationMember } from './conversation-member.entity';
 )
 @Check('messages_edit_time', 'edited_at IS NULL OR edited_at >= created_at')
 @Check('messages_delete_time', 'deleted_at IS NULL OR deleted_at >= created_at')
+@Check(
+  'messages_edited_body_valid',
+  "edited_body IS NULL OR (type = 'text' AND length(btrim(edited_body)) > 0 AND char_length(edited_body) <= 10000)",
+)
+@Check(
+  'messages_edited_body_state',
+  '(edited_at IS NULL) = (edited_body IS NULL)',
+)
 @Unique('messages_client_id', ['senderId', 'clientMessageId'])
 @Unique('messages_conversation_sequence', ['conversationId', 'sequence'])
 @Unique('messages_conversation_id', ['conversationId', 'id'])
@@ -48,6 +56,8 @@ export class Message {
   @Column({ type: 'varchar', length: 16, default: 'text' }) type!:
     'text' | 'image' | 'file';
   @Column({ type: 'text', nullable: true }) body!: string | null;
+  @Column({ name: 'edited_body', type: 'text', nullable: true }) editedBody!:
+    string | null;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
   @Column({ name: 'edited_at', type: 'timestamptz', nullable: true })

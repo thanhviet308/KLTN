@@ -8,7 +8,11 @@ import { Message } from '../database/entities/message.entity';
 import { MessageReceipt } from '../database/entities/message-receipt.entity';
 import { Friendship } from '../database/entities/friendship.entity';
 import { User } from '../database/entities/user.entity';
-import type { MessageHistoryDto, SendMessageDto } from './messages.dto';
+import type {
+  EditMessageDto,
+  MessageHistoryDto,
+  SendMessageDto,
+} from './messages.dto';
 import type { PageDto } from '../../common/page.dto';
 import { pageResult } from '../../common/page.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
@@ -37,14 +41,20 @@ export class MessagesService {
       clientMessageId: message.clientMessageId,
       sequence: message.sequence,
       type: message.type,
-      body: message.body,
+      body: message.deletedAt ? null : (message.editedBody ?? message.body),
       createdAt: message.createdAt,
       editedAt: message.editedAt,
+      deletedAt: message.deletedAt,
     };
   }
 
-  private visible(query: SelectQueryBuilder<Message>, actorId: string) {
-    return query.andWhere('message.deletedAt IS NULL').andWhere(
+  private visible(
+    query: SelectQueryBuilder<Message>,
+    actorId: string,
+    includeDeleted = false,
+  ) {
+    if (!includeDeleted) query.andWhere('message.deletedAt IS NULL');
+    return query.andWhere(
       `EXISTS (
       SELECT 1 FROM conversation_member_periods period
       WHERE period.conversation_id = message.conversation_id AND period.user_id = :actorId
@@ -60,6 +70,7 @@ export class MessagesService {
     actorId: string,
     conversationId: string,
     id: string,
+    includeDeleted = false,
   ) {
     const row = await this.visible(
       manager
@@ -70,6 +81,7 @@ export class MessagesService {
           { conversationId, id },
         ),
       actorId,
+      includeDeleted,
     ).getOne();
     if (!row) fail(404, 'MESSAGE_NOT_FOUND', 'Message not found');
     return row;
@@ -110,6 +122,7 @@ export class MessagesService {
           actorId,
           conversationId,
           existing.id,
+          true,
         );
         return { message: this.view(visible), created: false };
       }
@@ -186,6 +199,7 @@ export class MessagesService {
     messageId: string | undefined,
     action: () => void | Promise<void>,
     typingActorId?: string,
+    includeDeleted = false,
   ) {
     return this.db.transaction(async (manager) => {
       await this.conversations.requireAccess(manager, conversationId, actorId);
@@ -196,9 +210,139 @@ export class MessagesService {
           typingActorId,
         );
       if (messageId)
-        await this.findVisible(manager, actorId, conversationId, messageId);
+        await this.findVisible(
+          manager,
+          actorId,
+          conversationId,
+          messageId,
+          includeDeleted,
+        );
       await action();
     });
+  }
+
+  async get(actorId: string, conversationId: string, messageId: string) {
+    return this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(manager, conversationId, actorId);
+      return {
+        message: this.view(
+          await this.findVisible(
+            manager,
+            actorId,
+            conversationId,
+            messageId,
+            true,
+          ),
+        ),
+      };
+    });
+  }
+
+  async edit(
+    actorId: string,
+    conversationId: string,
+    messageId: string,
+    input: EditMessageDto,
+  ) {
+    this.rateLimit.take(actorId, 'send');
+    const result = await this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(
+        manager,
+        conversationId,
+        actorId,
+        true,
+      );
+      const message = await this.findVisible(
+        manager,
+        actorId,
+        conversationId,
+        messageId,
+        true,
+      );
+      if (message.senderId !== actorId)
+        fail(
+          403,
+          'MESSAGE_EDIT_FORBIDDEN',
+          'Only the sender may edit a message',
+        );
+      if (message.deletedAt)
+        fail(409, 'MESSAGE_DELETED', 'Deleted messages cannot be edited');
+      if (message.type !== 'text')
+        fail(
+          409,
+          'MESSAGE_EDIT_UNSUPPORTED',
+          'Only text messages can be edited',
+        );
+      // A retry with the already-current body is a no-op, including after lost ACK.
+      if ((message.editedBody ?? message.body) === input.body)
+        return { message: this.view(message), changed: false };
+      if ((message.editedAt?.toISOString() ?? null) !== input.expectedEditedAt)
+        fail(
+          409,
+          'MESSAGE_EDIT_CONFLICT',
+          'Message changed; fetch its current state before editing',
+        );
+      message.editedBody = input.body;
+      message.editedAt = new Date(
+        Math.max(
+          Date.now(),
+          (message.editedAt ?? message.createdAt).getTime() + 1,
+        ),
+      );
+      await manager.getRepository(Message).save(message);
+      return { message: this.view(message), changed: true };
+    });
+    if (result.changed)
+      this.events.publish({
+        name: 'message:updated',
+        conversationId,
+        messageId,
+        payload: result.message,
+      });
+    return { message: result.message };
+  }
+
+  async remove(actorId: string, conversationId: string, messageId: string) {
+    this.rateLimit.take(actorId, 'send');
+    const result = await this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(
+        manager,
+        conversationId,
+        actorId,
+        true,
+      );
+      const message = await this.findVisible(
+        manager,
+        actorId,
+        conversationId,
+        messageId,
+        true,
+      );
+      if (message.senderId !== actorId)
+        fail(
+          403,
+          'MESSAGE_DELETE_FORBIDDEN',
+          'Only the sender may delete a message',
+        );
+      if (message.deletedAt)
+        return { message: this.view(message), changed: false };
+      message.deletedAt = new Date(
+        Math.max(
+          Date.now(),
+          (message.editedAt ?? message.createdAt).getTime() + 1,
+        ),
+      );
+      await manager.getRepository(Message).save(message);
+      return { message: this.view(message), changed: true };
+    });
+    if (result.changed)
+      this.events.publish({
+        name: 'message:deleted',
+        conversationId,
+        messageId,
+        payload: result.message,
+      });
+    return { message: result.message };
   }
 
   async history(
@@ -226,6 +370,7 @@ export class MessagesService {
             conversationId,
           }),
         actorId,
+        true,
       );
       const forward = input.direction === 'forward';
       if (input.cursor !== undefined)

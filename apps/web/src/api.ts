@@ -68,7 +68,15 @@ function remember(session: Session) {
 
 export function refresh() {
   if (!pendingRefresh) {
-    pendingRefresh = request<Session>('/auth/refresh', {})
+    // HttpOnly cookies are shared by tabs. Serialize rotations until Set-Cookie
+    // has been applied, so another tab never submits the consumed refresh token.
+    const rotate = () => request<Session>('/auth/refresh', {});
+    const coordinatedRotation = async () => {
+      return typeof navigator !== 'undefined' && navigator.locks
+        ? await navigator.locks.request('pingpong-session-refresh', rotate)
+        : await rotate();
+    };
+    pendingRefresh = coordinatedRotation()
       .then(remember)
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) clearSession();
@@ -95,11 +103,14 @@ export async function authenticated<T>(
   method?: string,
 ): Promise<T> {
   if (!token || Date.now() >= expiresAt - 30000) await refresh();
+  const attemptedToken = token;
   try {
-    return await request<T>(path, body, token, method);
+    return await request<T>(path, body, attemptedToken, method);
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 401) throw error;
-    await refresh();
+    // A parallel request may already have renewed the token while this one
+    // was in flight. Retry with that token instead of rotating again.
+    if (token === attemptedToken) await refresh();
     return request<T>(path, body, token, method);
   }
 }

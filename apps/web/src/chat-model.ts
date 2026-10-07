@@ -4,7 +4,10 @@ export interface Message {
   senderId: string;
   clientMessageId: string;
   sequence: string;
-  body: string;
+  body: string | null;
+  type?: 'text' | 'image' | 'file';
+  editedAt?: string | null;
+  deletedAt?: string | null;
   createdAt: string;
 }
 export interface Receipt {
@@ -20,7 +23,15 @@ export interface History {
 }
 export function mergeMessages(previous: Message[], incoming: Message[]) {
   const entries = new Map(previous.map((message) => [message.id, message]));
-  for (const message of incoming) entries.set(message.id, message);
+  for (const message of incoming) {
+    const existing = entries.get(message.id);
+    // A delayed history response must not undo an edit or restore a deleted message.
+    if (existing?.deletedAt && !message.deletedAt) continue;
+    const version = (item: Message) =>
+      Date.parse(item.deletedAt ?? item.editedAt ?? item.createdAt);
+    if (existing && version(existing) > version(message)) continue;
+    entries.set(message.id, message);
+  }
   return [...entries.values()].sort((a, b) =>
     BigInt(a.sequence) < BigInt(b.sequence)
       ? -1

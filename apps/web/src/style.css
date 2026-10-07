@@ -960,6 +960,32 @@ a:focus-visible {
   font-size: 10px;
   color: #7a8783;
   margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-list .unread strong,
+.thread-list .unread small {
+  font-weight: 700;
+  color: #183633;
+}
+.thread-time {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #7a8783;
+}
+.unread-badge {
+  border-radius: 20px;
+  background: #145650;
+  color: white;
+  padding: 3px 7px;
+  font-size: 10px;
+  flex: none;
+}
+.thread-list .thread-summary {
+  min-width: 0;
+  flex: 1;
 }
 .thread-content {
   min-width: 0;

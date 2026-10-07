@@ -13,12 +13,25 @@ interface Member {
   role: Role;
 }
 interface Conversation {
+  unreadCount?: number;
+  lastMessage?: {
+    id: string;
+    senderId: string;
+    senderName?: string;
+    sequence: string;
+    type?: string;
+    body: string | null;
+    createdAt: string;
+    deletedAt?: string | null;
+  } | null;
+  peer?: Peer | null;
   id: string;
   type: 'direct' | 'group';
   title: string | null;
   membership: { role: Role; lastReadSequence: string };
   lastMessageSequence: string;
   createdAt: string;
+  updatedAt?: string;
 }
 interface Page<T> {
   items: T[];
@@ -33,9 +46,13 @@ const roles: Record<Role, string> = {
 export function Conversations({
   user,
   onExpired,
+  active = true,
+  recipient,
 }: {
   user: api.User;
   onExpired: () => void;
+  active?: boolean;
+  recipient?: { id: string; key: number };
 }) {
   const [items, setItems] = useState<Conversation[]>([]);
   const [directNames, setDirectNames] = useState<Record<string, string>>({});
@@ -46,6 +63,8 @@ export function Conversations({
   const [creating, setCreating] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [filter, setFilter] = useState('');
+  const [friendFilter, setFriendFilter] = useState('');
+  const [listLoading, setListLoading] = useState(true);
   const [type, setType] = useState<'direct' | 'group'>('direct');
   const [title, setTitle] = useState('');
   const [chosen, setChosen] = useState<string[]>([]);
@@ -67,6 +86,8 @@ export function Conversations({
   const live = useRef(true);
   const readVersion = useRef(0);
   const listVersion = useRef(0);
+  const listRequests = useRef(0);
+  const handledRecipient = useRef<number | undefined>(undefined);
   function fail(e: unknown) {
     if (e instanceof api.ApiError && e.status === 401) onExpired();
     else setError(api.errorMessage(e));
@@ -83,52 +104,51 @@ export function Conversations({
     } while (next);
     return result;
   }
-  async function list(next?: string) {
-    const version = ++listVersion.current;
-    const page = await api.authenticated<Page<Conversation>>(
-      `/conversations?limit=20${next ? `&cursor=${next}` : ''}`,
-    );
-    const names = await Promise.all(
-      page.items
+  async function list(next?: string, background = false) {
+    if (background && listRequests.current) return;
+    listRequests.current++;
+    try {
+      const version = ++listVersion.current;
+      const page = await api.authenticated<Page<Conversation>>(
+        `/conversations?limit=20${next ? `&cursor=${next}` : ''}`,
+      );
+      const names = page.items
         .filter((item) => item.type === 'direct')
-        .map(async (item) => {
-          try {
-            const peers = await api.authenticated<Page<Member>>(
-              `/conversations/${item.id}/members?limit=2`,
-            );
-            return [
-              item.id,
-              peers.items.find((member) => member.user.id !== user.id)?.user
-                .displayName ?? 'Trò chuyện riêng',
-            ] as const;
-          } catch {
-            return [item.id, 'Trò chuyện riêng'] as const;
-          }
-        }),
-    );
-    if (!live.current || version !== listVersion.current) return;
-    setDirectNames((previous) => ({
-      ...previous,
-      ...Object.fromEntries(names),
-    }));
-    setItems((previous) =>
-      next
-        ? [
-            ...previous,
-            ...page.items.filter(
-              (item) => !previous.some((old) => old.id === item.id),
-            ),
-          ]
-        : page.items,
-    );
-    setCursor(page.nextCursor);
+        .map((item) => {
+          return [
+            item.id,
+            item.peer?.displayName ?? 'Trò chuyện riêng',
+          ] as const;
+        });
+      if (!live.current || version !== listVersion.current) return;
+      setDirectNames((previous) => ({
+        ...previous,
+        ...Object.fromEntries(names),
+      }));
+      setItems((previous) =>
+        next || background
+          ? [
+              ...previous.map(
+                (old) => page.items.find((item) => item.id === old.id) ?? old,
+              ),
+              ...page.items.filter(
+                (item) => !previous.some((old) => old.id === item.id),
+              ),
+            ]
+          : page.items,
+      );
+      if (!background) setCursor(page.nextCursor);
+      setListLoading(false);
+    } finally {
+      listRequests.current--;
+    }
   }
   async function detail(id: string) {
     const version = ++readVersion.current;
-    const result = await api.authenticated<{ conversation: Conversation }>(
-      `/conversations/${id}`,
-    );
-    const people = await all<Member>(`/conversations/${id}/members`);
+    const [result, people] = await Promise.all([
+      api.authenticated<{ conversation: Conversation }>(`/conversations/${id}`),
+      all<Member>(`/conversations/${id}/members`),
+    ]);
     if (!live.current || version !== readVersion.current) return;
     setSelected(result.conversation);
     setMembers(people);
@@ -156,15 +176,37 @@ export function Conversations({
   }
   useEffect(() => {
     live.current = true;
-    void run(async () => {
-      await list();
-    });
     return () => {
       live.current = false;
       readVersion.current++;
       listVersion.current++;
     };
   }, []);
+  useEffect(() => {
+    if (!active) return;
+    void list().catch((error) => {
+      setListLoading(false);
+      fail(error);
+    });
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void list().catch(fail);
+    };
+    window.addEventListener('focus', refresh);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible')
+        void list(undefined, true).catch(fail);
+    }, 30000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      clearInterval(interval);
+    };
+  }, [active]);
+  useEffect(() => {
+    if (!recipient || busy || handledRecipient.current === recipient.key)
+      return;
+    handledRecipient.current = recipient.key;
+    void startDirect(recipient.id);
+  }, [recipient?.key, busy]);
   const isGroup = selected?.type === 'group';
   const owner = isGroup && selected.membership.role === 'owner';
   const manager = isGroup && selected.membership.role !== 'member';
@@ -212,8 +254,7 @@ export function Conversations({
         body,
       );
       setCreating(false);
-      await list();
-      await detail(result.conversation.id);
+      await Promise.all([list(), detail(result.conversation.id)]);
       requestKey.current = undefined;
     });
   }
@@ -226,8 +267,7 @@ export function Conversations({
       setCreating(false);
       setShowInfo(false);
       setConfirmation(undefined);
-      await detail(result.conversation.id);
-      await list();
+      await Promise.all([detail(result.conversation.id), list()]);
     });
   }
   function compose(kind: 'direct' | 'group') {
@@ -236,6 +276,7 @@ export function Conversations({
     setSelected(undefined);
     setShowInfo(false);
     setChosen([]);
+    setFriendFilter('');
     setTitle('');
     setConfirmation(undefined);
     requestKey.current = undefined;
@@ -281,6 +322,16 @@ export function Conversations({
         </div>
         <ul className="thread-list">
           {items
+            .slice()
+            .sort((a, b) => {
+              const time = (item: Conversation) =>
+                Date.parse(
+                  item.updatedAt ??
+                    item.lastMessage?.createdAt ??
+                    item.createdAt,
+                );
+              return time(b) - time(a) || b.id.localeCompare(a.id);
+            })
             .filter((item) =>
               (item.title ?? directNames[item.id] ?? 'Trò chuyện riêng')
                 .toLocaleLowerCase('vi')
@@ -289,10 +340,23 @@ export function Conversations({
             .map((item) => (
               <li key={item.id}>
                 <button
-                  className={selected?.id === item.id ? 'selected' : ''}
+                  className={`${selected?.id === item.id ? 'selected' : ''}${item.unreadCount ? ' unread' : ''}`}
                   disabled={busy}
                   aria-current={selected?.id === item.id ? 'true' : undefined}
                   onClick={() => {
+                    setSelected(item);
+                    setMembers(
+                      item.peer
+                        ? [
+                            { id: user.id, user, role: 'member' },
+                            {
+                              id: item.peer.id,
+                              user: item.peer,
+                              role: 'member',
+                            },
+                          ]
+                        : [],
+                    );
                     setCreating(false);
                     setShowInfo(false);
                     setConfirmation(undefined);
@@ -304,19 +368,47 @@ export function Conversations({
                       item.title ?? directNames[item.id] ?? 'H',
                     )[0]?.toUpperCase()}
                   </span>
-                  <span>
+                  <span className="thread-summary">
                     <strong>
                       {item.title ?? directNames[item.id] ?? 'Trò chuyện riêng'}
                     </strong>
                     <small>
-                      {item.type === 'group' ? 'Nhóm' : 'Trò chuyện riêng'}
+                      {item.lastMessage
+                        ? `${item.lastMessage.senderId === user.id ? 'Bạn: ' : item.type === 'group' ? `${item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${item.lastMessage.deletedAt ? 'Tin nhắn đã thu hồi' : item.lastMessage.body || (item.lastMessage.type === 'image' ? 'Đã gửi ảnh' : 'Đã gửi tệp')}`
+                        : 'Hãy gửi lời chào 👋'}
                     </small>
+                    {item.lastMessage && (
+                      <time
+                        className="thread-time"
+                        dateTime={item.lastMessage.createdAt}
+                      >
+                        {new Intl.DateTimeFormat('vi-VN', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          day: '2-digit',
+                          month: '2-digit',
+                        }).format(new Date(item.lastMessage.createdAt))}
+                      </time>
+                    )}
                   </span>
+                  {!!item.unreadCount && (
+                    <span
+                      className="unread-badge"
+                      aria-label={`${item.unreadCount} tin nhắn chưa đọc`}
+                    >
+                      {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
         </ul>
-        {!busy && !items.length && (
+        {listLoading && !items.length && (
+          <p className="list-status" role="status">
+            Đang tải đoạn chat…
+          </p>
+        )}
+        {!listLoading && !busy && !error && !items.length && (
           <p className="list-status">
             Chưa có đoạn chat. Chọn “Nhắn mới” để bắt đầu.
           </p>
@@ -428,43 +520,55 @@ export function Conversations({
                 </p>
               )}
               <div className="friend-picker">
-                {friends.map((peer) =>
-                  type === 'direct' ? (
-                    <button
-                      className="compose-peer"
-                      type="button"
-                      key={peer.id}
-                      onClick={() => void startDirect(peer.id)}
-                    >
-                      <span className="peer-avatar">
-                        {Array.from(peer.displayName)[0]?.toUpperCase()}
-                      </span>
-                      {peer.displayName}
-                      <span>→</span>
-                    </button>
-                  ) : (
-                    <label key={peer.id}>
-                      <input
-                        type="checkbox"
-                        name="conversation-peer"
-                        checked={chosen.includes(peer.id)}
-                        disabled={
-                          type === 'group' &&
-                          chosen.length >= 49 &&
-                          !chosen.includes(peer.id)
-                        }
-                        onChange={() =>
-                          setChosen((previous) =>
-                            previous.includes(peer.id)
-                              ? previous.filter((id) => id !== peer.id)
-                              : [...previous, peer.id],
-                          )
-                        }
-                      />
-                      {peer.displayName}
-                    </label>
-                  ),
-                )}
+                <input
+                  aria-label="Tìm người nhận"
+                  placeholder="Tìm bạn theo tên…"
+                  value={friendFilter}
+                  onChange={(event) => setFriendFilter(event.target.value)}
+                />
+                {friends
+                  .filter((peer) =>
+                    peer.displayName
+                      .toLocaleLowerCase('vi')
+                      .includes(friendFilter.toLocaleLowerCase('vi').trim()),
+                  )
+                  .map((peer) =>
+                    type === 'direct' ? (
+                      <button
+                        className="compose-peer"
+                        type="button"
+                        key={peer.id}
+                        onClick={() => void startDirect(peer.id)}
+                      >
+                        <span className="peer-avatar">
+                          {Array.from(peer.displayName)[0]?.toUpperCase()}
+                        </span>
+                        {peer.displayName}
+                        <span>→</span>
+                      </button>
+                    ) : (
+                      <label key={peer.id}>
+                        <input
+                          type="checkbox"
+                          name="conversation-peer"
+                          checked={chosen.includes(peer.id)}
+                          disabled={
+                            type === 'group' &&
+                            chosen.length >= 49 &&
+                            !chosen.includes(peer.id)
+                          }
+                          onChange={() =>
+                            setChosen((previous) =>
+                              previous.includes(peer.id)
+                                ? previous.filter((id) => id !== peer.id)
+                                : [...previous, peer.id],
+                            )
+                          }
+                        />
+                        {peer.displayName}
+                      </label>
+                    ),
+                  )}
               </div>
               {type === 'group' && (
                 <button className="primary" disabled={!friends.length}>
@@ -501,6 +605,55 @@ export function Conversations({
             conversationId={selected.id}
             user={user}
             peers={members.map((member) => member.user)}
+            active={active}
+            onReadSequence={(sequence) =>
+              setItems((previous) =>
+                previous.map((item) =>
+                  item.id === selected.id &&
+                  BigInt(sequence) >
+                    BigInt(item.membership.lastReadSequence ?? '0')
+                    ? {
+                        ...item,
+                        membership: {
+                          ...item.membership,
+                          lastReadSequence: sequence,
+                        },
+                        unreadCount:
+                          item.lastMessage &&
+                          BigInt(sequence) >= BigInt(item.lastMessage.sequence)
+                            ? 0
+                            : item.unreadCount,
+                      }
+                    : item,
+                ),
+              )
+            }
+            onLatestMessage={(message) =>
+              setItems((previous) =>
+                previous.map((item) =>
+                  item.id === message.conversationId &&
+                  (!item.lastMessage ||
+                    BigInt(message.sequence) >=
+                      BigInt(item.lastMessage.sequence))
+                    ? {
+                        ...item,
+                        updatedAt:
+                          Date.parse(message.createdAt) >
+                          Date.parse(item.updatedAt ?? item.createdAt)
+                            ? message.createdAt
+                            : item.updatedAt,
+                        lastMessage: {
+                          ...message,
+                          body: message.body?.slice(0, 200) ?? null,
+                          senderName: members.find(
+                            (member) => member.user.id === message.senderId,
+                          )?.user.displayName,
+                        },
+                      }
+                    : item,
+                ),
+              )
+            }
             onExpired={onExpired}
           />
         )}

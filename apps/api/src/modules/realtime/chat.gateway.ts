@@ -339,6 +339,7 @@ export class ChatGateway
                   socket.emit(current.name, current.payload);
               },
               current.actorId,
+              current.name === 'message:deleted',
             );
           } catch (error) {
             if (error instanceof HttpException && error.getStatus() === 401)

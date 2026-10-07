@@ -25,11 +25,17 @@ export function Chat({
   user,
   peers,
   onExpired,
+  onLatestMessage,
+  active = true,
+  onReadSequence,
 }: {
   conversationId: string;
   user: api.User;
   peers: Peer[];
   onExpired: () => void;
+  onLatestMessage?: (message: Message) => void;
+  active?: boolean;
+  onReadSequence?: (sequence: string) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const draftKey = `${user.id}:${conversationId}`;
@@ -67,6 +73,10 @@ export function Chat({
   const ackPending = useRef(new Set<string>());
   const sending = useRef(new Set<string>());
   const typingAt = useRef(0);
+  const latestCallback = useRef(onLatestMessage);
+  latestCallback.current = onLatestMessage;
+  const readCallback = useRef(onReadSequence);
+  readCallback.current = onReadSequence;
   const typingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -99,6 +109,8 @@ export function Chat({
           latest.current = message.sequence;
     messageCache.current = mergeMessages(messageCache.current, incoming);
     setMessages(messageCache.current);
+    const newest = messageCache.current.at(-1);
+    if (newest) latestCallback.current?.(newest);
     setPending((previous) =>
       previous.filter(
         (draft) =>
@@ -140,6 +152,7 @@ export function Chat({
       acked.current.add(key);
       if (read) acked.current.add(`${message.id}:delivered`);
       receipt(result.receipt);
+      if (read && alive.current) readCallback.current?.(message.sequence);
     } catch (e) {
       if (e instanceof api.ApiError && (e.status === 401 || e.status === 404))
         fail(e);
@@ -261,6 +274,11 @@ export function Chat({
     client.on('message:created', (message: Message) => {
       if (message.conversationId === conversationId) accept([message]);
     });
+    for (const name of ['message:updated', 'message:deleted']) {
+      client.on(name, (message: Message) => {
+        if (message.conversationId === conversationId) accept([message]);
+      });
+    }
     client.on(
       'message:receipt',
       (event: { conversationId: string; receipt: Receipt }) => {
@@ -286,7 +304,9 @@ export function Chat({
     client.on('disconnect', (reason: string) => {
       if (!stopped) {
         setConnected(false);
-        schedule(reason === 'io server disconnect');
+        // A server disconnect can be a transport or capacity issue. Let token
+        // expiry drive renewal; disconnect alone does not prove auth failure.
+        schedule();
       }
     });
     client.on('connect_error', (failure) => {
@@ -351,7 +371,11 @@ export function Chat({
     if (nearBottom.current) container.scrollTop = container.scrollHeight;
     for (const message of messages) void acknowledge(message, false);
     function markVisible() {
-      if (document.visibilityState !== 'visible' || !document.hasFocus())
+      if (
+        !active ||
+        document.visibilityState !== 'visible' ||
+        !document.hasFocus()
+      )
         return;
       const bounds = container!.getBoundingClientRect();
       for (const element of container!.querySelectorAll<HTMLElement>(
@@ -375,7 +399,7 @@ export function Chat({
       window.removeEventListener('focus', markVisible);
       document.removeEventListener('visibilitychange', markVisible);
     };
-  }, [messages]);
+  }, [messages, active]);
   useEffect(() => {
     if (nearBottom.current && list.current)
       list.current.scrollTop = list.current.scrollHeight;
@@ -531,7 +555,11 @@ export function Chat({
         {!loading && !messages.length && (
           <div className="empty-state">
             <h2>Bắt đầu bằng một lời chào</h2>
-            <p>Gửi tin nhắn đầu tiên trong cuộc trò chuyện này.</p>
+            <p>
+              {peers.filter((peer) => peer.id !== user.id).length === 1
+                ? `Hãy gửi lời chào đến ${peers.find((peer) => peer.id !== user.id)?.displayName} 👋`
+                : 'Gửi tin nhắn đầu tiên trong cuộc trò chuyện này.'}
+            </p>
           </div>
         )}
         {messages.map((message) => {
@@ -548,7 +576,12 @@ export function Chat({
               className={`chat-message ${mine ? 'mine' : ''}`}
             >
               <small>{mine ? 'Bạn' : names(message.senderId)}</small>
-              <div className="message-body">{message.body}</div>
+              <div className="message-body">
+                {message.deletedAt
+                  ? 'Tin nhắn đã thu hồi'
+                  : (message.body ??
+                    (message.type === 'image' ? 'Ảnh' : 'Tệp đính kèm'))}
+              </div>
               <div className="message-meta">
                 <time dateTime={message.createdAt}>
                   {new Intl.DateTimeFormat('vi-VN', {

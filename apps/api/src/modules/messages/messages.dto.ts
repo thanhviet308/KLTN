@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsISO8601,
   IsString,
   IsUUID,
   Length,
@@ -49,4 +50,18 @@ export class MessageHistoryDto {
 export class MessageReceiptDto {
   @IsUUID('4')
   messageId!: string;
+}
+
+export class EditMessageDto {
+  @IsString()
+  @Length(1, 10000)
+  @Matches(/\S/)
+  body!: string;
+
+  // Required: null for an unedited message, otherwise its exact editedAt value.
+  @ValidateIf((_object, value: unknown) => value !== null)
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+  expectedEditedAt!: string | null;
 }

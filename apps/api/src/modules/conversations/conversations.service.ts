@@ -156,6 +156,45 @@ export class ConversationsService {
       fail(403, 'CONVERSATION_FORBIDDEN', 'Group manager permissions required');
   }
 
+  // Caller owns the transaction; acceptance and conversation creation commit together.
+  async ensureDirect(
+    manager: EntityManager,
+    actorId: string,
+    recipientId: string,
+  ) {
+    const [low, high] = [actorId, recipientId].sort();
+    await manager.query(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [`conversation:direct:${low}:${high}`],
+    );
+    const repository = manager.getRepository(Conversation);
+    const existing = await repository.findOne({
+      where: { directUserLowId: low, directUserHighId: high },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (existing) {
+      const { conversation, member } = await this.requireAccess(
+        manager,
+        existing.id,
+        actorId,
+        true,
+      );
+      return { conversation: this.view(conversation, member) };
+    }
+    await this.activeUsers(manager, [actorId, recipientId]);
+    await this.requireFriends(manager, actorId, [recipientId]);
+    const conversation = await repository.save({
+      type: 'direct',
+      creatorId: actorId,
+      directUserLowId: low,
+      directUserHighId: high,
+      title: null,
+    });
+    const member = await this.join(manager, conversation, actorId, 'member');
+    await this.join(manager, conversation, recipientId, 'member');
+    return { conversation: this.view(conversation, member) };
+  }
+
   async create(actorId: string, input: CreateConversationDto) {
     if (input.type === 'direct') {
       if (
@@ -176,42 +215,7 @@ export class ConversationsService {
           'Cannot create a direct conversation with yourself',
         );
       return this.db.transaction(async (manager) => {
-        const [low, high] = [actorId, recipientId].sort();
-        await manager.query(
-          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
-          [`conversation:direct:${low}:${high}`],
-        );
-        const repository = manager.getRepository(Conversation);
-        const existing = await repository.findOne({
-          where: { directUserLowId: low, directUserHighId: high },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (existing) {
-          const { conversation, member } = await this.requireAccess(
-            manager,
-            existing.id,
-            actorId,
-            true,
-          );
-          return { conversation: this.view(conversation, member) };
-        }
-        await this.activeUsers(manager, [actorId, recipientId]);
-        await this.requireFriends(manager, actorId, [recipientId]);
-        const conversation = await repository.save({
-          type: 'direct',
-          creatorId: actorId,
-          directUserLowId: low,
-          directUserHighId: high,
-          title: null,
-        });
-        const member = await this.join(
-          manager,
-          conversation,
-          actorId,
-          'member',
-        );
-        await this.join(manager, conversation, recipientId, 'member');
-        return { conversation: this.view(conversation, member) };
+        return this.ensureDirect(manager, actorId, recipientId);
       });
     }
     if (input.recipientId !== undefined || input.memberIds!.includes(actorId))
@@ -287,16 +291,120 @@ export class ConversationsService {
         'period.conversationId = member.conversationId AND period.userId = member.userId AND period.leftAt IS NULL',
       )
       .where('member.userId = :actorId', { actorId })
-      .orderBy('member.conversationId', 'ASC')
+      .orderBy('conversation.updatedAt', 'DESC')
+      .addOrderBy('member.conversationId', 'DESC')
       .take(input.limit + 1);
-    if (input.cursor)
-      query.andWhere('member.conversationId > :cursor', {
-        cursor: input.cursor,
-      });
-    return pageResult(
-      (await query.getMany()).map((member) =>
-        this.view(member.conversation, member),
+    if (input.cursor) {
+      await this.get(actorId, input.cursor);
+      query.andWhere(
+        '(conversation.updatedAt, member.conversationId) < ((SELECT updated_at FROM conversations WHERE id = :cursor), :cursor)',
+        { cursor: input.cursor },
+      );
+    }
+    const members = await query.getMany();
+    const unreadRows: { conversationId: string; count: number }[] =
+      members.length
+        ? await this.db.query(
+            `
+        SELECT m.conversation_id AS "conversationId", count(*)::int AS count
+        FROM messages m
+        JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
+        WHERE m.conversation_id = ANY($1::uuid[]) AND m.sender_id <> $2
+          AND m.deleted_at IS NULL AND m.sequence > COALESCE(cm.last_read_sequence, 0)
+          AND EXISTS (
+            SELECT 1 FROM conversation_member_periods p
+            WHERE p.conversation_id = m.conversation_id AND p.user_id = $2
+              AND m.sequence > p.joined_after_sequence
+              AND (p.left_after_sequence IS NULL OR m.sequence <= p.left_after_sequence)
+          )
+        GROUP BY m.conversation_id
+      `,
+            [members.map((member) => member.conversationId), actorId],
+          )
+        : [];
+    const unreadById = new Map(
+      unreadRows.map((row) => [row.conversationId, row.count]),
+    );
+    const previews: {
+      conversationId: string;
+      id: string;
+      senderId: string;
+      senderName: string;
+      sequence: string;
+      type: string;
+      body: string | null;
+      createdAt: Date;
+      deletedAt: Date | null;
+    }[] = members.length
+      ? await this.db.query(
+          `
+      SELECT latest.*, sender.display_name AS "senderName"
+      FROM unnest($1::uuid[]) AS requested(conversation_id)
+      CROSS JOIN LATERAL (
+        SELECT m.conversation_id AS "conversationId", m.id,
+          m.sender_id AS "senderId", m.sequence::text AS sequence, m.type,
+          CASE WHEN m.deleted_at IS NULL THEN left(COALESCE(m.edited_body, m.body), 200)
+            ELSE NULL END AS body,
+          m.created_at AS "createdAt", m.deleted_at AS "deletedAt"
+        FROM messages m
+        WHERE m.conversation_id = requested.conversation_id
+          AND EXISTS (
+            SELECT 1 FROM conversation_member_periods p
+            WHERE p.conversation_id = m.conversation_id AND p.user_id = $2
+              AND m.sequence > p.joined_after_sequence
+              AND (p.left_after_sequence IS NULL OR m.sequence <= p.left_after_sequence)
+          )
+        ORDER BY m.sequence DESC LIMIT 1
+      ) latest
+      JOIN users sender ON sender.id = latest."senderId"
+    `,
+          [members.map((member) => member.conversationId), actorId],
+        )
+      : [];
+    const previewById = new Map(
+      previews.map(({ conversationId, ...preview }) => [
+        conversationId,
+        preview,
+      ]),
+    );
+    const peerIds = [
+      ...new Set(
+        members.flatMap(({ conversation }) =>
+          conversation.type === 'direct'
+            ? [
+                conversation.directUserLowId === actorId
+                  ? conversation.directUserHighId!
+                  : conversation.directUserLowId!,
+              ]
+            : [],
+        ),
       ),
+    ];
+    const peers = peerIds.length
+      ? await this.db
+          .getRepository(User)
+          .createQueryBuilder('user')
+          .select(['user.id', 'user.displayName'])
+          .where('user.id IN (:...peerIds)', { peerIds })
+          .getMany()
+      : [];
+    const peerById = new Map(
+      peers.map((peer) => [peer.id, publicUserView(peer)]),
+    );
+    return pageResult(
+      members.map((member) => ({
+        ...this.view(member.conversation, member),
+        lastMessage: previewById.get(member.conversationId) ?? null,
+        unreadCount: unreadById.get(member.conversationId) ?? 0,
+        peer:
+          member.conversation.type === 'direct'
+            ? (peerById.get(
+                member.conversation.directUserLowId === actorId
+                  ? member.conversation.directUserHighId!
+                  : member.conversation.directUserLowId!,
+              ) ?? null)
+            : null,
+      })),
       input.limit,
     );
   }

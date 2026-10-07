@@ -1,7 +1,12 @@
 import { Injectable, Logger, Module } from '@nestjs/common';
 
 export interface ChatEvent {
-  name: 'message:created' | 'message:receipt' | 'typing:update';
+  name:
+    | 'message:created'
+    | 'message:updated'
+    | 'message:deleted'
+    | 'message:receipt'
+    | 'typing:update';
   conversationId: string;
   messageId?: string;
   actorId?: string;

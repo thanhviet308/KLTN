@@ -37,6 +37,10 @@ export function Home({
   onExpired: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('conversations');
+  const [chatRecipient, setChatRecipient] = useState<{
+    id: string;
+    key: number;
+  }>();
   const [rows, setRows] = useState<Row[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -49,14 +53,17 @@ export function Home({
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<Row>();
   const generation = useRef(0);
+  const tabCache = useRef(
+    new Map<Tab, { rows: Row[]; cursor: string | null }>(),
+  );
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
       generation.current++;
-    },
-    [],
-  );
+    };
+  }, []);
   useEffect(() => {
     setName(user.displayName);
   }, [user.displayName]);
@@ -88,16 +95,17 @@ export function Home({
       const items: Row[] = page.items.map((item) =>
         'user' in item ? item : { id: item.id, user: item },
       );
-      setRows((previous) =>
-        next
-          ? [
-              ...previous,
-              ...items.filter(
-                (item) => !previous.some((old) => old.id === item.id),
-              ),
-            ]
-          : items,
-      );
+      const previous = tabCache.current.get(tab)?.rows ?? [];
+      const updated = next
+        ? [
+            ...previous,
+            ...items.filter(
+              (item) => !previous.some((old) => old.id === item.id),
+            ),
+          ]
+        : items;
+      tabCache.current.set(tab, { rows: updated, cursor: page.nextCursor });
+      setRows(updated);
       setCursor(page.nextCursor);
     } catch (e) {
       if (current === generation.current) fail(e);
@@ -107,8 +115,9 @@ export function Home({
   }
   useEffect(() => {
     generation.current++;
-    setRows([]);
-    setCursor(null);
+    const cached = tabCache.current.get(tab);
+    setRows(cached?.rows ?? []);
+    setCursor(cached?.cursor ?? null);
     setError('');
     setNotice('');
     setConfirm(undefined);
@@ -130,6 +139,7 @@ export function Home({
     try {
       await work();
       if (!mounted.current) return;
+      tabCache.current.clear();
       setNotice(message);
       setConfirm(undefined);
       if (reload) await load();
@@ -198,9 +208,15 @@ export function Home({
               {error}
             </div>
           )}
-          {tab === 'conversations' ? (
-            <Conversations user={user} onExpired={onExpired} />
-          ) : tab === 'profile' ? (
+          <div hidden={tab !== 'conversations'}>
+            <Conversations
+              user={user}
+              onExpired={onExpired}
+              active={tab === 'conversations'}
+              recipient={chatRecipient}
+            />
+          </div>
+          {tab === 'conversations' ? null : tab === 'profile' ? (
             <section className="profile-panel">
               <p className="intro">
                 Tên hiển thị giúp bạn bè nhận ra bạn trên PingPong.
@@ -387,13 +403,28 @@ export function Home({
                           {sent.has(row.user.id) ? 'Đã gửi lời mời' : 'Kết bạn'}
                         </button>
                       ) : tab === 'friends' ? (
-                        <button
-                          className="secondary"
-                          disabled={busy}
-                          onClick={() => setConfirm(row)}
-                        >
-                          Hủy kết bạn
-                        </button>
+                        <>
+                          <button
+                            className="secondary accept"
+                            disabled={busy}
+                            onClick={() => {
+                              setChatRecipient({
+                                id: row.user.id,
+                                key: Date.now(),
+                              });
+                              setTab('conversations');
+                            }}
+                          >
+                            Nhắn tin
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={busy}
+                            onClick={() => setConfirm(row)}
+                          >
+                            Hủy kết bạn
+                          </button>
+                        </>
                       ) : (
                         <>
                           {tab === 'incoming' && (

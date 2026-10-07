@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  Delete,
+  Patch,
   HttpCode,
   Inject,
   Param,
@@ -17,6 +19,7 @@ import {
   SendMessageDto,
   MessageHistoryDto,
   MessageReceiptDto,
+  EditMessageDto,
 } from './messages.dto';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
 import { PageDto } from '../../common/page.dto';
@@ -90,6 +93,47 @@ export class MessagesController {
       id.toLowerCase(),
       messageId.toLowerCase(),
       input,
+    );
+  }
+
+  @Get('messages/:messageId')
+  get(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+  ) {
+    return this.messages.get(
+      user.id,
+      id.toLowerCase(),
+      messageId.toLowerCase(),
+    );
+  }
+
+  @Patch('messages/:messageId')
+  edit(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+    @Body() input: EditMessageDto,
+  ) {
+    return this.messages.edit(
+      user.id,
+      id.toLowerCase(),
+      messageId.toLowerCase(),
+      input,
+    );
+  }
+
+  @Delete('messages/:messageId')
+  remove(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+  ) {
+    return this.messages.remove(
+      user.id,
+      id.toLowerCase(),
+      messageId.toLowerCase(),
     );
   }
 }

@@ -1,3 +1,4 @@
+import { ConversationsService } from '../conversations/conversations.service';
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import type { EntityManager } from 'typeorm';
@@ -17,7 +18,11 @@ function fail(status: number, code: string, message: string): never {
 
 @Injectable()
 export class FriendshipsService {
-  constructor(@Inject(DataSource) private readonly db: DataSource) {}
+  constructor(
+    @Inject(DataSource) private readonly db: DataSource,
+    @Inject(ConversationsService)
+    private readonly conversations: ConversationsService,
+  ) {}
 
   private async lockUsers(manager: EntityManager, ids: string[]) {
     // Stable ordering avoids opposite-direction requests taking user locks differently.
@@ -108,6 +113,14 @@ export class FriendshipsService {
       const found = await repository.findOneBy({ id });
       if (!found || ![found.requesterId, found.recipientId].includes(actorId))
         fail(404, 'FRIEND_REQUEST_NOT_FOUND', 'Friend request not found');
+      // Match direct creation's lock order before locking the friendship row.
+      if (action === 'accept') {
+        const [low, high] = [found.requesterId, found.recipientId].sort();
+        await manager.query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          [`conversation:direct:${low}:${high}`],
+        );
+      }
       await this.lockUsers(manager, [found.requesterId, found.recipientId]);
       const row = await repository.findOne({
         where: { id },
@@ -125,7 +138,15 @@ export class FriendshipsService {
           : action === 'reject'
             ? 'rejected'
             : 'cancelled';
-      if (row.status === next) return { request: this.view(row) };
+      if (row.status === next) {
+        if (next === 'accepted')
+          await this.conversations.ensureDirect(
+            manager,
+            row.requesterId,
+            row.recipientId,
+          );
+        return { request: this.view(row) };
+      }
       if (row.status !== 'pending')
         fail(
           409,
@@ -133,7 +154,14 @@ export class FriendshipsService {
           'Friend request is no longer pending',
         );
       row.status = next;
-      return { request: this.view(await repository.save(row)) };
+      const saved = await repository.save(row);
+      if (next === 'accepted')
+        await this.conversations.ensureDirect(
+          manager,
+          row.requesterId,
+          row.recipientId,
+        );
+      return { request: this.view(saved) };
     });
   }
 
