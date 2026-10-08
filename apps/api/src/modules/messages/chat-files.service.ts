@@ -1,7 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -68,7 +68,8 @@ export class ChatFilesService {
       let fileName = input.fileName;
       if (input.type === 'image') {
         try {
-          const image = sharp(temporary, {
+          // Buffer IO works with both the native and WebAssembly image runtime.
+          const image = sharp(await readFile(temporary), {
             limitInputPixels: 16000000,
             animated: false,
           });
@@ -78,14 +79,12 @@ export class ChatFilesService {
             (metadata.pages ?? 1) > 1
           )
             invalid('INVALID_IMAGE');
-          const converted = `${path}.webp`;
-          await image
+          const converted = await image
             .rotate()
             .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
             .webp({ quality: 85 })
-            .toFile(converted);
-          await rm(temporary, { force: true });
-          await rename(converted, temporary);
+            .toBuffer();
+          await writeFile(temporary, converted);
           mimeType = 'image/webp';
           fileName = `${input.fileName.replace(/\.[^.]*$/, '').slice(0, 250)}.webp`;
         } catch {
@@ -130,7 +129,6 @@ export class ChatFilesService {
     } catch (error) {
       await Promise.all([
         rm(temporary, { force: true }),
-        rm(`${path}.webp`, { force: true }),
         rm(path, { force: true }),
       ]);
       if (error instanceof HttpException) throw error;

@@ -108,3 +108,19 @@ docker compose -f deploy/vps/compose.yml exec -T api \
 Theo dõi dung lượng volume và backup bên ngoài VPS. Tệp thu hồi bị chặn tải lại
 nhưng chưa được xóa khỏi đĩa; quota 512 MB/tài khoản vẫn tính các tệp này.
 Hướng dẫn test và API: [chat-media.md](../../apps/api/tests/chat-media.md).
+
+### CPU VPS và xử lý ảnh
+
+`sharp` và `@img/sharp-wasm32` được khóa cùng phiên bản. Khi CPU Linux x64 không
+đáp ứng yêu cầu x64-v2 của binary native, sharp tự dùng WebAssembly. Cách này
+không cần đổi VPS hay build libvips từ source; xử lý ảnh có thể chậm hơn native.
+Docker image kiểm tra chuyển ảnh sang WebP trong lúc build bằng user `node`,
+trước khi deploy thay container API hiện tại.
+
+Kiểm thử luồng ảnh với bản WebAssembly trên máy local:
+
+```powershell
+npm run build --workspace=@chat/api
+node -r ./apps/api/tests/sharp-wasm-preload.cjs apps/api/tests/profile.integration.cjs
+node -r ./apps/api/tests/sharp-wasm-preload.cjs apps/api/tests/chat-media.integration.cjs
+```

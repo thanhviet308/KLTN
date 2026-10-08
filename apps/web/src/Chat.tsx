@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import * as api from './api';
+import { UiIcon } from './UiIcon';
 import { Avatar } from './Avatar';
 import { MediaTools, MessageMedia, type MediaDraft } from './ChatMedia';
 import { MessageActions } from './MessageActions';
@@ -60,6 +61,26 @@ export function Chat({
     })),
   );
   const [body, setBody] = useState(() => drafts.get(draftKey)?.body ?? '');
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest('.composer-emoji, .composer-emoji-picker')
+      )
+        setEmojiOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEmojiOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [emojiOpen]);
   const [replyTo, setReplyTo] = useState<Message>();
   const [reactionTarget, setReactionTarget] = useState<string>();
   const [reactionVersions, setReactionVersions] = useState<
@@ -435,10 +456,27 @@ export function Chat({
       document.removeEventListener('visibilitychange', onFocus);
     };
   }, [conversationId]);
+  useLayoutEffect(() => {
+    if (active) nearBottom.current = true;
+  }, [active, conversationId]);
+  useLayoutEffect(() => {
+    const container = list.current;
+    if (!active || !container) return;
+    const followLatest = () => {
+      if (nearBottom.current && container.clientHeight > 0)
+        container.scrollTop = container.scrollHeight;
+    };
+    followLatest();
+    // Images and composer/layout changes can resize after messages render.
+    // Keep following the bottom only while the reader has not scrolled away.
+    const observer = new ResizeObserver(followLatest);
+    observer.observe(container);
+    for (const child of container.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [active, conversationId, messages, pending, loading]);
   useEffect(() => {
     const container = list.current;
     if (!container) return;
-    if (nearBottom.current) container.scrollTop = container.scrollHeight;
     for (const message of messages) void acknowledge(message, false);
     function markVisible() {
       if (
@@ -470,10 +508,6 @@ export function Chat({
       document.removeEventListener('visibilitychange', markVisible);
     };
   }, [messages, active]);
-  useEffect(() => {
-    if (nearBottom.current && list.current)
-      list.current.scrollTop = list.current.scrollHeight;
-  }, [pending]);
   async function loadOlder() {
     if (!older || loadingOlder) return;
     setLoadingOlder(true);
@@ -629,7 +663,7 @@ export function Chat({
         ref={list}
         onScroll={() => {
           const node = list.current;
-          if (node)
+          if (active && node && node.clientHeight > 0)
             nearBottom.current =
               node.scrollHeight - node.scrollTop - node.clientHeight < 80;
         }}
@@ -733,7 +767,7 @@ export function Chat({
                 )}
                 <div className="message-body">
                   {message.deletedAt ? (
-                    'Tin nh?n ?? thu h?i'
+                    'Tin nhắn đã thu hồi'
                   ) : message.type && message.type !== 'text' ? (
                     <MessageMedia message={message} />
                   ) : (
@@ -842,78 +876,126 @@ export function Chat({
           </button>
         </div>
       )}
-      <MediaTools
-        disabled={unavailable || !active}
-        onError={setError}
-        onSend={async (media) => {
-          setError('');
-          await send({
-            clientMessageId: crypto.randomUUID(),
-            body:
-              media.type === 'location'
-                ? '?? V? tr?'
-                : media.type === 'voice'
-                  ? 'Tin nh?n tho?i'
-                  : (media.file?.name ?? 'T?p'),
-            media,
-            status: 'sending',
-          });
-        }}
-      />
-      <form
-        className="message-composer"
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <textarea
-          ref={composer}
-          aria-label="Nội dung tin nhắn"
-          placeholder="Nhập tin nhắn…"
-          value={body}
-          disabled={unavailable}
-          maxLength={10000}
-          rows={1}
-          onChange={(e) => {
-            setBody(e.target.value);
-            updateTyping(!!e.target.value.trim());
-          }}
-          onBlur={() => updateTyping(false)}
-          onKeyDown={(e) => {
-            if (
-              e.key === 'Enter' &&
-              !e.shiftKey &&
-              !e.nativeEvent.isComposing
-            ) {
-              e.preventDefault();
-              if (!unavailable) submit();
-            }
+      <div className="chat-composer-bar">
+        <MediaTools
+          disabled={unavailable || !active}
+          onError={setError}
+          onSend={async (media) => {
+            setError('');
+            await send({
+              clientMessageId: crypto.randomUUID(),
+              body:
+                media.type === 'location'
+                  ? '📍 Vị trí'
+                  : media.type === 'voice'
+                    ? 'Tin nhắn thoại'
+                    : (media.file?.name ?? 'Tệp'),
+              media,
+              status: 'sending',
+            });
           }}
         />
-        <button
-          className="secondary accept"
-          disabled={unavailable || !body.trim()}
-          type="submit"
-          aria-label="Gửi tin nhắn"
-          title="Gửi tin nhắn"
+        <form
+          className="message-composer"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
         >
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-            aria-hidden="true"
+          <textarea
+            ref={composer}
+            aria-label="Nội dung tin nhắn"
+            placeholder="Aa"
+            value={body}
+            disabled={unavailable}
+            maxLength={10000}
+            rows={1}
+            onChange={(e) => {
+              setBody(e.target.value);
+              updateTyping(!!e.target.value.trim());
+            }}
+            onBlur={() => updateTyping(false)}
+            onKeyDown={(e) => {
+              if (
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
+                e.preventDefault();
+                if (!unavailable) submit();
+              }
+            }}
+          />
+          <button
+            className="composer-emoji"
+            type="button"
+            disabled={unavailable}
+            title="Chọn biểu tượng cảm xúc"
+            aria-label="Chọn biểu tượng cảm xúc"
+            aria-expanded={emojiOpen}
+            onClick={() => setEmojiOpen(!emojiOpen)}
           >
-            <path d="m3 3 18 9-18 9 4-9-4-9Z M7 12h14" />
-          </svg>
-        </button>
-      </form>
-      <small className="hint">Enter để gửi · Shift + Enter để xuống dòng</small>
+            <UiIcon name="smile" />
+          </button>
+          <button
+            className="secondary accept"
+            disabled={unavailable}
+            type={body.trim() ? 'submit' : 'button'}
+            onClick={() => {
+              if (!body.trim())
+                void send({
+                  clientMessageId: crypto.randomUUID(),
+                  body: '👍',
+                  status: 'sending',
+                });
+            }}
+            aria-label={body.trim() ? 'Gửi tin nhắn' : 'Gửi lượt thích'}
+            title={body.trim() ? 'Gửi tin nhắn' : 'Gửi lượt thích'}
+          >
+            <UiIcon name={body.trim() ? 'send' : 'like'} size={24} />
+          </button>
+        </form>
+        {emojiOpen && (
+          <div
+            className="composer-emoji-picker"
+            role="group"
+            aria-label="Biểu tượng cảm xúc"
+          >
+            {[
+              '😀',
+              '😂',
+              '🥰',
+              '😍',
+              '😭',
+              '😮',
+              '❤️',
+              '👍',
+              '👋',
+              '🎉',
+              '🔥',
+              '🙏',
+            ].map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                aria-label={emoji}
+                onClick={() => {
+                  setBody((previous) =>
+                    previous.length + emoji.length <= 10000
+                      ? previous + emoji
+                      : previous,
+                  );
+                  setEmojiOpen(false);
+                  composer.current?.focus();
+                }}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

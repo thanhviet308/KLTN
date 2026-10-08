@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { UiIcon } from './UiIcon';
+import { LocationMap } from './LocationMap';
 import * as api from './api';
 import type { Message } from './chat-model';
 
@@ -18,13 +20,32 @@ export function MediaTools({
   onError: (error: string) => void;
 }) {
   const [recording, setRecording] = useState(false);
+  const [seconds, setSeconds] = useState(0);
+  const [starting, setStarting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [location, setLocation] = useState<MediaDraft['location']>();
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const locationDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (locationOpen && !disabled) locationDialog.current?.showModal();
+    else locationDialog.current?.close();
+  }, [locationOpen, disabled]);
   const input = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | undefined>(undefined);
   const stream = useRef<MediaStream | undefined>(undefined);
   const alive = useRef(true);
   const generation = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (!recording) return;
+    const startedAt = Date.now();
+    const tick = setInterval(
+      () => setSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      250,
+    );
+    return () => clearInterval(tick);
+  }, [recording]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -43,6 +64,8 @@ export function MediaTools({
     stream.current?.getTracks().forEach((track) => track.stop());
     setRecording(false);
     setBusy(false);
+    setLocation(undefined);
+    setLocationOpen(false);
   }, [disabled]);
   const send = async (draft: MediaDraft) => {
     if (
@@ -71,6 +94,7 @@ export function MediaTools({
     }
     setBusy(true);
     const version = generation.current;
+    setStarting(true);
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!alive.current || version !== generation.current) {
@@ -120,6 +144,7 @@ export function MediaTools({
       };
       recorder.current = next;
       next.start(1000);
+      setSeconds(0);
       setRecording(true);
       timer.current = setTimeout(() => {
         if (next.state === 'recording') next.stop();
@@ -129,7 +154,10 @@ export function MediaTools({
       if (alive.current)
         onError('Không thể ghi âm. Kiểm tra quyền truy cập micro.');
     } finally {
-      if (alive.current) setBusy(false);
+      if (alive.current) {
+        setBusy(false);
+        setStarting(false);
+      }
     }
   }
   function locate() {
@@ -138,28 +166,41 @@ export function MediaTools({
       return;
     }
     setBusy(true);
+    setLocation(undefined);
+    setLocationError('');
+    setLocationOpen(true);
+    // Fetch the code in parallel with geolocation, without requesting map tiles.
+    void import('leaflet').catch(() => {});
     const version = generation.current;
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (!alive.current || version !== generation.current) return;
-        void send({
-          type: 'location',
-          location: {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          },
+        setBusy(false);
+        setLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
         });
       },
-      () => {
-        if (!alive.current) return;
+      (error) => {
+        if (!alive.current || version !== generation.current) return;
         setBusy(false);
-        onError('Không lấy được vị trí. Kiểm tra quyền truy cập vị trí.');
+        setLocationError(
+          error.code === 1
+            ? 'Hãy cho phép trình duyệt truy cập vị trí rồi thử lại.'
+            : 'Chưa lấy được vị trí. Kiểm tra kết nối và thử lại.',
+        );
       },
-      { timeout: 10000, maximumAge: 0, enableHighAccuracy: false },
+      { timeout: 10000, maximumAge: 30000, enableHighAccuracy: false },
     );
   }
+  function closeLocation() {
+    generation.current++;
+    setLocationOpen(false);
+    setLocation(undefined);
+    setBusy(false);
+  }
   return (
-    <div className="media-tools">
+    <div className={`media-tools${recording ? ' is-recording' : ''}`}>
       <input
         ref={input}
         type="file"
@@ -177,19 +218,32 @@ export function MediaTools({
         }}
       />
       <button
+        className="media-file-button"
         type="button"
         disabled={disabled || busy || recording}
         onClick={() => input.current?.click()}
+        aria-label="Gửi ảnh hoặc tệp"
+        title="Gửi ảnh hoặc tệp"
       >
-        Ảnh / Tệp
+        <UiIcon name="image" />
       </button>
       {recording ? (
         <>
-          <button type="button" onClick={() => recorder.current?.stop()}>
-            Dừng và gửi bản ghi âm
+          <button
+            className="record-stop"
+            type="button"
+            aria-label="Dừng và gửi bản ghi âm"
+            title="Dừng và gửi bản ghi âm"
+            onClick={() => recorder.current?.stop()}
+          >
+            <UiIcon name="stop" />
+            <span>Dừng và gửi</span>
           </button>
           <button
+            className="record-cancel"
             type="button"
+            aria-label="Hủy ghi âm"
+            title="Hủy ghi âm"
             onClick={() => {
               generation.current++;
               recorder.current?.stop();
@@ -198,27 +252,255 @@ export function MediaTools({
               setRecording(false);
             }}
           >
-            Hủy ghi âm
+            <UiIcon name="close" />
+            <span>Hủy</span>
           </button>
-          <span>Đang ghi âm · tối đa 60 giây</span>
+          <div
+            className="recording-info"
+            role="status"
+            aria-label="Đang ghi âm"
+          >
+            <span className="recording-dot" aria-hidden="true" />
+            <span>
+              Đang ghi âm{' '}
+              <strong>
+                {Math.floor(seconds / 60)}:
+                {String(seconds % 60).padStart(2, '0')}
+              </strong>
+              <small> / 1:00</small>
+            </span>
+          </div>
         </>
       ) : (
         <button
           type="button"
           disabled={disabled || busy}
           onClick={() => void record()}
+          className="record-button"
+          aria-label="Ghi âm"
+          title="Ghi âm"
         >
-          Ghi âm
+          <UiIcon name="microphone" />
         </button>
       )}
       <button
+        className="media-location-button"
         type="button"
         disabled={disabled || busy || recording}
         onClick={locate}
+        aria-label="Chia sẻ vị trí hiện tại"
+        title="Chia sẻ vị trí hiện tại"
       >
-        Chia sẻ vị trí hiện tại
+        <UiIcon name="location" />
       </button>
-      {busy && <span>Đang xử lý…</span>}
+      {busy && (
+        <span className="media-status" role="status">
+          {starting ? 'Đang chờ quyền truy cập micro…' : 'Đang xử lý…'}
+        </span>
+      )}
+      <dialog
+        ref={locationDialog}
+        className="location-preview"
+        aria-labelledby="location-preview-title"
+        onCancel={closeLocation}
+      >
+        {locationOpen && (
+          <>
+            <header>
+              <h2 id="location-preview-title">Chia sẻ vị trí hiện tại</h2>
+              <button
+                type="button"
+                aria-label="Đóng bản đồ"
+                disabled={busy && !!location}
+                onClick={closeLocation}
+              >
+                <UiIcon name="close" />
+              </button>
+            </header>
+            {location ? (
+              <>
+                <LocationMap
+                  latitude={location.latitude}
+                  longitude={location.longitude}
+                />
+                <p>Kiểm tra vị trí trên bản đồ trước khi chia sẻ.</p>
+                <small>
+                  {location.latitude.toFixed(5)},{' '}
+                  {location.longitude.toFixed(5)}
+                  {' · '}
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Mở bản đồ
+                  </a>
+                </small>
+              </>
+            ) : (
+              <div className="location-pending" role="status">
+                {locationError ||
+                  'Đang lấy vị trí… Nếu được hỏi, hãy cho phép truy cập vị trí.'}
+                {locationError && (
+                  <button type="button" onClick={locate}>
+                    Thử lại
+                  </button>
+                )}
+              </div>
+            )}
+            <footer>
+              <button
+                type="button"
+                disabled={busy && !!location}
+                onClick={closeLocation}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="location-share"
+                disabled={disabled || busy || !location}
+                onClick={async () => {
+                  try {
+                    if (!location) return;
+                    await send({ type: 'location', location });
+                    if (alive.current) closeLocation();
+                  } catch (error) {
+                    if (alive.current) onError(api.errorMessage(error));
+                  }
+                }}
+              >
+                {busy && location ? 'Đang gửi…' : 'Chia sẻ'}
+              </button>
+            </footer>
+          </>
+        )}
+      </dialog>
+    </div>
+  );
+}
+
+function VoicePlayer({
+  url,
+  onLoad,
+}: {
+  url: string;
+  onLoad: () => Promise<string | undefined>;
+}) {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  async function toggle() {
+    if (!audio.current || loading) return;
+    if (playing) {
+      audio.current.pause();
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const source = url || (await onLoad());
+      if (!source || !audio.current) return;
+      // Keep source assignment imperative: a React src update after loading
+      // would restart the element and interrupt the pending play() promise.
+      if (audio.current.getAttribute('src') !== source)
+        audio.current.src = source;
+      await audio.current.play();
+    } catch (cause) {
+      if (audio.current)
+        setError(
+          cause instanceof DOMException && cause.name === 'NotAllowedError'
+            ? 'Trình duyệt chưa cho phát âm thanh. Bấm phát lại.'
+            : 'Không phát được bản ghi âm. Hãy thử lại.',
+        );
+    } finally {
+      if (audio.current) setLoading(false);
+    }
+  }
+  const time = (value: number) =>
+    `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
+  return (
+    <div className="voice-player">
+      <audio
+        ref={audio}
+        preload="metadata"
+        onLoadedMetadata={() => {
+          const value = audio.current?.duration;
+          if (value && Number.isFinite(value)) setDuration(value);
+        }}
+        onDurationChange={() => {
+          const value = audio.current?.duration;
+          if (value && Number.isFinite(value)) setDuration(value);
+        }}
+        onTimeUpdate={() => setCurrent(audio.current?.currentTime ?? 0)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onError={() => setError('Không phát được bản ghi âm.')}
+      />
+      <button
+        type="button"
+        className="voice-play"
+        disabled={loading}
+        aria-busy={loading}
+        aria-label={
+          loading
+            ? 'Đang tải bản ghi âm'
+            : playing
+              ? 'Tạm dừng bản ghi âm'
+              : 'Phát bản ghi âm'
+        }
+        onClick={() => void toggle()}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          {loading ? (
+            <circle
+              className="voice-loading"
+              cx="12"
+              cy="12"
+              r="8"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeDasharray="35 15"
+            />
+          ) : playing ? (
+            <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
+          ) : (
+            <path d="m7 4 14 8-14 8z" />
+          )}
+        </svg>
+      </button>
+      <input
+        type="range"
+        aria-label="Vị trí phát bản ghi âm"
+        min={0}
+        max={duration || 1}
+        step={0.1}
+        value={Math.min(current, duration || 1)}
+        disabled={!duration}
+        onChange={(event) => {
+          if (audio.current)
+            audio.current.currentTime = Number(event.target.value);
+        }}
+      />
+      <span className="voice-time">
+        {time(playing || current > 0 ? current : duration)}
+      </span>
+      {error && (
+        <small className="voice-error" role="alert">
+          {error}
+        </small>
+      )}
     </div>
   );
 }
@@ -253,6 +535,7 @@ export function MessageMedia({ message }: { message: Message }) {
         anchor.download = message.content?.fileName ?? 'file';
         anchor.click();
       }
+      return next;
     } catch (error) {
       if (alive.current) setError(api.errorMessage(error));
     } finally {
@@ -293,13 +576,16 @@ export function MessageMedia({ message }: { message: Message }) {
     );
   }
   return (
-    <div ref={holder} className="message-media">
+    <div
+      ref={holder}
+      className={`message-media${message.type === 'voice' ? ' voice-message' : ''}`}
+    >
       {message.type === 'image' && url ? (
         <a href={url} target="_blank" rel="noopener noreferrer">
           <img src={url} alt={message.content?.fileName ?? 'Ảnh được gửi'} />
         </a>
-      ) : message.type === 'voice' && url ? (
-        <audio controls preload="metadata" src={url} />
+      ) : message.type === 'voice' ? (
+        <VoicePlayer url={url} onLoad={() => load()} />
       ) : (
         <button
           type="button"
@@ -308,14 +594,12 @@ export function MessageMedia({ message }: { message: Message }) {
         >
           {loading
             ? 'Đang tải…'
-            : message.type === 'voice'
-              ? '▶ Nghe tin nhắn thoại'
-              : message.type === 'image'
-                ? 'Xem ảnh'
-                : `↓ ${message.content?.fileName ?? 'Tải tệp'}`}
+            : message.type === 'image'
+              ? 'Xem ảnh'
+              : `↓ ${message.content?.fileName ?? 'Tải tệp'}`}
         </button>
       )}
-      {message.content?.size && (
+      {message.type !== 'voice' && message.content?.size && (
         <small>{(message.content.size / 1024).toFixed(1)} KB</small>
       )}
       {error && <small role="alert">{error}</small>}

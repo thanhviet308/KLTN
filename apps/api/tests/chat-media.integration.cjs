@@ -141,7 +141,8 @@ const {
       return call(`/upload?${query}`, actor, {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream' },
-        body: bytes,
+        // Wasm image output can use shared memory; fetch needs a regular buffer.
+        body: Buffer.from(bytes),
       });
     };
     const key = randomUUID();
@@ -213,7 +214,11 @@ const {
       'image/png',
       'photo.png',
     );
-    assert.equal(response.status, 200);
+    assert.equal(
+      response.status,
+      200,
+      response.status !== 200 ? await response.text() : '',
+    );
     const picture = (await response.json()).message;
     assert.equal(picture.content.mimeType, 'image/webp');
     assert.equal(

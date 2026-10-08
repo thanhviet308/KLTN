@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as api from './api';
-import { RelativeTime } from './RelativeTime';
 import { Chat } from './Chat';
 import { Avatar } from './Avatar';
 import { UiIcon } from './UiIcon';
-import { presenceLabel, type Presence } from './usePresence';
+import { presenceBadge, presenceLabel, type Presence } from './usePresence';
 import { cachedHistory, loadRecentHistory } from './chat-history-cache';
 import type { History } from './chat-model';
 
@@ -519,36 +518,26 @@ export function Conversations({
                         }
                       }
                     />
+                    {item.peer && presenceBadge(presence[item.peer.id]) && (
+                      <span
+                        className="presence-last-active"
+                        title={presenceLabel(presence[item.peer.id])}
+                        aria-label={presenceLabel(presence[item.peer.id])}
+                      >
+                        {presenceBadge(presence[item.peer.id])}
+                      </span>
+                    )}
                   </span>
                   <span className="thread-summary">
                     <strong>
                       {item.title ?? directNames[item.id] ?? 'Trò chuyện riêng'}
                     </strong>
-                    {item.peer && presence[item.peer.id] && (
-                      <small className="thread-presence">
-                        {presenceLabel(presence[item.peer.id])}
-                      </small>
-                    )}
                     <div className="thread-preview-row">
                       <small>
                         {item.lastMessage
                           ? `${item.lastMessage.senderId === user.id ? 'Bạn: ' : item.type === 'group' ? `${item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${item.lastMessage.deletedAt ? 'Tin nhắn đã thu hồi' : item.lastMessage.body || (item.lastMessage.type === 'image' ? 'Đã gửi ảnh' : 'Đã gửi tệp')}`
                           : 'Hãy gửi lời chào 👋'}
                       </small>
-                      {item.lastMessage && (
-                        <>
-                          <span
-                            className="thread-preview-dot"
-                            aria-hidden="true"
-                          >
-                            ·
-                          </span>
-                          <RelativeTime
-                            className="thread-time"
-                            value={item.lastMessage.createdAt}
-                          />
-                        </>
-                      )}
                     </div>
                   </span>
                   {!!item.unreadCount && (

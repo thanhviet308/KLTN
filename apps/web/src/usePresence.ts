@@ -6,6 +6,17 @@ export interface Presence {
   online: boolean;
   lastActiveAt: string | null;
 }
+export function presenceBadge(state?: Presence, now = Date.now()) {
+  if (!state || state.online || !state.lastActiveAt) return '';
+  const timestamp = Date.parse(state.lastActiveAt);
+  if (!Number.isFinite(timestamp)) return '';
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
+  if (minutes < 1) return 'Vừa xong';
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ`;
+  return `${Math.floor(hours / 24)} ngày`;
+}
 export function presenceLabel(state?: Presence, now = Date.now()) {
   if (!state) return 'Chưa xác định trạng thái';
   if (state.online) return 'Đang hoạt động';
@@ -25,6 +36,8 @@ export function usePresence(userId: string) {
     let stopped = false;
     let refreshing = false;
     let currentToken = '';
+    let syncing = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const client = io(`${api.API_ORIGIN}/chat`, {
       transports: ['websocket'],
       autoConnect: false,
@@ -43,7 +56,8 @@ export function usePresence(userId: string) {
       },
     });
     const sync = () => {
-      if (!client.connected) return;
+      if (!client.connected || syncing) return;
+      syncing = true;
       client.timeout(5000).emit(
         'presence:sync',
         {},
@@ -54,16 +68,28 @@ export function usePresence(userId: string) {
             data?: Record<string, Presence>;
           },
         ) => {
-          if (stopped) return;
-          setPresence(!error && result?.ok ? (result.data ?? {}) : {});
+          syncing = false;
+          if (stopped || !client.connected) return;
+          // A failed ACK does not prove that friends went offline.
+          // Disconnect clears the snapshot; successful sync replaces it.
+          if (!error && result?.ok) setPresence(result.data ?? {});
         },
       );
     };
     client.on('connect', sync);
-    client.on('disconnect', () => setPresence({}));
+    client.on('disconnect', (reason) => {
+      syncing = false;
+      setPresence({});
+      if (!stopped && reason === 'io server disconnect') {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          if (!stopped) client.connect();
+        }, 1000);
+      }
+    });
     client.on('connect_error', () => setPresence({}));
     client.connect();
-    const timer = setInterval(() => {
+    const refreshPresence = () => {
       if (refreshing) return;
       refreshing = true;
       void api
@@ -83,10 +109,21 @@ export function usePresence(userId: string) {
         .finally(() => {
           refreshing = false;
         });
-    }, 15000);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshPresence();
+    };
+    window.addEventListener('focus', onVisible);
+    window.addEventListener('online', refreshPresence);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = setInterval(refreshPresence, 15000);
     return () => {
       stopped = true;
       clearInterval(timer);
+      clearTimeout(reconnectTimer);
+      window.removeEventListener('focus', onVisible);
+      window.removeEventListener('online', refreshPresence);
+      document.removeEventListener('visibilitychange', onVisible);
       client.removeAllListeners();
       client.disconnect();
     };

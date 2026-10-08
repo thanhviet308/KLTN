@@ -60,12 +60,12 @@ export function mergeReceipt(
 }
 
 export function messageSummary(message: Message) {
-  if (message.deletedAt) return 'Tin nh?n ?? thu h?i';
+  if (message.deletedAt) return 'Tin nhắn đã thu hồi';
   if (message.body) return message.body;
-  if (message.type === 'location') return 'V? tr? ???c chia s?';
-  if (message.type === 'voice') return 'Tin nh?n tho?i';
+  if (message.type === 'location') return 'Vị trí được chia sẻ';
+  if (message.type === 'voice') return 'Tin nhắn thoại';
   return (
     message.content?.fileName ??
-    (message.type === 'image' ? '?nh' : 'T?p ??nh k?m')
+    (message.type === 'image' ? 'Ảnh' : 'Tệp đính kèm')
   );
 }
