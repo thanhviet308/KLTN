@@ -234,7 +234,7 @@ export function Home({
               {error}
             </div>
           )}
-          <div hidden={tab !== 'conversations'}>
+          <div className="conversation-view" hidden={tab !== 'conversations'}>
             <Conversations
               user={user}
               onExpired={onExpired}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as api from './api';
+import { RelativeTime } from './RelativeTime';
 import { Chat } from './Chat';
 import { cachedHistory, loadRecentHistory } from './chat-history-cache';
 import type { History } from './chat-model';
@@ -388,24 +389,27 @@ export function Conversations({
                     <strong>
                       {item.title ?? directNames[item.id] ?? 'Trò chuyện riêng'}
                     </strong>
-                    <small>
-                      {item.lastMessage
-                        ? `${item.lastMessage.senderId === user.id ? 'Bạn: ' : item.type === 'group' ? `${item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${item.lastMessage.deletedAt ? 'Tin nhắn đã thu hồi' : item.lastMessage.body || (item.lastMessage.type === 'image' ? 'Đã gửi ảnh' : 'Đã gửi tệp')}`
-                        : 'Hãy gửi lời chào 👋'}
-                    </small>
-                    {item.lastMessage && (
-                      <time
-                        className="thread-time"
-                        dateTime={item.lastMessage.createdAt}
-                      >
-                        {new Intl.DateTimeFormat('vi-VN', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          day: '2-digit',
-                          month: '2-digit',
-                        }).format(new Date(item.lastMessage.createdAt))}
-                      </time>
-                    )}
+                    <div className="thread-preview-row">
+                      <small>
+                        {item.lastMessage
+                          ? `${item.lastMessage.senderId === user.id ? 'Bạn: ' : item.type === 'group' ? `${item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${item.lastMessage.deletedAt ? 'Tin nhắn đã thu hồi' : item.lastMessage.body || (item.lastMessage.type === 'image' ? 'Đã gửi ảnh' : 'Đã gửi tệp')}`
+                          : 'Hãy gửi lời chào 👋'}
+                      </small>
+                      {item.lastMessage && (
+                        <>
+                          <span
+                            className="thread-preview-dot"
+                            aria-hidden="true"
+                          >
+                            ·
+                          </span>
+                          <RelativeTime
+                            className="thread-time"
+                            value={item.lastMessage.createdAt}
+                          />
+                        </>
+                      )}
+                    </div>
                   </span>
                   {!!item.unreadCount && (
                     <span

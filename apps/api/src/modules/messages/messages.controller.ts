@@ -9,6 +9,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/auth.decorators';
@@ -20,6 +21,7 @@ import {
   MessageHistoryDto,
   MessageReceiptDto,
   EditMessageDto,
+  MessageReactionDto,
 } from './messages.dto';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
 import { PageDto } from '../../common/page.dto';
@@ -28,6 +30,47 @@ const uuid = () => new ParseUUIDPipe({ version: '4' });
 
 @Controller('conversations/:conversationId')
 export class MessagesController {
+  @Put('messages/:messageId/reaction')
+  react(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+    @Body() input: MessageReactionDto,
+  ) {
+    return this.messages.react(
+      user.id,
+      id.toLowerCase(),
+      messageId.toLowerCase(),
+      input.emoji,
+    );
+  }
+
+  @Delete('messages/:messageId/reaction')
+  removeReaction(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+  ) {
+    return this.messages.react(
+      user.id,
+      id.toLowerCase(),
+      messageId.toLowerCase(),
+      null,
+    );
+  }
+
+  @Get('messages/:messageId/reactions')
+  reactions(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+  ) {
+    return this.messages.reactions(
+      user.id,
+      id.toLowerCase(),
+      messageId.toLowerCase(),
+    );
+  }
   constructor(
     @Inject(MessagesService) private readonly messages: MessagesService,
   ) {}

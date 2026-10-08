@@ -8,8 +8,6 @@ export GIT_TERMINAL_PROMPT=0
 for tool in git docker flock curl; do
   command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 1; }
 done
-[[ -f deploy/vps/.env ]] || { echo 'Create deploy/vps/.env on the VPS first' >&2; exit 1; }
-[[ -f deploy/vps/postgres.env ]] || { echo 'Create deploy/vps/postgres.env on the VPS first' >&2; exit 1; }
 [[ "$(git branch --show-current)" == main ]] || { echo 'VPS checkout must be on main' >&2; exit 1; }
 
 # Serialize manual and automated deployment in this checkout.
@@ -27,6 +25,10 @@ git merge --ff-only "$expected_commit"
 [[ "$(git rev-parse HEAD)" == "$expected_commit" ]] || {
   echo 'VPS already has a different/newer commit; refusing stale deployment' >&2; exit 1;
 }
+
+printf 'VPS checkout updated to %s\n' "$expected_commit"
+[[ -f deploy/vps/.env ]] || { echo 'Code updated, but deployment stopped: create deploy/vps/.env using .env.example' >&2; exit 1; }
+[[ -f deploy/vps/postgres.env ]] || { echo 'Code updated, but deployment stopped: create deploy/vps/postgres.env using postgres.env.example and configure matching database URLs in .env' >&2; exit 1; }
 
 compose=(docker compose -f deploy/vps/compose.yml)
 "${compose[@]}" config --quiet

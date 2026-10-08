@@ -5,6 +5,7 @@ export interface ChatEvent {
     | 'message:created'
     | 'message:updated'
     | 'message:deleted'
+    | 'message:reactions'
     | 'message:receipt'
     | 'typing:update';
   conversationId: string;

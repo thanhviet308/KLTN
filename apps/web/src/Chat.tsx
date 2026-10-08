@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import * as api from './api';
+import { MessageActions } from './MessageActions';
 import {
   cachedHistory,
   loadRecentHistory,
@@ -53,6 +54,8 @@ export function Chat({
     })),
   );
   const [body, setBody] = useState(() => drafts.get(draftKey)?.body ?? '');
+  const [replyTo, setReplyTo] = useState<Message>();
+  const composer = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     drafts.set(draftKey, { body, pending });
   }, [body, pending, draftKey]);
@@ -105,7 +108,12 @@ export function Chat({
     if (e instanceof api.ApiError && e.status === 401) onExpired();
     else {
       setError(api.errorMessage(e));
-      if (e instanceof api.ApiError && e.status === 404) setUnavailable(true);
+      if (
+        e instanceof api.ApiError &&
+        e.status === 404 &&
+        e.code !== 'MESSAGE_NOT_FOUND'
+      )
+        setUnavailable(true);
     }
   }
   function accept(incoming: Message[], advanceCursor = false) {
@@ -160,6 +168,7 @@ export function Chat({
     if (
       acked.current.has(key) ||
       ackPending.current.has(key) ||
+      !!message.deletedAt ||
       message.senderId === user.id
     )
       return;
@@ -174,6 +183,7 @@ export function Chat({
       receipt(result.receipt);
       if (read && alive.current) readCallback.current?.(message.sequence);
     } catch (e) {
+      if (e instanceof api.ApiError && e.code === 'MESSAGE_NOT_FOUND') return;
       if (e instanceof api.ApiError && (e.status === 401 || e.status === 404))
         fail(e);
     } finally {
@@ -226,13 +236,18 @@ export function Chat({
           } while (cursor);
         }
         for (const message of messageCache.current
-          .filter((item) => item.senderId === user.id)
+          .filter((item) => item.senderId === user.id && !item.deletedAt)
           .slice(-1)) {
-          const page = await api.authenticated<{ items: Receipt[] }>(
-            `/conversations/${conversationId}/messages/${message.id}/receipts?limit=50`,
-          );
-          if (stopped) return;
-          page.items.forEach(receipt);
+          try {
+            const page = await api.authenticated<{ items: Receipt[] }>(
+              `/conversations/${conversationId}/messages/${message.id}/receipts?limit=50`,
+            );
+            if (stopped) return;
+            page.items.forEach(receipt);
+          } catch (e) {
+            if (!(e instanceof api.ApiError) || e.code !== 'MESSAGE_NOT_FOUND')
+              throw e;
+          }
         }
         if (!stopped) {
           setLoading(false);
@@ -493,16 +508,24 @@ export function Chat({
       setError('Vui lòng nhập nội dung tin nhắn.');
       return;
     }
-    if (body.length > 10000) {
+    const original = replyTo
+      ? (messageCache.current.find((message) => message.id === replyTo.id) ??
+        replyTo)
+      : undefined;
+    const content = original
+      ? `> ${names(original.senderId)}: ${original.deletedAt ? 'Tin nhắn đã thu hồi' : (original.body ?? '').slice(0, 300).replace(/\n/g, '\n> ')}\n\n${body}`
+      : body;
+    if (content.length > 10000) {
       setError('Tin nhắn tối đa 10.000 ký tự.');
       return;
     }
     const draft: Draft = {
       clientMessageId: crypto.randomUUID(),
-      body,
+      body: content,
       status: 'sending',
     };
     setBody('');
+    setReplyTo(undefined);
     setError('');
     updateTyping(false);
     void send(draft);
@@ -544,6 +567,10 @@ export function Chat({
   }
   const names = (id: string) =>
     peers.find((peer) => peer.id === id)?.displayName ?? 'Thành viên';
+  const lastSentId = pending.length
+    ? undefined
+    : [...messages].reverse().find((message) => message.senderId === user.id)
+        ?.id;
   return (
     <div className="chat-panel">
       {!connected && connectionDelayed && !unavailable && (
@@ -593,46 +620,95 @@ export function Chat({
             </p>
           </div>
         )}
-        {messages.map((message) => {
+        {messages.map((message, index) => {
+          const previous = messages[index - 1];
+          const next = messages[index + 1];
+          const continuesGroup =
+            !!next &&
+            next.senderId === message.senderId &&
+            Date.parse(next.createdAt) - Date.parse(message.createdAt) <
+              5 * 60 * 1000;
+          const showTime =
+            !previous ||
+            Date.parse(message.createdAt) - Date.parse(previous.createdAt) >=
+              5 * 60 * 1000;
           const mine = message.senderId === user.id;
+          const lastSent = mine && message.id === lastSentId;
           const values = Object.values(receipts[message.id] ?? {}).filter(
             (item) => item.userId !== user.id,
           );
-          const read = values.filter((item) => item.readAt).length;
+          const readers = values.filter((item) => item.readAt);
           const delivered = values.filter((item) => item.deliveredAt).length;
           return (
-            <div
-              key={message.id}
-              data-message-id={message.id}
-              className={`chat-message ${mine ? 'mine' : ''}`}
-            >
-              <small>{mine ? 'Bạn' : names(message.senderId)}</small>
-              <div className="message-body">
-                {message.deletedAt
-                  ? 'Tin nhắn đã thu hồi'
-                  : (message.body ??
-                    (message.type === 'image' ? 'Ảnh' : 'Tệp đính kèm'))}
-              </div>
-              <div className="message-meta">
-                <time dateTime={message.createdAt}>
-                  {new Intl.DateTimeFormat('vi-VN', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }).format(new Date(message.createdAt))}
-                </time>
-                {mine && (
-                  <button onClick={() => void viewReceipts(message.id)}>
-                    {read
-                      ? `Đã đọc (${read})`
-                      : delivered
-                        ? `Đã nhận (${delivered})`
-                        : 'Đã gửi'}
-                  </button>
+            <Fragment key={message.id}>
+              {showTime && (
+                <div className="chat-time-divider">
+                  <time dateTime={message.createdAt}>
+                    {new Intl.DateTimeFormat('vi-VN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hourCycle: 'h23',
+                    }).format(new Date(message.createdAt))}
+                  </time>
+                </div>
+              )}
+              <div
+                data-message-id={message.id}
+                className={`chat-message ${mine ? 'mine' : ''}${continuesGroup ? ' continues-group' : ''}`}
+              >
+                <MessageActions
+                  message={message}
+                  mine={mine}
+                  onUpdate={(updated) => accept([updated])}
+                  onReply={(message) => {
+                    setReplyTo(message);
+                    composer.current?.focus();
+                  }}
+                />
+                {!mine && (
+                  <span
+                    className={`message-sender-avatar${continuesGroup ? ' avatar-spacer' : ''}`}
+                    role={continuesGroup ? undefined : 'img'}
+                    aria-hidden={continuesGroup || undefined}
+                    aria-label={
+                      continuesGroup ? undefined : names(message.senderId)
+                    }
+                    title={continuesGroup ? undefined : names(message.senderId)}
+                  >
+                    {Array.from(names(message.senderId))[0]?.toUpperCase()}
+                  </span>
+                )}
+                <div className="message-body">
+                  {message.deletedAt
+                    ? 'Tin nhắn đã thu hồi'
+                    : (message.body ??
+                      (message.type === 'image' ? 'Ảnh' : 'Tệp đính kèm'))}
+                </div>
+                {lastSent && !message.deletedAt && readers.length === 0 && (
+                  <div className="message-meta">
+                    <button onClick={() => void viewReceipts(message.id)}>
+                      {delivered ? `Đã nhận (${delivered})` : 'Đã gửi'}
+                    </button>
+                  </div>
+                )}
+                {lastSent && !message.deletedAt && readers.length > 0 && (
+                  <div className="read-avatars" aria-label="Người đã đọc">
+                    {readers.map((reader) => (
+                      <button
+                        key={reader.userId}
+                        type="button"
+                        className="read-avatar"
+                        title={`${names(reader.userId)} đã đọc`}
+                        aria-label={`${names(reader.userId)} đã đọc. Xem trạng thái tin nhắn`}
+                        onClick={() => void viewReceipts(message.id)}
+                      >
+                        {Array.from(names(reader.userId))[0]?.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
+            </Fragment>
           );
         })}
         {pending.map((draft) => (
@@ -694,6 +770,22 @@ export function Chat({
           ? ' đang nhập…'
           : '\u00a0'}
       </p>
+      {replyTo && (
+        <div className="reply-preview">
+          <div>
+            <strong>Trả lời {names(replyTo.senderId)}</strong>
+            <p>{replyTo.body?.slice(0, 300)}</p>
+          </div>
+          <button
+            type="button"
+            className="retry"
+            aria-label="Hủy trả lời"
+            onClick={() => setReplyTo(undefined)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <form
         className="message-composer"
         noValidate
@@ -703,6 +795,7 @@ export function Chat({
         }}
       >
         <textarea
+          ref={composer}
           aria-label="Nội dung tin nhắn"
           placeholder="Nhập tin nhắn…"
           value={body}

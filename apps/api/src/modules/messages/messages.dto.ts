@@ -12,6 +12,11 @@ import {
   ValidateIf,
 } from 'class-validator';
 
+export class MessageReactionDto {
+  @IsIn(['👍', '❤️', '😂', '😮', '😢', '😡'])
+  emoji!: string;
+}
+
 export class SendMessageDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.toLowerCase() : value,

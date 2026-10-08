@@ -25,6 +25,68 @@ function fail(status: number, code: string, message: string): never {
 
 @Injectable()
 export class MessagesService {
+  private async reactionSummary(
+    manager: EntityManager,
+    actorId: string,
+    messageId: string,
+  ) {
+    const items: { emoji: string; count: number; reacted: boolean }[] =
+      await manager.query(
+        `SELECT emoji, count(*)::int AS count, bool_or(user_id = $2) AS reacted
+       FROM message_reactions WHERE message_id = $1 GROUP BY emoji ORDER BY emoji`,
+        [messageId, actorId],
+      );
+    return { messageId, items };
+  }
+
+  async reactions(actorId: string, conversationId: string, messageId: string) {
+    return this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(manager, conversationId, actorId);
+      await this.findVisible(manager, actorId, conversationId, messageId);
+      return this.reactionSummary(manager, actorId, messageId);
+    });
+  }
+
+  async react(
+    actorId: string,
+    conversationId: string,
+    messageId: string,
+    emoji: string | null,
+  ) {
+    this.rateLimit.take(actorId, 'send');
+    const result = await this.db.transaction(async (manager) => {
+      // Same lock as edits/deletions: a reaction cannot race a retraction.
+      await this.conversations.requireAccess(
+        manager,
+        conversationId,
+        actorId,
+        true,
+      );
+      await this.findVisible(manager, actorId, conversationId, messageId);
+      if (emoji === null) {
+        await manager.query(
+          'DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2',
+          [messageId, actorId],
+        );
+      } else {
+        await manager.query(
+          `INSERT INTO message_reactions (conversation_id, message_id, user_id, emoji)
+          VALUES ($1, $2, $3, $4) ON CONFLICT (message_id, user_id)
+          DO UPDATE SET emoji = EXCLUDED.emoji, updated_at = now()`,
+          [conversationId, messageId, actorId, emoji],
+        );
+      }
+      return this.reactionSummary(manager, actorId, messageId);
+    });
+    // Notify clients to re-fetch their own summary; never broadcast actor-specific reacted flags.
+    this.events.publish({
+      name: 'message:reactions',
+      conversationId,
+      messageId,
+      payload: { conversationId, messageId },
+    });
+    return result;
+  }
   constructor(
     @Inject(DataSource) private readonly db: DataSource,
     @Inject(ConversationsService)
