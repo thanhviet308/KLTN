@@ -31,6 +31,25 @@ printf 'VPS checkout updated to %s\n' "$expected_commit"
 [[ -f deploy/vps/postgres.env ]] || { echo 'Code updated, but deployment stopped: create deploy/vps/postgres.env using postgres.env.example and configure matching database URLs in .env' >&2; exit 1; }
 
 compose=(docker compose -f deploy/vps/compose.yml)
+report_failure() {
+  local status=$1 container_id
+  trap - ERR
+  printf '\nBackend deployment failed (exit %s). API diagnostics:\n' "$status" >&2
+  "${compose[@]}" ps --all api >&2 || true
+  container_id=$("${compose[@]}" ps --all -q api) || container_id=''
+  if [[ -n "$container_id" ]]; then
+    # Inspect only runtime state; never dump Config.Env or credentials.
+    docker inspect --format \
+      'status={{.State.Status}} exit={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} restarts={{.RestartCount}}' \
+      "$container_id" >&2 || true
+    docker inspect --format \
+      '{{if .State.Health}}{{range .State.Health.Log}}healthcheck exit={{.ExitCode}} output={{printf "%q" .Output}}{{println}}{{end}}{{end}}' \
+      "$container_id" >&2 || true
+    "${compose[@]}" logs --no-color --tail=100 api >&2 || true
+  fi
+  exit "$status"
+}
+trap 'report_failure "$?"' ERR
 "${compose[@]}" config --quiet
 running_container=$("${compose[@]}" ps -q api)
 if [[ -n "$running_container" ]]; then

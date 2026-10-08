@@ -57,12 +57,10 @@ export class UsersService {
       }
     }
     return this.users.manager.transaction(async (manager) => {
-      const user = await manager
-        .getRepository(User)
-        .findOne({
-          where: { id: userId },
-          lock: { mode: 'pessimistic_write' },
-        });
+      const user = await manager.getRepository(User).findOne({
+        where: { id: userId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!user || user.status !== 'active') throw new UnauthorizedException();
       if (data) {
         const version = randomUUID();

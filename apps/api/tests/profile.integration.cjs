@@ -32,14 +32,12 @@ const id = randomUUID();
       users,
       undefined,
     );
-    await db
-      .getRepository(User)
-      .insert({
-        id,
-        email: `${id}@example.test`,
-        displayName: 'Profile test',
-        passwordHash: await passwords.hash('old-test-password'),
-      });
+    await db.getRepository(User).insert({
+      id,
+      email: `${id}@example.test`,
+      displayName: 'Profile test',
+      passwordHash: await passwords.hash('old-test-password'),
+    });
     await db
       .getRepository(Session)
       .insert({ userId: id, expiresAt: new Date(Date.now() + 86400000) });

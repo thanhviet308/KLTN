@@ -181,7 +181,13 @@ export function Conversations({
       all<Member>(`/conversations/${id}/members`),
     ]);
     if (!live.current || version !== readVersion.current) return;
-    setSelected(result.conversation);
+    setSelected({
+      ...result.conversation,
+      peer:
+        result.conversation.type === 'direct'
+          ? (people.find((member) => member.user.id !== user.id)?.user ?? null)
+          : null,
+    });
     setMembers(people);
     setRename(result.conversation.title ?? '');
   }
@@ -255,6 +261,12 @@ export function Conversations({
   const isGroup = selected?.type === 'group';
   const owner = isGroup && selected.membership.role === 'owner';
   const manager = isGroup && selected.membership.role !== 'member';
+  const selectedPeer =
+    selected?.type === 'direct'
+      ? (items.find((item) => item.id === selected.id)?.peer ??
+        selected.peer ??
+        members.find((member) => member.user.id !== user.id)?.user)
+      : undefined;
   const heading = selected
     ? selected.type === 'group'
       ? selected.title
@@ -634,18 +646,14 @@ export function Conversations({
                   <small>
                     {selected.type === 'group' ? (
                       'Trò chuyện nhóm'
-                    ) : (
+                    ) : selectedPeer && presence[selectedPeer.id] ? (
                       <span
-                        className={`presence-status${selected.peer && presence[selected.peer.id]?.online ? ' is-online' : ''}`}
+                        className={`presence-status${selectedPeer && presence[selectedPeer.id]?.online ? ' is-online' : ''}`}
                       >
                         <span aria-hidden="true" />
-                        {presenceLabel(
-                          selected.peer
-                            ? presence[selected.peer.id]
-                            : undefined,
-                        )}
+                        {presenceLabel(presence[selectedPeer.id])}
                       </span>
-                    )}
+                    ) : null}
                   </small>
                 </span>
               </button>
