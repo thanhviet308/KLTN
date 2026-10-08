@@ -5,6 +5,9 @@ export function userView(user: User) {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
+    avatarUrl: user.avatarKey?.startsWith('/users/avatars/')
+      ? user.avatarKey
+      : null,
     role: user.role,
     status: user.status,
     createdAt: user.createdAt,
@@ -12,5 +15,11 @@ export function userView(user: User) {
 }
 
 export function publicUserView(user: User) {
-  return { id: user.id, displayName: user.displayName };
+  return {
+    id: user.id,
+    displayName: user.displayName,
+    avatarUrl: user.avatarKey?.startsWith('/users/avatars/')
+      ? user.avatarKey
+      : null,
+  };
 }

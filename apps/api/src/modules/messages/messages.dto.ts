@@ -1,6 +1,10 @@
-import { Transform } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsIn,
+  IsNumber,
+  IsDefined,
+  IsOptional,
+  ValidateNested,
   IsInt,
   IsISO8601,
   IsString,
@@ -17,6 +21,38 @@ export class MessageReactionDto {
   emoji!: string;
 }
 
+export class LocationDto {
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-90)
+  @Max(90)
+  latitude!: number;
+
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-180)
+  @Max(180)
+  longitude!: number;
+}
+
+export class UploadMessageDto {
+  @IsUUID('4')
+  clientMessageId!: string;
+
+  @IsString()
+  @Length(1, 255)
+  // Reject control bytes and path separators in user-visible filenames.
+  // eslint-disable-next-line no-control-regex
+  @Matches(/^[^\x00-\x1f\x7f/\\]+$/)
+  fileName!: string;
+
+  @IsIn(['image', 'file', 'voice'])
+  type!: 'image' | 'file' | 'voice';
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 127)
+  mimeType?: string;
+}
+
 export class SendMessageDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.toLowerCase() : value,
@@ -24,13 +60,20 @@ export class SendMessageDto {
   @IsUUID('4')
   clientMessageId!: string;
 
-  @IsIn(['text'])
-  type = 'text' as const;
+  @IsIn(['text', 'location'])
+  type: 'text' | 'location' = 'text';
 
+  @ValidateIf((value: SendMessageDto) => value.type === 'text')
   @IsString()
   @Length(1, 10000)
   @Matches(/\S/)
-  body!: string;
+  body?: string;
+
+  @ValidateIf((value: SendMessageDto) => value.type === 'location')
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => LocationDto)
+  location?: LocationDto;
 }
 
 export class MessageHistoryDto {

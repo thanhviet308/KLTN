@@ -4,11 +4,11 @@ import { HttpException, Injectable } from '@nestjs/common';
 export class MessageRateLimit {
   private readonly windows = new Map<
     string,
-    { start: number; send: number; receipt: number }
+    { start: number; send: number; receipt: number; upload: number }
   >();
   private cleanupAt = 0;
 
-  take(userId: string, kind: 'send' | 'receipt') {
+  take(userId: string, kind: 'send' | 'receipt' | 'upload') {
     const now = Date.now();
     if (now >= this.cleanupAt) {
       for (const [id, value] of this.windows)
@@ -22,10 +22,10 @@ export class MessageRateLimit {
           { code: 'MESSAGE_BUSY', message: 'Messaging capacity reached' },
           429,
         );
-      window = { start: now, send: 0, receipt: 0 };
+      window = { start: now, send: 0, receipt: 0, upload: 0 };
       this.windows.set(userId, window);
     }
-    if (++window[kind] > (kind === 'send' ? 60 : 600))
+    if (++window[kind] > (kind === 'upload' ? 30 : kind === 'send' ? 60 : 600))
       throw new HttpException(
         { code: 'RATE_LIMITED', message: 'Too many messaging requests' },
         429,

@@ -86,3 +86,25 @@ này: kết nối chỉ đi trong mạng Docker cùng host, không dùng URL nà
 `deploy.sh <commit-sha>` đã được cập nhật: chờ database, chạy migration rồi recreate
 API. Migration thay đổi schema vẫn phải tương thích với API cũ trong lúc deploy,
 hoặc cần cửa sổ bảo trì.
+
+## Tệp trong đoạn chat
+
+API lưu ảnh/tệp/bản ghi âm vào volume `chat_files` tại `/app/storage/chat`;
+PostgreSQL lưu metadata và quyền truy cập. Volume được khởi tạo với quyền của user
+`node` từ Docker image. Không dùng `docker compose down -v` khi muốn giữ dữ liệu.
+Nginx phải áp dụng cấu hình mới `client_max_body_size 10m` để nhận tệp tối đa 10 MB.
+JSON API vẫn giới hạn 1 MB; upload dùng body nhị phân và có giới hạn riêng.
+
+Backup phải gồm cả database và tệp. Dừng ghi vào API trong lúc tạo cặp backup
+để metadata và tệp nhất quán. Ví dụ khi API đang ở chế độ bảo trì:
+
+```bash
+umask 077
+docker compose -f deploy/vps/compose.yml exec -T api \
+  tar -C /app/storage/chat -czf - . \
+  > "deploy/vps/backups/chat-files-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+```
+
+Theo dõi dung lượng volume và backup bên ngoài VPS. Tệp thu hồi bị chặn tải lại
+nhưng chưa được xóa khỏi đĩa; quota 512 MB/tài khoản vẫn tính các tệp này.
+Hướng dẫn test và API: [chat-media.md](../../apps/api/tests/chat-media.md).

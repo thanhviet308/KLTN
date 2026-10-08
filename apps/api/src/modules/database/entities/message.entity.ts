@@ -15,10 +15,13 @@ import { ConversationMember } from './conversation-member.entity';
 
 @Entity('messages')
 @Check('messages_sequence_valid', 'sequence > 0')
-@Check('messages_type_valid', "type IN ('text', 'image', 'file')")
+@Check(
+  'messages_type_valid',
+  "type IN ('text', 'image', 'file', 'voice', 'location')",
+)
 @Check(
   'messages_body_valid',
-  "(type = 'text' AND body IS NOT NULL AND length(btrim(body)) > 0 AND char_length(body) <= 10000) OR (type IN ('image', 'file') AND (body IS NULL OR char_length(body) <= 10000))",
+  "(type = 'text' AND body IS NOT NULL AND length(btrim(body)) > 0 AND char_length(body) <= 10000) OR (type IN ('image', 'file', 'voice', 'location') AND (body IS NULL OR char_length(body) <= 10000))",
 )
 @Check('messages_edit_time', 'edited_at IS NULL OR edited_at >= created_at')
 @Check('messages_delete_time', 'deleted_at IS NULL OR deleted_at >= created_at')
@@ -54,7 +57,16 @@ export class Message {
   @Column({ name: 'client_message_id', type: 'uuid' }) clientMessageId!: string;
   @Column({ type: 'bigint' }) sequence!: string;
   @Column({ type: 'varchar', length: 16, default: 'text' }) type!:
-    'text' | 'image' | 'file';
+    'text' | 'image' | 'file' | 'voice' | 'location';
+  @Column({ type: 'jsonb', nullable: true }) content!: {
+    latitude?: number;
+    longitude?: number;
+    attachmentId?: string;
+    fileName?: string;
+    mimeType?: string;
+    size?: number;
+    sha256?: string;
+  } | null;
   @Column({ type: 'text', nullable: true }) body!: string | null;
   @Column({ name: 'edited_body', type: 'text', nullable: true }) editedBody!:
     string | null;

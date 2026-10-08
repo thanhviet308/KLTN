@@ -1,10 +1,14 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import * as api from './api';
 import { Conversations } from './Conversations';
+import { Avatar } from './Avatar';
+import { UiIcon } from './UiIcon';
+import { presenceLabel, usePresence } from './usePresence';
 
 type Tab =
   'conversations' | 'friends' | 'incoming' | 'outgoing' | 'search' | 'profile';
 interface Peer {
+  avatarUrl?: string | null;
   id: string;
   displayName: string;
 }
@@ -37,6 +41,34 @@ export function Home({
   onExpired: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('conversations');
+  const presence = usePresence(user.id);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [profileSection, setProfileSection] = useState<
+    'avatar' | 'name' | 'password' | 'details' | null
+  >(null);
+  function selectProfileSection(section: typeof profileSection) {
+    setProfileSection(section);
+    setError('');
+    setNotice('');
+    setName(user.displayName);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+  }
+  const accountArea = useRef<HTMLDivElement>(null);
+  const accountButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!accountOpen) return;
+    accountArea.current
+      ?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+      ?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (!accountArea.current?.contains(event.target as Node))
+        setAccountOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [accountOpen]);
   const [chatRecipient, setChatRecipient] = useState<{
     id: string;
     key: number;
@@ -52,6 +84,9 @@ export function Home({
   const [name, setName] = useState(user.displayName);
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<Row>();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const generation = useRef(0);
   const tabCache = useRef(
     new Map<Tab, { rows: Row[]; cursor: string | null; loadedAt: number }>(),
@@ -182,28 +217,118 @@ export function Home({
           <span className="brand-icon">P</span> PingPong
           <span className="brand-dot">.</span>
         </a>
-        <span className="home-greeting">Chào {user.displayName}</span>
-        <button
-          className="secondary"
-          disabled={busy}
-          onClick={() => void action(onLogout, '', false)}
+        <nav className="home-nav" aria-label="Điều hướng PingPong">
+          {tabs
+            .filter(([key]) => key !== 'profile')
+            .map(([key, label]) => (
+              <button
+                key={key}
+                title={label}
+                aria-label={label}
+                aria-current={tab === key ? 'page' : undefined}
+                disabled={busy}
+                onClick={() => setTab(key)}
+              >
+                <UiIcon name={key} />
+                <span className="nav-label">{label}</span>
+              </button>
+            ))}
+        </nav>
+        <div
+          className="account-control"
+          ref={accountArea}
+          onBlur={(event) => {
+            if (
+              !event.currentTarget.contains(event.relatedTarget as Node | null)
+            )
+              setAccountOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setAccountOpen(false);
+              accountButton.current?.focus();
+            }
+            if (
+              accountOpen &&
+              (event.key === 'ArrowDown' || event.key === 'ArrowUp')
+            ) {
+              event.preventDefault();
+              const options = Array.from(
+                event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                  '[role="menuitem"]',
+                ),
+              );
+              const index = options.indexOf(
+                document.activeElement as HTMLButtonElement,
+              );
+              options[
+                (index +
+                  (event.key === 'ArrowDown' ? 1 : -1) +
+                  options.length) %
+                  options.length
+              ]?.focus();
+            }
+          }}
         >
-          Đăng xuất
-        </button>
+          <button
+            ref={accountButton}
+            type="button"
+            className="account-toggle"
+            aria-label={`Tài khoản của ${user.displayName}`}
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+            onClick={() => setAccountOpen(!accountOpen)}
+          >
+            <span className="account-avatar">
+              <Avatar peer={user} />
+            </span>
+            <span className="account-chevron" aria-hidden="true">
+              ⌄
+            </span>
+          </button>
+          {accountOpen && (
+            <div className="account-menu" role="menu" aria-label="Tài khoản">
+              <div className="account-menu-name">{user.displayName}</div>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => {
+                  setTab('profile');
+                  selectProfileSection(null);
+                  setAccountOpen(false);
+                }}
+              >
+                <UiIcon name="profile" />
+                Tài khoản của tôi
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => {
+                  setAccountOpen(false);
+                  void action(onLogout, '', false);
+                }}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path d="M9 4H4v16h5M9 12h12m-4-4 4 4-4 4" />
+                </svg>
+                Đăng xuất
+              </button>
+            </div>
+          )}
+        </div>
       </header>
       <div className="home-layout">
-        <nav className="home-nav" aria-label="Điều hướng PingPong">
-          {tabs.map(([key, label]) => (
-            <button
-              key={key}
-              aria-current={tab === key ? 'page' : undefined}
-              disabled={busy}
-              onClick={() => setTab(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
         <main
           className={`home-main${tab === 'conversations' ? ' chat-home' : ''}`}
         >
@@ -236,6 +361,7 @@ export function Home({
           )}
           <div className="conversation-view" hidden={tab !== 'conversations'}>
             <Conversations
+              presence={presence}
               user={user}
               onExpired={onExpired}
               active={tab === 'conversations'}
@@ -244,59 +370,271 @@ export function Home({
           </div>
           {tab === 'conversations' ? null : tab === 'profile' ? (
             <section className="profile-panel">
-              <p className="intro">
-                Tên hiển thị giúp bạn bè nhận ra bạn trên PingPong.
-              </p>
-              <form
-                noValidate
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!name.trim() || name.trim().length > 100) {
-                    setError('Tên hiển thị cần từ 1 đến 100 ký tự.');
-                    return;
-                  }
-                  void action(
-                    async () => {
-                      const result = await api.authenticated<{
-                        user: api.User;
-                      }>('/users/me', { displayName: name.trim() }, 'PATCH');
-                      onUser(result.user);
-                    },
-                    'Đã lưu tên hiển thị.',
-                    false,
-                  );
-                }}
-              >
-                <label>
-                  Tên hiển thị
-                  <input
-                    value={name}
-                    maxLength={100}
-                    disabled={busy}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </label>
+              {profileSection === null ? (
+                <div className="account-options">
+                  <p className="intro">
+                    Chọn thông tin bạn muốn xem hoặc thay đổi.
+                  </p>
+                  {(
+                    [
+                      [
+                        'avatar',
+                        'Ảnh đại diện',
+                        'Thay đổi hoặc gỡ ảnh của bạn',
+                      ],
+                      [
+                        'name',
+                        'Tên hiển thị',
+                        'Tên bạn bè nhìn thấy trên PingPong',
+                      ],
+                      [
+                        'password',
+                        'Đổi mật khẩu',
+                        'Cập nhật mật khẩu đăng nhập',
+                      ],
+                      [
+                        'details',
+                        'Thông tin tài khoản',
+                        'Email và ngày tham gia',
+                      ],
+                    ] as const
+                  ).map(([key, title, description]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className="account-option"
+                      disabled={busy}
+                      onClick={() => selectProfileSection(key)}
+                    >
+                      <span>
+                        <strong>{title}</strong>
+                        <small>{description}</small>
+                      </span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
                 <button
-                  className="primary"
-                  disabled={busy || name.trim() === user.displayName}
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => selectProfileSection(null)}
                 >
-                  Lưu thay đổi
+                  ← Quay lại tài khoản
                 </button>
-              </form>
-              <dl>
-                <div>
-                  <dt>Email</dt>
-                  <dd>{user.email}</dd>
-                </div>
-                <div>
-                  <dt>Ngày tham gia</dt>
-                  <dd>
-                    {new Intl.DateTimeFormat('vi-VN').format(
-                      new Date(user.createdAt),
-                    )}
-                  </dd>
-                </div>
-              </dl>
+              )}
+              {profileSection === 'avatar' && (
+                <>
+                  <h2>Ảnh đại diện</h2>
+                  <span className="peer-avatar profile-photo">
+                    <Avatar peer={user} />
+                  </span>
+                  <label>
+                    Chọn ảnh (PNG, JPEG, WebP, tối đa 512 KB)
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={busy}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = '';
+                        if (!file) return;
+                        if (file.size > 512 * 1024) {
+                          setError('Ảnh cần nhỏ hơn 512 KB.');
+                          return;
+                        }
+                        void action(
+                          async () => {
+                            const image = await new Promise<string>(
+                              (resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () =>
+                                  resolve(String(reader.result));
+                                reader.onerror = () =>
+                                  reject(new Error('FILE_READ_FAILED'));
+                                reader.readAsDataURL(file);
+                              },
+                            );
+                            const result = await api.authenticated<{
+                              user: api.User;
+                            }>('/users/me/avatar', { image }, 'PATCH');
+                            onUser(result.user);
+                          },
+                          'Đã đổi ảnh đại diện.',
+                          false,
+                        );
+                      }}
+                    />
+                  </label>
+                  {user.avatarUrl && (
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void action(
+                          async () => {
+                            const result = await api.authenticated<{
+                              user: api.User;
+                            }>('/users/me/avatar', undefined, 'DELETE');
+                            onUser(result.user);
+                          },
+                          'Đã gỡ ảnh đại diện.',
+                          false,
+                        )
+                      }
+                    >
+                      Gỡ ảnh
+                    </button>
+                  )}
+                </>
+              )}
+              {profileSection === 'name' && (
+                <>
+                  <h2>Tên hiển thị</h2>
+                  <p className="intro">
+                    Tên hiển thị giúp bạn bè nhận ra bạn trên PingPong.
+                  </p>
+                  <form
+                    noValidate
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!name.trim() || name.trim().length > 100) {
+                        setError('Tên hiển thị cần từ 1 đến 100 ký tự.');
+                        return;
+                      }
+                      void action(
+                        async () => {
+                          const result = await api.authenticated<{
+                            user: api.User;
+                          }>(
+                            '/users/me',
+                            { displayName: name.trim() },
+                            'PATCH',
+                          );
+                          onUser(result.user);
+                        },
+                        'Đã lưu tên hiển thị.',
+                        false,
+                      );
+                    }}
+                  >
+                    <label>
+                      Tên hiển thị
+                      <input
+                        value={name}
+                        maxLength={100}
+                        disabled={busy}
+                        onChange={(e) => setName(e.target.value)}
+                      />
+                    </label>
+                    <button
+                      className="primary"
+                      disabled={busy || name.trim() === user.displayName}
+                    >
+                      Lưu thay đổi
+                    </button>
+                  </form>
+                </>
+              )}
+              {profileSection === 'password' && (
+                <>
+                  <h2>Đổi mật khẩu</h2>
+                  <p className="hint">
+                    Sau khi đổi, bạn sẽ đăng xuất trên tất cả thiết bị.
+                  </p>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (newPassword !== confirmPassword) {
+                        setError('Mật khẩu xác nhận chưa khớp.');
+                        return;
+                      }
+                      void action(
+                        async () => {
+                          await api.authenticated('/auth/change-password', {
+                            currentPassword,
+                            newPassword,
+                            confirmPassword,
+                          });
+                          setCurrentPassword('');
+                          setNewPassword('');
+                          setConfirmPassword('');
+                          api.clearSession();
+                          await onLogout();
+                        },
+                        '',
+                        false,
+                      );
+                    }}
+                  >
+                    <label>
+                      Mật khẩu hiện tại
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        required
+                        maxLength={128}
+                        disabled={busy}
+                        value={currentPassword}
+                        onChange={(event) =>
+                          setCurrentPassword(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Mật khẩu mới
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        minLength={8}
+                        maxLength={128}
+                        disabled={busy}
+                        value={newPassword}
+                        onChange={(event) => setNewPassword(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Xác nhận mật khẩu mới
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        minLength={8}
+                        maxLength={128}
+                        disabled={busy}
+                        value={confirmPassword}
+                        onChange={(event) =>
+                          setConfirmPassword(event.target.value)
+                        }
+                      />
+                    </label>
+                    <button className="primary" disabled={busy}>
+                      Đổi mật khẩu
+                    </button>
+                  </form>
+                </>
+              )}
+              {profileSection === 'details' && (
+                <>
+                  <h2>Thông tin tài khoản</h2>
+                  <dl>
+                    <div>
+                      <dt>Email</dt>
+                      <dd>{user.email}</dd>
+                    </div>
+                    <div>
+                      <dt>Ngày tham gia</dt>
+                      <dd>
+                        {new Intl.DateTimeFormat('vi-VN').format(
+                          new Date(user.createdAt),
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                </>
+              )}
             </section>
           ) : (
             <>
@@ -402,10 +740,23 @@ export function Home({
               <ul className="people-list">
                 {rows.map((row) => (
                   <li key={row.id}>
-                    <span className="peer-avatar" aria-hidden="true">
-                      {Array.from(row.user.displayName)[0]?.toUpperCase()}
+                    <span
+                      className="peer-avatar presence-avatar"
+                      aria-hidden="true"
+                    >
+                      <Avatar peer={row.user} />
+                      {tab === 'friends' && presence[row.user.id]?.online && (
+                        <span className="presence-dot" />
+                      )}
                     </span>
-                    <strong>{row.user.displayName}</strong>
+                    <div>
+                      <strong>{row.user.displayName}</strong>
+                      {tab === 'friends' && (
+                        <p className="hint">
+                          {presenceLabel(presence[row.user.id])}
+                        </p>
+                      )}
+                    </div>
                     <div className="peer-actions">
                       {tab === 'search' ? (
                         <button

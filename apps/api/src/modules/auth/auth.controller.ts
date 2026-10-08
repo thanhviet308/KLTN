@@ -20,9 +20,11 @@ import {
   RegisterDto,
   RequestRegistrationCodeDto,
   VerifyRegistrationCodeDto,
+  ChangePasswordDto,
 } from './auth.dto';
 import { RegistrationService } from './registration.service';
-import { Public } from './auth.decorators';
+import { Public, CurrentUser } from './auth.decorators';
+import type { User } from '../database/entities/user.entity';
 import { AuthRateLimit, AuthRateLimitGuard } from './auth-rate-limit';
 import { authError } from './auth-error';
 
@@ -32,6 +34,19 @@ const COOKIE_PATH = '/api/v1/auth';
 @UseGuards(AuthRateLimitGuard)
 @Controller('auth')
 export class AuthController {
+  @Post('change-password')
+  @HttpCode(204)
+  async changePassword(
+    @CurrentUser() user: User,
+    @Body() input: ChangePasswordDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const client = this.client(request, response);
+    this.limiter.take(`password:${user.id}`, 5, 15 * 60 * 1000, response);
+    await this.auth.changePassword(user.id, input);
+    if (client === 'web') response.clearCookie(COOKIE, this.cookieOptions());
+  }
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(ConfigService)

@@ -2,11 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import * as api from './api';
 import { RelativeTime } from './RelativeTime';
 import { Chat } from './Chat';
+import { Avatar } from './Avatar';
+import { UiIcon } from './UiIcon';
+import { presenceLabel, type Presence } from './usePresence';
 import { cachedHistory, loadRecentHistory } from './chat-history-cache';
 import type { History } from './chat-model';
 
 type Role = 'owner' | 'admin' | 'member';
 interface Peer {
+  avatarUrl?: string | null;
   id: string;
   displayName: string;
 }
@@ -51,11 +55,13 @@ export function Conversations({
   onExpired,
   active = true,
   recipient,
+  presence = {},
 }: {
   user: api.User;
   onExpired: () => void;
   active?: boolean;
   recipient?: { id: string; key: number };
+  presence?: Record<string, Presence>;
 }) {
   const [items, setItems] = useState<Conversation[]>([]);
   const [directNames, setDirectNames] = useState<Record<string, string>>({});
@@ -63,10 +69,21 @@ export function Conversations({
   const [selected, setSelected] = useState<Conversation>();
   const [members, setMembers] = useState<Member[]>([]);
   const [friends, setFriends] = useState<Peer[]>([]);
+  const [friendsLoading, setFriendsLoading] = useState(true);
+  const [friendsUnavailable, setFriendsUnavailable] = useState(false);
+  const onlineFriends = friends
+    .filter((peer) => presence[peer.id]?.online)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName, 'vi'));
   const [creating, setCreating] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [filter, setFilter] = useState('');
+  const [category, setCategory] = useState<'all' | 'unread' | 'group'>('all');
   const [friendFilter, setFriendFilter] = useState('');
+  const matchingFriends = friends.filter((peer) =>
+    peer.displayName
+      .toLocaleLowerCase('vi')
+      .includes(friendFilter.toLocaleLowerCase('vi').trim()),
+  );
   const [listLoading, setListLoading] = useState(true);
   const [type, setType] = useState<'direct' | 'group'>('direct');
   const [title, setTitle] = useState('');
@@ -198,17 +215,31 @@ export function Conversations({
   }, []);
   useEffect(() => {
     if (!active) return;
+    const refreshFriends = () => {
+      void loadFriends().catch(() => {
+        if (live.current) {
+          setFriendsUnavailable(true);
+          setFriendsLoading(false);
+        }
+      });
+    };
+    refreshFriends();
     void list().catch((error) => {
       setListLoading(false);
       fail(error);
     });
     const refresh = () => {
-      if (document.visibilityState === 'visible') void list().catch(fail);
+      if (document.visibilityState === 'visible') {
+        void list().catch(fail);
+        refreshFriends();
+      }
     };
     window.addEventListener('focus', refresh);
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible')
+      if (document.visibilityState === 'visible') {
         void list(undefined, true).catch(fail);
+        refreshFriends();
+      }
     }, 30000);
     return () => {
       window.removeEventListener('focus', refresh);
@@ -232,7 +263,11 @@ export function Conversations({
     : 'Hội thoại';
   async function loadFriends() {
     const rows = await all<{ user: Peer }>('/friends');
-    if (live.current) setFriends(rows.map((row) => row.user));
+    if (live.current) {
+      setFriends(rows.map((row) => row.user));
+      setFriendsLoading(false);
+      setFriendsUnavailable(false);
+    }
   }
   async function create() {
     if (type === 'group' && (!title.trim() || title.trim().length > 200)) {
@@ -306,18 +341,88 @@ export function Conversations({
           <h2>Đoạn chat</h2>
           <button
             className="secondary accept"
+            aria-label="Nhắn tin mới"
+            title="Nhắn tin mới"
             disabled={busy}
             onClick={() => compose('direct')}
           >
-            Nhắn mới
+            <UiIcon name="compose" />
           </button>
         </div>
-        <input
-          aria-label="Tìm cuộc trò chuyện"
-          placeholder="Tìm cuộc trò chuyện"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
+        <div className="thread-search">
+          <UiIcon name="search" size={18} />
+          <input
+            aria-label="Tìm cuộc trò chuyện"
+            placeholder="Tìm cuộc trò chuyện"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+        <section className="active-friends" aria-label="Bạn bè đang hoạt động">
+          {friendsLoading ? (
+            <p className="active-friends-status" role="status">
+              Đang tải bạn bè…
+            </p>
+          ) : friendsUnavailable ? (
+            <p className="active-friends-status">
+              Chưa tải được danh sách bạn bè.
+              <button
+                type="button"
+                className="retry"
+                disabled={busy}
+                onClick={() => void run(loadFriends)}
+              >
+                Thử lại
+              </button>
+            </p>
+          ) : onlineFriends.length > 0 ? (
+            <ul className="active-friends-list">
+              {onlineFriends.map((peer) => (
+                <li key={peer.id}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    title={`${peer.displayName} · Đang hoạt động`}
+                    aria-label={`Nhắn tin cho ${peer.displayName}, đang hoạt động`}
+                    onClick={() => void startDirect(peer.id)}
+                  >
+                    <span className="active-friend-avatar">
+                      <Avatar peer={peer} />
+                      <span className="presence-dot" aria-hidden="true" />
+                    </span>
+                    <span className="active-friend-name">
+                      {peer.displayName}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="active-friends-status">
+              {Object.keys(presence).length === 0 && friends.length > 0
+                ? 'Đang cập nhật trạng thái…'
+                : 'Chưa có bạn bè đang hoạt động.'}
+            </p>
+          )}
+        </section>
+        <div className="thread-filters" aria-label="Lọc đoạn chat">
+          {(
+            [
+              ['all', 'Tất cả'],
+              ['unread', 'Chưa đọc'],
+              ['group', 'Nhóm'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={category === key}
+              onClick={() => setCategory(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="thread-tools">
           <button
             className="retry"
@@ -337,6 +442,13 @@ export function Conversations({
         <ul className="thread-list">
           {items
             .slice()
+            .filter(
+              (item) =>
+                category === 'all' ||
+                (category === 'unread'
+                  ? !!item.unreadCount
+                  : item.type === 'group'),
+            )
             .sort((a, b) => {
               const time = (item: Conversation) =>
                 Date.parse(
@@ -380,15 +492,31 @@ export function Conversations({
                     if (item.type === 'group') void detail(item.id).catch(fail);
                   }}
                 >
-                  <span className="peer-avatar">
-                    {Array.from(
-                      item.title ?? directNames[item.id] ?? 'H',
-                    )[0]?.toUpperCase()}
+                  <span className="peer-avatar presence-avatar">
+                    {item.peer && presence[item.peer.id]?.online && (
+                      <span
+                        className="presence-dot"
+                        aria-label="Đang hoạt động"
+                      />
+                    )}
+                    <Avatar
+                      peer={
+                        item.peer ?? {
+                          displayName:
+                            item.title ?? directNames[item.id] ?? 'H',
+                        }
+                      }
+                    />
                   </span>
                   <span className="thread-summary">
                     <strong>
                       {item.title ?? directNames[item.id] ?? 'Trò chuyện riêng'}
                     </strong>
+                    {item.peer && presence[item.peer.id] && (
+                      <small className="thread-presence">
+                        {presenceLabel(presence[item.peer.id])}
+                      </small>
+                    )}
                     <div className="thread-preview-row">
                       <small>
                         {item.lastMessage
@@ -423,6 +551,26 @@ export function Conversations({
               </li>
             ))}
         </ul>
+        {!listLoading &&
+          items.length > 0 &&
+          !items.some(
+            (item) =>
+              (category === 'all' ||
+                (category === 'unread'
+                  ? !!item.unreadCount
+                  : item.type === 'group')) &&
+              (item.title ?? directNames[item.id] ?? 'Trò chuyện riêng')
+                .toLocaleLowerCase('vi')
+                .includes(filter.toLocaleLowerCase('vi')),
+          ) && (
+            <p className="list-status">
+              {filter
+                ? 'Không tìm thấy cuộc trò chuyện phù hợp.'
+                : category === 'unread'
+                  ? 'Bạn đã đọc hết tin nhắn.'
+                  : 'Chưa có cuộc trò chuyện nhóm.'}
+            </p>
+          )}
         {listLoading && !items.length && (
           <p className="list-status" role="status">
             Đang tải đoạn chat…
@@ -445,54 +593,86 @@ export function Conversations({
       </aside>
       <div className="thread-content">
         <div className="conversation-toolbar">
+          {(selected || creating) && (
+            <button
+              className="chat-back"
+              type="button"
+              aria-label="Trở về danh sách trò chuyện"
+              onClick={() => {
+                readVersion.current++;
+                setSelected(undefined);
+                setCreating(false);
+                setShowInfo(false);
+                setConfirmation(undefined);
+                setError('');
+                setNotice('');
+              }}
+            >
+              ←
+            </button>
+          )}
           <h2>
-            {creating
-              ? type === 'direct'
-                ? 'Tin nhắn mới'
-                : 'Tạo nhóm'
-              : selected
-                ? heading
-                : 'PingPong'}
-          </h2>
-          <div className="peer-actions">
-            {selected && (
+            {selected ? (
               <button
-                className="secondary"
+                className="chat-heading"
+                type="button"
                 disabled={busy}
+                aria-label="Xem thông tin cuộc trò chuyện"
+                aria-expanded={showInfo}
                 onClick={() => {
-                  readVersion.current++;
-                  setSelected(undefined);
-                  setConfirmation(undefined);
-                  setError('');
-                  setNotice('');
+                  setShowInfo(!showInfo);
+                  if (!showInfo) void run(() => detail(selected.id));
                 }}
               >
-                Quay lại
+                <span className="chat-header-avatar">
+                  <Avatar
+                    peer={selected.peer ?? { displayName: heading ?? 'Nhóm' }}
+                  />
+                </span>
+                <span className="chat-header-title">
+                  {heading}
+                  <small>
+                    {selected.type === 'group' ? (
+                      'Trò chuyện nhóm'
+                    ) : (
+                      <span
+                        className={`presence-status${selected.peer && presence[selected.peer.id]?.online ? ' is-online' : ''}`}
+                      >
+                        <span aria-hidden="true" />
+                        {presenceLabel(
+                          selected.peer
+                            ? presence[selected.peer.id]
+                            : undefined,
+                        )}
+                      </span>
+                    )}
+                  </small>
+                </span>
               </button>
+            ) : creating ? (
+              type === 'direct' ? (
+                'Tin nhắn mới'
+              ) : (
+                'Tạo nhóm'
+              )
+            ) : (
+              'PingPong'
             )}
+          </h2>
+          {selected && (
             <button
-              className="secondary"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await list();
-                  if (selected) await detail(selected.id);
-                })
-              }
+              type="button"
+              className="chat-info-button"
+              aria-label="Thông tin cuộc trò chuyện"
+              aria-expanded={showInfo}
+              onClick={() => {
+                setShowInfo(!showInfo);
+                if (!showInfo) void run(() => detail(selected.id));
+              }}
             >
-              Tải lại
+              <UiIcon name="info" />
             </button>
-            {selected && (
-              <button
-                className="secondary"
-                disabled={busy}
-                aria-expanded={showInfo}
-                onClick={() => setShowInfo(!showInfo)}
-              >
-                Thông tin
-              </button>
-            )}
-          </div>
+          )}
         </div>
         {error && (
           <div className="message error" role="alert">
@@ -511,7 +691,7 @@ export function Conversations({
         )}
         {creating && !selected && (
           <form
-            className="conversation-form"
+            className="conversation-form compose-card"
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
@@ -519,6 +699,24 @@ export function Conversations({
             }}
           >
             <fieldset disabled={busy}>
+              <div className="compose-intro">
+                <span className="compose-icon" aria-hidden="true">
+                  <UiIcon
+                    name={type === 'direct' ? 'compose' : 'friends'}
+                    size={24}
+                  />
+                </span>
+                <h3>
+                  {type === 'direct'
+                    ? 'Bạn muốn nhắn tin cho ai?'
+                    : 'Tạo nhóm trò chuyện'}
+                </h3>
+                <p>
+                  {type === 'direct'
+                    ? 'Chọn một người bạn để bắt đầu trò chuyện.'
+                    : 'Đặt tên nhóm và chọn những người bạn muốn thêm.'}
+                </p>
+              </div>
               {type === 'group' && (
                 <label>
                   Tên nhóm
@@ -529,79 +727,96 @@ export function Conversations({
                   />
                 </label>
               )}
-              <p className="hint">
-                {type === 'direct'
-                  ? 'Chọn một người trong danh sách bạn bè.'
-                  : `Chọn thành viên · ${chosen.length}/49`}
-              </p>
               {!friends.length && (
                 <p className="intro">
                   Bạn cần kết bạn trước khi tạo hội thoại.
                 </p>
               )}
-              <div className="friend-picker">
+              <div className="compose-search">
+                <UiIcon name="search" size={18} />
                 <input
+                  type="search"
+                  autoFocus
                   aria-label="Tìm người nhận"
                   placeholder="Tìm bạn theo tên…"
                   value={friendFilter}
                   onChange={(event) => setFriendFilter(event.target.value)}
                 />
-                {friends
-                  .filter((peer) =>
-                    peer.displayName
-                      .toLocaleLowerCase('vi')
-                      .includes(friendFilter.toLocaleLowerCase('vi').trim()),
-                  )
-                  .map((peer) =>
-                    type === 'direct' ? (
-                      <button
-                        className="compose-peer"
-                        type="button"
-                        key={peer.id}
-                        onClick={() => void startDirect(peer.id)}
-                      >
-                        <span className="peer-avatar">
-                          {Array.from(peer.displayName)[0]?.toUpperCase()}
-                        </span>
-                        {peer.displayName}
-                        <span>→</span>
-                      </button>
-                    ) : (
-                      <label key={peer.id}>
-                        <input
-                          type="checkbox"
-                          name="conversation-peer"
-                          checked={chosen.includes(peer.id)}
-                          disabled={
-                            type === 'group' &&
-                            chosen.length >= 49 &&
-                            !chosen.includes(peer.id)
-                          }
-                          onChange={() =>
-                            setChosen((previous) =>
-                              previous.includes(peer.id)
-                                ? previous.filter((id) => id !== peer.id)
-                                : [...previous, peer.id],
-                            )
-                          }
-                        />
-                        {peer.displayName}
-                      </label>
-                    ),
-                  )}
               </div>
-              {type === 'group' && (
-                <button className="primary" disabled={!friends.length}>
-                  Tạo nhóm
+              <p className="compose-list-label">
+                {type === 'direct'
+                  ? `Bạn bè · ${matchingFriends.length}`
+                  : `Chọn thành viên · ${chosen.length}/49`}
+              </p>
+              <div className="friend-picker">
+                {friends.length > 0 && matchingFriends.length === 0 && (
+                  <p className="compose-no-results" role="status">
+                    Không tìm thấy bạn bè phù hợp. Hãy thử tên khác.
+                  </p>
+                )}
+                {matchingFriends.map((peer) =>
+                  type === 'direct' ? (
+                    <button
+                      className="compose-peer"
+                      type="button"
+                      key={peer.id}
+                      onClick={() => void startDirect(peer.id)}
+                    >
+                      <span className="peer-avatar">
+                        <Avatar peer={peer} />
+                      </span>
+                      <span className="compose-peer-name">
+                        {peer.displayName}
+                        <small>Nhấn để mở trò chuyện</small>
+                      </span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  ) : (
+                    <label key={peer.id}>
+                      <input
+                        type="checkbox"
+                        name="conversation-peer"
+                        checked={chosen.includes(peer.id)}
+                        disabled={
+                          type === 'group' &&
+                          chosen.length >= 49 &&
+                          !chosen.includes(peer.id)
+                        }
+                        onChange={() =>
+                          setChosen((previous) =>
+                            previous.includes(peer.id)
+                              ? previous.filter((id) => id !== peer.id)
+                              : [...previous, peer.id],
+                          )
+                        }
+                      />
+                      <span className="peer-avatar">
+                        <Avatar peer={peer} />
+                      </span>
+                      <span className="compose-peer-name">
+                        {peer.displayName}
+                      </span>
+                    </label>
+                  ),
+                )}
+              </div>
+              <div className="compose-footer">
+                {type === 'group' && (
+                  <button
+                    className="primary"
+                    disabled={!chosen.length || !title.trim()}
+                  >
+                    Tạo nhóm
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setCreating(false)}
+                >
+                  Hủy
                 </button>
-              )}
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setCreating(false)}
-              >
-                Hủy
-              </button>
+              </div>
             </fieldset>
           </form>
         )}
@@ -678,7 +893,18 @@ export function Conversations({
           />
         )}
         {selected && showInfo && (
-          <>
+          <section
+            className="conversation-details"
+            aria-label="Thông tin cuộc trò chuyện"
+          >
+            <button
+              type="button"
+              className="secondary details-back"
+              onClick={() => setShowInfo(false)}
+            >
+              ← Quay lại trò chuyện
+            </button>
+            <h2>Thông tin cuộc trò chuyện</h2>
             <p className="intro">
               {isGroup
                 ? `${members.length}/50 thành viên · ${roles[selected.membership.role]}`
@@ -721,7 +947,9 @@ export function Conversations({
                 </button>
               </form>
             )}
-            <h3>Thành viên</h3>
+            <h3>
+              Thành viên <span className="member-count">{members.length}</span>
+            </h3>
             {confirmation && (
               <div className="confirm-panel" role="alert">
                 <p>{confirmation.text}</p>
@@ -773,7 +1001,7 @@ export function Conversations({
               {members.map((member) => (
                 <li key={member.id}>
                   <span className="peer-avatar">
-                    {Array.from(member.user.displayName)[0]?.toUpperCase()}
+                    <Avatar peer={member.user} />
                   </span>
                   <div>
                     <strong>
@@ -782,6 +1010,9 @@ export function Conversations({
                     </strong>
                     <p className="hint">
                       {isGroup ? roles[member.role] : 'Thành viên'}
+                      {member.user.id !== user.id &&
+                        presence[member.user.id] !== undefined &&
+                        ` · ${presenceLabel(presence[member.user.id])}`}
                     </p>
                   </div>
                   <div className="peer-actions">
@@ -926,7 +1157,7 @@ export function Conversations({
                   Rời nhóm
                 </button>
               ))}
-          </>
+          </section>
         )}
       </div>
     </section>

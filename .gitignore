@@ -20,3 +20,7 @@ credentials*.json
 service-account*.json
 deploy/vps/postgres.env
 deploy/vps/backups/
+
+# Private chat attachments
+/storage/
+/apps/api/storage/

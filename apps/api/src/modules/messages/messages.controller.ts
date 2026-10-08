@@ -1,5 +1,8 @@
 import {
   Body,
+  Req,
+  Res,
+  StreamableFile,
   Controller,
   Get,
   Delete,
@@ -14,6 +17,8 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/auth.decorators';
 import type { User } from '../database/entities/user.entity';
+import type { Request, Response } from 'express';
+import { ChatFilesService } from './chat-files.service';
 import { MessagesService } from './messages.service';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
 import {
@@ -22,6 +27,7 @@ import {
   MessageReceiptDto,
   EditMessageDto,
   MessageReactionDto,
+  UploadMessageDto,
 } from './messages.dto';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
 import { PageDto } from '../../common/page.dto';
@@ -73,7 +79,56 @@ export class MessagesController {
   }
   constructor(
     @Inject(MessagesService) private readonly messages: MessagesService,
+    @Inject(ChatFilesService) private readonly files: ChatFilesService,
   ) {}
+
+  @Post('messages/upload')
+  @HttpCode(200)
+  async upload(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Query() input: UploadMessageDto,
+    @Req() request: Request,
+  ) {
+    id = id.toLowerCase();
+    await this.messages.authorizeUpload(user.id, id);
+    const media = await this.files.receive(request, input);
+    try {
+      const result = await this.messages.send(
+        user.id,
+        id,
+        { clientMessageId: input.clientMessageId.toLowerCase(), type: 'text' },
+        media,
+      );
+      if (result.message.content?.attachmentId !== media.id)
+        await this.files.remove(media.id);
+      return result;
+    } catch (error) {
+      await this.files.remove(media.id);
+      throw error;
+    }
+  }
+
+  @Get('messages/:messageId/file')
+  async file(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const attachment = await this.messages.attachment(
+      user.id,
+      id.toLowerCase(),
+      messageId.toLowerCase(),
+    );
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    return new StreamableFile(await this.files.stream(attachment.objectKey), {
+      type: attachment.mimeType,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(attachment.fileName).replace(/'/g, '%27')}`,
+      length: Number(attachment.size),
+    });
+  }
 
   @Post('messages')
   @HttpCode(200)

@@ -8,6 +8,7 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
+  avatarUrl?: string | null;
   role: string;
   status: string;
   createdAt: string;
@@ -116,6 +117,65 @@ export async function authenticated<T>(
   }
 }
 
+async function binaryRequest(path: string, file?: Blob): Promise<Response> {
+  const attempt = (bearer: string) =>
+    fetch(`${API_ORIGIN}/api/v1${path}`, {
+      method: file ? 'POST' : 'GET',
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        'X-Auth-Client': 'web',
+        ...(file ? { 'Content-Type': 'application/octet-stream' } : {}),
+      },
+      body: file,
+      signal: AbortSignal.timeout(60000),
+    });
+  try {
+    const attemptedToken = await accessToken();
+    let response = await attempt(attemptedToken);
+    if (response.status === 401) {
+      if (token === attemptedToken) await refresh();
+      response = await attempt(await accessToken());
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new ApiError(response.status, error.code ?? 'UNKNOWN');
+    }
+    return response;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(0, 'NETWORK_ERROR');
+  }
+}
+
+export async function uploadChatFile<T>(
+  conversationId: string,
+  clientMessageId: string,
+  file: File,
+  type: 'image' | 'file' | 'voice',
+) {
+  const query = new URLSearchParams({
+    clientMessageId,
+    fileName: file.name,
+    type,
+    mimeType: file.type || 'application/octet-stream',
+  });
+  return (
+    await binaryRequest(
+      `/conversations/${conversationId}/messages/upload?${query}`,
+      file,
+    )
+  ).json() as Promise<T>;
+}
+
+export async function chatFile(conversationId: string, messageId: string) {
+  return (
+    await binaryRequest(
+      `/conversations/${conversationId}/messages/${messageId}/file`,
+    )
+  ).blob();
+}
+
 export const register = (body: {
   email: string;
   password: string;
@@ -159,6 +219,21 @@ export function clearSession() {
 export function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
     const messages: Record<string, string> = {
+      FILE_TOO_LARGE: 'Tệp vượt quá giới hạn 10 MB.',
+      EMPTY_FILE: 'Không thể gửi tệp rỗng.',
+      INVALID_IMAGE:
+        'Ảnh không hợp lệ. Chọn ảnh PNG, JPEG hoặc WebP tĩnh, tối đa 16 triệu pixel.',
+      INVALID_AUDIO: 'Bản ghi âm không hợp lệ hoặc định dạng chưa được hỗ trợ.',
+      INVALID_LOCATION: 'Vị trí chưa hợp lệ. Hãy lấy lại vị trí và gửi lại.',
+      UPLOAD_BUSY: 'Máy chủ đang xử lý tệp khác. Hãy thử gửi lại sau vài giây.',
+      UPLOAD_TIMEOUT: 'Tải tệp quá lâu. Kiểm tra kết nối và gửi lại.',
+      STORAGE_QUOTA_EXCEEDED: 'Tài khoản đã đạt giới hạn lưu trữ tệp 512 MB.',
+      ATTACHMENT_NOT_FOUND:
+        'Tệp không còn khả dụng hoặc bạn không có quyền tải.',
+      AVATAR_INVALID: 'Chọn ảnh PNG, JPEG hoặc WebP tĩnh, tối đa 512 KB.',
+      CURRENT_PASSWORD_INVALID: 'Mật khẩu hiện tại chưa đúng.',
+      PASSWORD_UNCHANGED: 'Mật khẩu mới cần khác mật khẩu hiện tại.',
+      PASSWORD_STATE_CONFLICT: 'Tài khoản vừa thay đổi. Vui lòng thử lại.',
       MESSAGE_SEND_FORBIDDEN:
         'Bạn không còn quyền gửi tin nhắn trong cuộc trò chuyện này.',
       MESSAGE_IDEMPOTENCY_CONFLICT:

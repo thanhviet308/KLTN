@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from './api';
 import type { Message } from './chat-model';
@@ -8,13 +8,54 @@ export function MessageActions({
   mine,
   onUpdate,
   onReply,
+  onReact,
 }: {
   message: Message;
   mine: boolean;
   onUpdate: (message: Message) => void;
   onReply: (message: Message) => void;
+  onReact: () => void;
 }) {
+  const isText = !message.type || message.type === 'text';
   const [mode, setMode] = useState<'forward' | 'edit' | 'recall'>();
+  const [menu, setMenu] = useState<{ left: number; top: number }>();
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const menuElement = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    menuElement.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (
+        !menuElement.current?.contains(event.target as Node) &&
+        !menuButton.current?.contains(event.target as Node)
+      )
+        setMenu(undefined);
+    };
+    const reposition = () => setMenu(undefined);
+    document.addEventListener('pointerdown', dismiss);
+    window.addEventListener('resize', reposition);
+    document.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('resize', reposition);
+      document.removeEventListener('scroll', reposition, true);
+    };
+  }, [menu]);
+  function toggleMenu() {
+    if (menu) {
+      setMenu(undefined);
+      return;
+    }
+    const bounds = menuButton.current!.getBoundingClientRect();
+    const height = mine && isText ? 136 : 56;
+    setMenu({
+      left: Math.max(8, Math.min(bounds.right - 180, window.innerWidth - 188)),
+      top:
+        bounds.top > height + 18
+          ? bounds.top - height - 8
+          : Math.min(bounds.bottom + 8, window.innerHeight - height - 8),
+    });
+  }
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -50,6 +91,7 @@ export function MessageActions({
     setCursor(page.nextCursor);
   }
   async function open(action: 'forward' | 'edit' | 'recall') {
+    setMenu(undefined);
     setMode(action);
     setReady(false);
     setError('');
@@ -122,11 +164,29 @@ export function MessageActions({
       setBusy(false);
     }
   }
-  if (message.deletedAt || (message.type && message.type !== 'text'))
-    return null;
+  if (message.deletedAt) return null;
   return (
     <>
-      <div className="message-tools">
+      <div className={`message-tools${menu ? ' menu-open' : ''}`}>
+        <button
+          type="button"
+          data-tooltip="Bày tỏ cảm xúc"
+          aria-label="Bày tỏ cảm xúc"
+          onClick={onReact}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M8 14c2 3 6 3 8 0" />
+            <path d="M8 9h1m6 0h1" />
+          </svg>
+        </button>
         <button
           type="button"
           data-tooltip="Trả lời tin nhắn"
@@ -144,62 +204,92 @@ export function MessageActions({
             <path d="m9 4-6 6 6 6M3 10h9c6 0 9 4 9 10" />
           </svg>
         </button>
-        <button
-          type="button"
-          data-tooltip="Chuyển tiếp tin nhắn"
-          aria-label="Chuyển tiếp tin nhắn"
-          onClick={() => void open('forward')}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
+        {(mine || isText) && (
+          <button
+            type="button"
+            ref={menuButton}
+            aria-label="Thêm thao tác"
+            aria-haspopup="menu"
+            aria-expanded={!!menu}
+            onClick={toggleMenu}
           >
-            <path d="m14 4 7 7-7 7V13C7 13 4 16 3 20c0-9 4-13 11-13Z" />
-          </svg>
-        </button>
-        {mine && (
-          <>
-            <button
-              type="button"
-              data-tooltip="Sửa tin nhắn"
-              aria-label="Sửa tin nhắn"
-              onClick={() => void open('edit')}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="m16 3 5 5-13 13H3v-5Z" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              data-tooltip="Thu hồi tin nhắn"
-              aria-label="Thu hồi tin nhắn"
-              onClick={() => void open('recall')}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
-              </svg>
-            </button>
-          </>
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="12" cy="19" r="2" />
+            </svg>
+          </button>
         )}
       </div>
+      {menu &&
+        createPortal(
+          <div
+            ref={menuElement}
+            className="message-action-menu"
+            role="menu"
+            aria-label="Thao tác tin nhắn"
+            style={menu}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setMenu(undefined);
+                menuButton.current?.focus();
+              }
+              if (event.key === 'Tab') setMenu(undefined);
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const buttons = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    'button',
+                  ),
+                );
+                const index = buttons.indexOf(
+                  document.activeElement as HTMLButtonElement,
+                );
+                buttons[
+                  (index +
+                    (event.key === 'ArrowDown' ? 1 : -1) +
+                    buttons.length) %
+                    buttons.length
+                ]?.focus();
+              }
+            }}
+          >
+            {mine && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void open('recall')}
+              >
+                Thu hồi
+              </button>
+            )}
+            {isText && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void open('forward')}
+              >
+                Chuyển tiếp
+              </button>
+            )}
+            {mine && isText && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void open('edit')}
+              >
+                Sửa tin nhắn
+              </button>
+            )}
+          </div>,
+          document.body,
+        )}
       {mode &&
         createPortal(
           <div

@@ -1,5 +1,11 @@
-import { IsBoolean, IsUUID } from 'class-validator';
+import { IsBoolean, IsOptional, IsUUID } from 'class-validator';
 import { MessageHistoryDto, SendMessageDto } from '../messages/messages.dto';
+
+export class PresenceSocketDto {
+  @IsOptional()
+  @IsBoolean()
+  refresh?: boolean;
+}
 
 export class ConversationSocketDto {
   @IsUUID('4')

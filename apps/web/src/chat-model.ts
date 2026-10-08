@@ -5,7 +5,15 @@ export interface Message {
   clientMessageId: string;
   sequence: string;
   body: string | null;
-  type?: 'text' | 'image' | 'file';
+  type?: 'text' | 'image' | 'file' | 'voice' | 'location';
+  content?: {
+    attachmentId?: string;
+    fileName?: string;
+    mimeType?: string;
+    size?: number;
+    latitude?: number;
+    longitude?: number;
+  } | null;
   editedAt?: string | null;
   deletedAt?: string | null;
   createdAt: string;
@@ -49,4 +57,15 @@ export function mergeReceipt(
     deliveredAt: previous?.deliveredAt ?? next.deliveredAt,
     readAt: previous?.readAt ?? next.readAt,
   };
+}
+
+export function messageSummary(message: Message) {
+  if (message.deletedAt) return 'Tin nh?n ?? thu h?i';
+  if (message.body) return message.body;
+  if (message.type === 'location') return 'V? tr? ???c chia s?';
+  if (message.type === 'voice') return 'Tin nh?n tho?i';
+  return (
+    message.content?.fileName ??
+    (message.type === 'image' ? '?nh' : 'T?p ??nh k?m')
+  );
 }

@@ -384,7 +384,7 @@ export class ConversationsService {
       ? await this.db
           .getRepository(User)
           .createQueryBuilder('user')
-          .select(['user.id', 'user.displayName'])
+          .select(['user.id', 'user.displayName', 'user.avatarKey'])
           .where('user.id IN (:...peerIds)', { peerIds })
           .getMany()
       : [];

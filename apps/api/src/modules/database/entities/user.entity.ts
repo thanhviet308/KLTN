@@ -21,6 +21,8 @@ export class User {
   @Column({ type: 'varchar', length: 254, unique: true }) email!: string;
   @Column({ name: 'password_hash', type: 'text', select: false })
   passwordHash!: string;
+  @Column({ name: 'last_active_at', type: 'timestamptz', nullable: true })
+  lastActiveAt!: Date | null;
   @Column({ name: 'display_name', type: 'varchar', length: 100 })
   displayName!: string;
   @Column({ name: 'avatar_key', type: 'text', nullable: true }) avatarKey!:

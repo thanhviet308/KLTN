@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import * as api from './api';
 import { Home } from './Home';
 import './style.css';
+import './workspace.css';
 
 function App() {
   const [mode, setMode] = useState<'login' | 'register'>('login');

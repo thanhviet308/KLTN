@@ -1,7 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import * as api from './api';
+import { Avatar } from './Avatar';
+import { MediaTools, MessageMedia, type MediaDraft } from './ChatMedia';
 import { MessageActions } from './MessageActions';
+import { MessageReactions } from './MessageReactions';
 import {
   cachedHistory,
   loadRecentHistory,
@@ -9,6 +12,7 @@ import {
 } from './chat-history-cache';
 import {
   mergeMessages,
+  messageSummary,
   mergeReceipt,
   type Message,
   type Receipt,
@@ -18,10 +22,12 @@ import {
 interface Draft {
   clientMessageId: string;
   body: string;
+  media?: MediaDraft;
   status: 'sending' | 'failed';
   error?: string;
 }
 interface Peer {
+  avatarUrl?: string | null;
   id: string;
   displayName: string;
 }
@@ -55,7 +61,17 @@ export function Chat({
   );
   const [body, setBody] = useState(() => drafts.get(draftKey)?.body ?? '');
   const [replyTo, setReplyTo] = useState<Message>();
+  const [reactionTarget, setReactionTarget] = useState<string>();
+  const [reactionVersions, setReactionVersions] = useState<
+    Record<string, number>
+  >({});
   const composer = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const input = composer.current;
+    if (!input) return;
+    input.style.height = '38px';
+    input.style.height = `${Math.min(140, Math.max(38, input.scrollHeight))}px`;
+  }, [body]);
   useEffect(() => {
     drafts.set(draftKey, { body, pending });
   }, [body, pending, draftKey]);
@@ -313,6 +329,16 @@ export function Chat({
     client.on('message:created', (message: Message) => {
       if (message.conversationId === conversationId) accept([message]);
     });
+    client.on(
+      'message:reactions',
+      (event: { conversationId: string; messageId: string }) => {
+        if (event.conversationId === conversationId && alive.current)
+          setReactionVersions((previous) => ({
+            ...previous,
+            [event.messageId]: (previous[event.messageId] ?? 0) + 1,
+          }));
+      },
+    );
     for (const name of ['message:updated', 'message:deleted']) {
       client.on(name, (message: Message) => {
         if (message.conversationId === conversationId) accept([message]);
@@ -483,10 +509,23 @@ export function Chat({
     ]);
     nearBottom.current = true;
     try {
-      const result = await api.authenticated<{ message: Message }>(
-        `/conversations/${conversationId}/messages`,
-        { clientMessageId: draft.clientMessageId, body: draft.body },
-      );
+      const result = draft.media?.file
+        ? await api.uploadChatFile<{ message: Message }>(
+            conversationId,
+            draft.clientMessageId,
+            draft.media.file,
+            draft.media.type as 'image' | 'file' | 'voice',
+          )
+        : await api.authenticated<{ message: Message }>(
+            `/conversations/${conversationId}/messages`,
+            draft.media?.type === 'location'
+              ? {
+                  clientMessageId: draft.clientMessageId,
+                  type: 'location',
+                  location: draft.media.location,
+                }
+              : { clientMessageId: draft.clientMessageId, body: draft.body },
+          );
       accept([result.message]);
     } catch (e) {
       if (alive.current)
@@ -664,6 +703,14 @@ export function Chat({
                     setReplyTo(message);
                     composer.current?.focus();
                   }}
+                  onReact={() => setReactionTarget(message.id)}
+                />
+                <MessageReactions
+                  message={message}
+                  revision={reactionVersions[message.id] ?? 0}
+                  open={reactionTarget === message.id}
+                  onClose={() => setReactionTarget(undefined)}
+                  active={active}
                 />
                 {!mine && (
                   <span
@@ -675,14 +722,23 @@ export function Chat({
                     }
                     title={continuesGroup ? undefined : names(message.senderId)}
                   >
-                    {Array.from(names(message.senderId))[0]?.toUpperCase()}
+                    <Avatar
+                      peer={
+                        peers.find((peer) => peer.id === message.senderId) ?? {
+                          displayName: names(message.senderId),
+                        }
+                      }
+                    />
                   </span>
                 )}
                 <div className="message-body">
-                  {message.deletedAt
-                    ? 'Tin nhắn đã thu hồi'
-                    : (message.body ??
-                      (message.type === 'image' ? 'Ảnh' : 'Tệp đính kèm'))}
+                  {message.deletedAt ? (
+                    'Tin nh?n ?? thu h?i'
+                  ) : message.type && message.type !== 'text' ? (
+                    <MessageMedia message={message} />
+                  ) : (
+                    message.body
+                  )}
                 </div>
                 {lastSent && !message.deletedAt && readers.length === 0 && (
                   <div className="message-meta">
@@ -774,7 +830,7 @@ export function Chat({
         <div className="reply-preview">
           <div>
             <strong>Trả lời {names(replyTo.senderId)}</strong>
-            <p>{replyTo.body?.slice(0, 300)}</p>
+            <p>{messageSummary(replyTo).slice(0, 300)}</p>
           </div>
           <button
             type="button"
@@ -786,6 +842,24 @@ export function Chat({
           </button>
         </div>
       )}
+      <MediaTools
+        disabled={unavailable || !active}
+        onError={setError}
+        onSend={async (media) => {
+          setError('');
+          await send({
+            clientMessageId: crypto.randomUUID(),
+            body:
+              media.type === 'location'
+                ? '?? V? tr?'
+                : media.type === 'voice'
+                  ? 'Tin nh?n tho?i'
+                  : (media.file?.name ?? 'T?p'),
+            media,
+            status: 'sending',
+          });
+        }}
+      />
       <form
         className="message-composer"
         noValidate
@@ -801,7 +875,7 @@ export function Chat({
           value={body}
           disabled={unavailable}
           maxLength={10000}
-          rows={2}
+          rows={1}
           onChange={(e) => {
             setBody(e.target.value);
             updateTyping(!!e.target.value.trim());
@@ -822,8 +896,21 @@ export function Chat({
           className="secondary accept"
           disabled={unavailable || !body.trim()}
           type="submit"
+          aria-label="Gửi tin nhắn"
+          title="Gửi tin nhắn"
         >
-          Gửi →
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m3 3 18 9-18 9 4-9-4-9Z M7 12h14" />
+          </svg>
         </button>
       </form>
       <small className="hint">Enter để gửi · Shift + Enter để xuống dòng</small>

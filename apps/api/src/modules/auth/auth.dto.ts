@@ -29,6 +29,17 @@ export class LoginDto {
   @Length(1, 200)
   deviceName?: string;
 }
+export class ChangePasswordDto {
+  @IsString()
+  @Length(1, 128)
+  currentPassword!: string;
+  @IsString()
+  @Length(8, 128)
+  newPassword!: string;
+  @IsString()
+  @Length(8, 128)
+  confirmPassword!: string;
+}
 
 export class RegisterDto {
   @IsString()

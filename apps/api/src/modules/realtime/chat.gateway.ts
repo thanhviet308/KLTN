@@ -6,6 +6,9 @@ import type { OnGatewayDisconnect, OnGatewayInit } from '@nestjs/websockets';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import type { Namespace, Socket } from 'socket.io';
+import { DataSource, In } from 'typeorm';
+import { User } from '../database/entities/user.entity';
+import { Friendship } from '../database/entities/friendship.entity';
 import type { Environment } from '../../config/environment';
 import { Public } from '../auth/auth.decorators';
 import { AuthService } from '../auth/auth.service';
@@ -18,6 +21,7 @@ import {
   SendSocketDto,
   SyncSocketDto,
   TypingSocketDto,
+  PresenceSocketDto,
 } from './realtime.dto';
 
 interface Connection {
@@ -56,6 +60,7 @@ export class ChatGateway
   private sweep?: ReturnType<typeof setInterval>;
 
   constructor(
+    @Inject(DataSource) private readonly db: DataSource,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(MessagesService) private readonly messages: MessagesService,
     @Inject(RealtimeEvents) private readonly events: RealtimeEvents,
@@ -141,11 +146,28 @@ export class ChatGateway
       rooms: new Set(),
     });
     // Middleware may finish after the transport closes, before Nest disconnect hooks.
-    socket.conn.once('close', () => this.connections.delete(socket.id));
+    socket.conn.once('close', () => this.handleDisconnect(socket));
   }
 
   handleDisconnect(socket: Socket) {
+    const connection = this.connections.get(socket.id);
     this.connections.delete(socket.id);
+    if (
+      connection &&
+      ![...this.connections.values()].some(
+        (item) => item.userId === connection.userId,
+      )
+    )
+      void this.touchActivity(connection.userId).catch(() =>
+        this.logger.error({ code: 'PRESENCE_SAVE_FAILED' }),
+      );
+  }
+
+  private async touchActivity(userId: string) {
+    await this.db.query(
+      'UPDATE users SET last_active_at = GREATEST(last_active_at, $2::timestamptz) WHERE id = $1',
+      [userId, new Date()],
+    );
   }
 
   private error(error: unknown) {
@@ -216,6 +238,55 @@ export class ChatGateway
     } finally {
       if (connection && acquired) connection.pending--;
     }
+  }
+
+  @SubscribeMessage('presence:sync')
+  presence(socket: Socket, payload: unknown) {
+    return this.run(socket, payload, PresenceSocketDto, async (userId) => {
+      await this.touchActivity(userId);
+      const friends = await this.db.getRepository(Friendship).find({
+        where: [
+          { requesterId: userId, status: 'accepted' },
+          { recipientId: userId, status: 'accepted' },
+        ],
+      });
+      const online = new Set(
+        [...this.connections.entries()]
+          .filter(
+            ([id, connection]) =>
+              this.server.sockets.get(id)?.connected &&
+              connection.expiresAt > Date.now(),
+          )
+          .map(([, connection]) => connection.userId),
+      );
+      const ids = friends.map((friend) =>
+        friend.requesterId === userId ? friend.recipientId : friend.requesterId,
+      );
+      const users = ids.length
+        ? await this.db.getRepository(User).find({
+            where: { id: In(ids) },
+            select: { id: true, lastActiveAt: true },
+          })
+        : [];
+      const lastActive = new Map(
+        users.map((user) => [user.id, user.lastActiveAt]),
+      );
+      return Object.fromEntries(
+        friends.map((friend) => {
+          const peerId =
+            friend.requesterId === userId
+              ? friend.recipientId
+              : friend.requesterId;
+          return [
+            peerId,
+            {
+              online: online.has(peerId),
+              lastActiveAt: lastActive.get(peerId)?.toISOString() ?? null,
+            },
+          ];
+        }),
+      );
+    });
   }
 
   @SubscribeMessage('conversation:subscribe')

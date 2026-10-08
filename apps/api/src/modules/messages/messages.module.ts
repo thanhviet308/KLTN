@@ -1,3 +1,4 @@
+import { ChatFilesService } from './chat-files.service';
 import { Module } from '@nestjs/common';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { MessagesController } from './messages.controller';
@@ -8,7 +9,7 @@ import { MessageRateLimit } from './message-rate-limit';
 @Module({
   imports: [ConversationsModule, RealtimeEventsModule],
   controllers: [MessagesController],
-  providers: [MessagesService, MessageRateLimit],
+  providers: [MessagesService, MessageRateLimit, ChatFilesService],
   exports: [MessagesService],
 })
 export class MessagesModule {}

@@ -3,11 +3,11 @@ import { JwtService } from '@nestjs/jwt';
 import { DataSource, IsNull, MoreThan } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { User } from '../database/entities/user.entity';
+import { User } from '../database/entities/user.entity';
 import { Session } from '../database/entities/session.entity';
 import { SessionRefreshToken } from '../database/entities/session-refresh-token.entity';
 import { PasswordService } from './password.service';
-import type { LoginDto, RegisterDto } from './auth.dto';
+import type { LoginDto, RegisterDto, ChangePasswordDto } from './auth.dto';
 import { authError } from './auth-error';
 import { userView } from '../users/user-view';
 import { UsersService } from '../users/users.service';
@@ -20,6 +20,68 @@ const AUDIENCE = 'realtime-chat-client';
 
 @Injectable()
 export class AuthService {
+  async changePassword(userId: string, input: ChangePasswordDto) {
+    if (input.newPassword !== input.confirmPassword)
+      throw authError(
+        400,
+        'PASSWORD_CONFIRMATION_MISMATCH',
+        'Passwords do not match',
+      );
+    if (input.currentPassword === input.newPassword)
+      throw authError(400, 'PASSWORD_UNCHANGED', 'Choose a different password');
+    const candidate = await this.db
+      .getRepository(User)
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :userId', { userId })
+      .getOne();
+    if (
+      !candidate ||
+      !(await this.passwords.verify(
+        input.currentPassword,
+        candidate.passwordHash,
+      ))
+    )
+      throw authError(
+        400,
+        'CURRENT_PASSWORD_INVALID',
+        'Current password is incorrect',
+      );
+    const passwordHash = await this.passwords.hash(input.newPassword);
+    await this.db.transaction(async (manager) => {
+      // Refresh locks sessions before users; follow that order to avoid deadlocks.
+      await manager
+        .getRepository(Session)
+        .createQueryBuilder('session')
+        .where('session.userId = :userId AND session.revokedAt IS NULL', {
+          userId,
+        })
+        .orderBy('session.id', 'ASC')
+        .setLock('pessimistic_write')
+        .getMany();
+      const user = await manager
+        .getRepository(User)
+        .createQueryBuilder('user')
+        .addSelect('user.passwordHash')
+        .where('user.id = :userId', { userId })
+        .setLock('pessimistic_write')
+        .getOne();
+      if (
+        !user ||
+        user.status !== 'active' ||
+        user.passwordHash !== candidate.passwordHash
+      )
+        throw authError(
+          409,
+          'PASSWORD_STATE_CONFLICT',
+          'Account changed; try again',
+        );
+      await manager.getRepository(User).update(userId, { passwordHash });
+      await manager
+        .getRepository(Session)
+        .update({ userId, revokedAt: IsNull() }, { revokedAt: new Date() });
+    });
+  }
   private readonly logger = new Logger(AuthService.name);
 
   constructor(

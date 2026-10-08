@@ -4,6 +4,7 @@ import type { EntityManager, SelectQueryBuilder } from 'typeorm';
 import { ConversationsService } from '../conversations/conversations.service';
 import { Conversation } from '../database/entities/conversation.entity';
 import { ConversationMember } from '../database/entities/conversation-member.entity';
+import { Attachment } from '../database/entities/attachment.entity';
 import { Message } from '../database/entities/message.entity';
 import { MessageReceipt } from '../database/entities/message-receipt.entity';
 import { Friendship } from '../database/entities/friendship.entity';
@@ -104,6 +105,7 @@ export class MessagesService {
       sequence: message.sequence,
       type: message.type,
       body: message.deletedAt ? null : (message.editedBody ?? message.body),
+      content: message.deletedAt ? null : message.content,
       createdAt: message.createdAt,
       editedAt: message.editedAt,
       deletedAt: message.deletedAt,
@@ -149,7 +151,48 @@ export class MessagesService {
     return row;
   }
 
-  async send(actorId: string, conversationId: string, input: SendMessageDto) {
+  async send(
+    actorId: string,
+    conversationId: string,
+    input: SendMessageDto,
+    media?: {
+      id: string;
+      objectKey: string;
+      fileName: string;
+      mimeType: string;
+      size: number;
+      sha256: string;
+      type: 'image' | 'file' | 'voice';
+    },
+  ) {
+    if (
+      !media &&
+      input.type === 'location' &&
+      (!input.location || input.body !== undefined)
+    )
+      fail(
+        400,
+        'INVALID_LOCATION',
+        'Location requires coordinates and no text body',
+      );
+    if (!media && input.type === 'text' && input.location !== undefined)
+      fail(400, 'INVALID_PAYLOAD', 'Text cannot contain coordinates');
+    const type = media?.type ?? input.type;
+    const body = type === 'text' ? input.body! : null;
+    const content = media
+      ? {
+          attachmentId: media.id,
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          size: media.size,
+          sha256: media.sha256,
+        }
+      : input.type === 'location'
+        ? {
+            latitude: input.location!.latitude,
+            longitude: input.location!.longitude,
+          }
+        : null;
     this.rateLimit.take(actorId, 'send');
     const result = await this.db.transaction(async (manager) => {
       // Key scope is sender across conversations, matching messages_client_id.
@@ -157,6 +200,11 @@ export class MessagesService {
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
         [`message:${actorId}:${input.clientMessageId}`],
       );
+      if (media)
+        await manager.query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          [`media-quota:${actorId}`],
+        );
       const { conversation } = await this.conversations.requireAccess(
         manager,
         conversationId,
@@ -171,8 +219,14 @@ export class MessagesService {
       if (existing) {
         if (
           existing.conversationId !== conversationId ||
-          existing.type !== input.type ||
-          existing.body !== input.body
+          existing.type !== type ||
+          existing.body !== body ||
+          (media
+            ? existing.content?.sha256 !== media.sha256 ||
+              existing.content?.fileName !== media.fileName ||
+              existing.content?.mimeType !== media.mimeType
+            : existing.content?.latitude !== content?.latitude ||
+              existing.content?.longitude !== content?.longitude)
         )
           fail(
             409,
@@ -223,6 +277,21 @@ export class MessagesService {
             'Users must be friends to send new direct messages',
           );
       }
+      if (media) {
+        const totals: { bytes: string }[] = await manager.query(
+          "SELECT COALESCE(sum(size), 0)::text AS bytes FROM attachments WHERE uploader_id = $1 AND status = 'attached'",
+          [actorId],
+        );
+        if (
+          BigInt(totals[0]!.bytes) + BigInt(media.size) >
+          512n * 1024n * 1024n
+        )
+          fail(
+            413,
+            'STORAGE_QUOTA_EXCEEDED',
+            'Attachment storage limit reached',
+          );
+      }
       const sequence = BigInt(conversation.lastMessageSequence) + 1n;
       if (sequence > MAX_SEQUENCE)
         fail(
@@ -234,10 +303,26 @@ export class MessagesService {
         conversationId,
         senderId: actorId,
         clientMessageId: input.clientMessageId,
-        type: 'text',
-        body: input.body,
+        type,
+        body,
+        content,
         sequence: sequence.toString(),
       });
+      if (media)
+        await manager.getRepository(Attachment).insert({
+          id: media.id,
+          conversationId,
+          uploaderId: actorId,
+          messageId: message.id,
+          clientRequestId: input.clientMessageId,
+          objectKey: media.objectKey,
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          size: String(media.size),
+          status: 'attached',
+          uploadExpiresAt: new Date(Date.now() + 3600000),
+          completedAt: new Date(),
+        });
       await manager
         .getRepository(Conversation)
         .update(conversationId, { lastMessageSequence: sequence.toString() });
@@ -251,6 +336,37 @@ export class MessagesService {
         payload: result.message,
       });
     return { message: result.message };
+  }
+
+  async attachment(actorId: string, conversationId: string, messageId: string) {
+    return this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(manager, conversationId, actorId);
+      const message = await this.findVisible(
+        manager,
+        actorId,
+        conversationId,
+        messageId,
+      );
+      const attachment = await manager
+        .getRepository(Attachment)
+        .createQueryBuilder('attachment')
+        .addSelect('attachment.objectKey')
+        .where(
+          'attachment.messageId = :messageId AND attachment.status = :status',
+          { messageId: message.id, status: 'attached' },
+        )
+        .getOne();
+      if (!attachment)
+        fail(404, 'ATTACHMENT_NOT_FOUND', 'Attachment not found');
+      return attachment;
+    });
+  }
+
+  async authorizeUpload(actorId: string, conversationId: string) {
+    this.rateLimit.take(actorId, 'upload');
+    await this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(manager, conversationId, actorId);
+    });
   }
 
   // Hold the same conversation lock used by membership mutations until emit/join.

@@ -15,6 +15,7 @@ COPY apps/api/package.json apps/api/package.json
 RUN npm ci --omit=dev --workspace=@chat/api --include-workspace-root=false --no-audit --no-fund \
     && npm cache clean --force
 COPY --from=build /app/apps/api/dist apps/api/dist
+RUN mkdir -p /app/storage/chat && chown -R node:node /app/storage
 USER node
 EXPOSE 3000
 CMD ["node", "apps/api/dist/main.js"]
