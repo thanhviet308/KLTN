@@ -80,7 +80,7 @@ curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3100/api/v1/hea
 
 Migration chỉ dùng database staging. `--no-deps` trên API không thay DB/migrate container. Khi xong có thể `"${staging[@]}" stop staging-api staging-db`; giữ nguyên volumes. Không chạy deploy.sh, không thay API production, không dùng prune/down -v. Nếu muốn staging mới hoàn toàn thay vì dùng lại, làm bước 4 trong `sharp-vps-validation.md` với project name khác, secrets mới và không chiếm cổng 3100 của staging đang chạy.
 
-Tham khảo cơ chế [npm workspaces](https://docs.npmjs.com/cli/v11/using-npm/workspaces/). Luồng production mới build/test trên GitHub runner và chuyển archive có checksum lên VPS: xem [README](README.md#cpu-vps-và-xử-lý-ảnh). Các lệnh trong tài liệu này chỉ kiểm thử staging.
+Tham khảo cơ chế [npm workspaces](https://docs.npmjs.com/cli/v11/using-npm/workspaces/). Luồng production hiện build source trực tiếp trên VPS theo yêu cầu, không chuyển archive qua Actions: xem [README](README.md#cpu-vps-và-xử-lý-ảnh). Các lệnh archive trong tài liệu này chỉ kiểm thử staging riêng.
 
 ## Kết quả kiểm thử local ngày 2026-10-09
 

@@ -155,7 +155,7 @@ Không chạy `docker compose down` từ thư mục production, `docker system p
 - Giữ archive + checksum + image ID đã test; không rebuild image sau khi test rồi coi là cùng artifact. Nếu sau này dùng GHCR, publish thủ công và pin `ghcr.io/<owner>/<image>@sha256:<registry-manifest-digest>`, không lấy local image ID làm registry digest.
 - `deploy.sh` hiện build trước migration/thay API; test mô phỏng build fail/migration fail giữ API cũ. Nhưng lỗi sau khi thay API chưa tự rollback; :previous chỉ lưu image cũ, không đảm bảo healthy. API cũ đang lỗi Sharp nên **hiện chưa có rollback healthy được chứng minh**.
 - Chuẩn bị image known-good riêng, chạy CPU smoke + staging với image rollback, lưu image ID. Migration mới phải tương thích image rollback; rollback image không hoàn tác schema. Không xóa/khôi phục volume tùy tiện để rollback.
-- Workflow main đã được cấu hình build Dockerfile x86-64-v1 trên GitHub runner, kiểm thử staging và chuyển artifact có checksum qua SSH; VPS pin image ID và chạy smoke trước migration/thay API. Xem [README](README.md#cpu-vps-và-xử-lý-ảnh). Không gọi workflow production để thay thế các bước kiểm thử độc lập trong tài liệu này.
+- Workflow main hiện build Dockerfile x86-64-v1 trực tiếp trên VPS theo yêu cầu và chạy smoke trước migration/thay API; không chuyển artifact qua Actions. Xem [README](README.md#cpu-vps-và-xử-lý-ảnh). Các bước archive trong tài liệu này vẫn là kiểm thử độc lập, không gọi workflow production.
 
 Lệnh rollback **tham khảo cho giai đoạn production đã được phê duyệt**, không chạy trong buổi test này (tại checkout production, thay giá trị image ID đã xác minh):
 

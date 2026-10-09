@@ -169,4 +169,4 @@ Workflow GitHub mới chưa chạy trên GitHub; chỉ được chuẩn bị và
 
 # Trạng thái tài liệu
 
-Đây là báo cáo giai đoạn thử nghiệm. Luồng production hiện đã chuyển sang build/test trên GitHub runner và chuyển image qua SSH, dùng Dockerfile x86-64-v1; xem [README](README.md#cpu-vps-và-xử-lý-ảnh) để dùng cấu hình deploy hiện tại.
+Đây là báo cáo giai đoạn thử nghiệm. Luồng production hiện build trực tiếp trên VPS bằng Dockerfile x86-64-v1 theo yêu cầu; xem [README](README.md#cpu-vps-và-xử-lý-ảnh) để dùng cấu hình deploy hiện tại.

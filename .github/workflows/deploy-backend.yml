@@ -39,73 +39,17 @@ jobs:
       - run: npm run typecheck --workspace=@chat/api
       - run: npm run build --workspace=@chat/api
       - run: bash -n deploy/vps/deploy.sh
-      - run: bash -n deploy/vps/load-image.sh
       - run: bash deploy/vps/tests/deploy-failure.sh
-      - run: bash deploy/vps/tests/load-image.sh
 
-  image:
+  deploy:
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@v3
-      - name: Build native x86-64-v1 release outside VPS
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/api/Dockerfile.x86-64-v1
-          target: runtime
-          platforms: linux/amd64
-          load: true
-          push: false
-          tags: pingpong-api:release-${{ github.sha }}
-          cache-from: type=gha,scope=sharp-v1
-          cache-to: type=gha,mode=max,scope=sharp-v1
-      - name: Check migrations and actual NestJS startup in isolated staging
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker pull postgres:17-bookworm
-          export SHARP_TEST_IMAGE=$(docker image inspect --format '{{.Id}}' "pingpong-api:release-$GITHUB_SHA")
-          export STAGING_POSTGRES_IMAGE=$(docker image inspect --format '{{.Id}}' postgres:17-bookworm)
-          export STAGING_DB_PASSWORD=$(openssl rand -hex 24)
-          export STAGING_JWT_SECRET=$(openssl rand -hex 32)
-          staging=(docker compose -p pingpong-sharp-ci -f deploy/vps/compose.sharp-staging.yml)
-          trap '"${staging[@]}" logs --no-color --tail=100 staging-api; "${staging[@]}" stop staging-api staging-db' EXIT
-          "${staging[@]}" up -d --no-build --wait --wait-timeout 120 staging-db
-          "${staging[@]}" run --rm -T --no-deps staging-migrate
-          "${staging[@]}" up -d --no-build --no-deps --wait --wait-timeout 120 staging-api
-          "${staging[@]}" exec -T staging-api node apps/api/tests/api-runtime-dependencies.cjs
-          "${staging[@]}" exec -T staging-api node apps/api/tests/api-runtime-health.cjs
-          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3100/api/v1/health/ready
-      - name: Export the tested release image
-        run: |
-          docker image save --output image.tar "pingpong-api:release-$GITHUB_SHA"
-          sha256sum image.tar > SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: api-${{ github.sha }}
-          path: |
-            image.tar
-            SHA256SUMS
-          compression-level: 0
-          retention-days: 3
-
-  deploy:
-    needs: image
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     environment: production
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: api-${{ github.sha }}
       - name: Deploy over verified SSH
         shell: bash
         env:
@@ -131,16 +75,8 @@ jobs:
           trap 'rm -f "$ssh_dir/key" "$ssh_dir/known_hosts"; rmdir "$ssh_dir"' EXIT
           printf '%s\n' "$VPS_SSH_KEY" > "$ssh_dir/key"
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          sha256sum --check --strict SHA256SUMS
-          archive_checksum=$(sha256sum image.tar | cut -d ' ' -f 1)
-          printf -v load_command 'bash -c %q -- %q' "$(cat deploy/vps/load-image.sh)" "$archive_checksum"
-          ssh -i "$ssh_dir/key" -p "$VPS_PORT" \
-            -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
-            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-            "$VPS_USER@$VPS_HOST" "$load_command" < image.tar
           # Read the entire script before running commands that may consume stdin.
-          printf -v remote_command 'cd -- %q && deploy_script=$(cat) && bash -c "$deploy_script" -- %q %q' "$VPS_DEPLOY_PATH" "$GITHUB_SHA" "pingpong-api:release-$GITHUB_SHA"
+          printf -v remote_command 'cd -- %q && deploy_script=$(cat) && bash -c "$deploy_script" -- %q' "$VPS_DEPLOY_PATH" "$GITHUB_SHA"
           ssh -i "$ssh_dir/key" -p "$VPS_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \

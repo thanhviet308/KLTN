@@ -24,4 +24,9 @@ if printf 'tampered archive' | bash -c "$load_command" > "$fixture/output" 2>&1;
   echo 'Bad checksum unexpectedly accepted' >&2; exit 1
 fi
 test ! -e "$load_log"
+gzip -c "$fixture/image.tar" > "$fixture/image.tar.gz"
+checksum=$(sha256sum "$fixture/image.tar.gz" | cut -d ' ' -f 1)
+printf -v load_command 'bash -c %q -- %q' "$(cat "$root/deploy/vps/load-image.sh")" "$checksum"
+bash -c "$load_command" < "$fixture/image.tar.gz"
+test "$(cat "$load_log")" = loaded
 echo 'Archive loader: valid checksum loads; corrupt archive never reaches Docker'

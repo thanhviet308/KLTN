@@ -118,17 +118,22 @@ VPS báo cả `require v2 microarchitecture` và `Wasm SIMD unsupported` không 
 [sharp-x86-64-v1.md](sharp-x86-64-v1.md). Compose API và migration hiện dùng
 `Dockerfile.x86-64-v1`, target `runtime`, platform `linux/amd64`.
 
-GitHub Actions build image trên runner, kiểm tra dependency/Sharp và khởi động
-NestJS với PostgreSQL staging riêng trước khi xuất archive. Job deploy chuyển
-archive qua SSH có xác minh host, kiểm tra SHA256 trước khi load, rồi gọi
-`deploy.sh <commit-sha> pingpong-api:release-<commit-sha>`. VPS không build source
-trong luồng tự động. Script pin image ID local và kiểm tra dependency/JPEG/PNG/WebP
-trên CPU VPS trước khi chạy migration production hoặc thay API. Nếu build/test
-trên runner, checksum hoặc smoke VPS thất bại thì không thay container API.
+GitHub Actions chạy checks rồi gửi deploy script nhỏ qua SSH có xác minh host.
+VPS fetch đúng commit main và gọi `deploy.sh <commit-sha>` để build image bằng
+Docker Compose ngay trên VPS. Không còn job build image, upload/download artifact
+hoặc chuyển Docker archive trong workflow production. Job deploy giới hạn 60 phút
+để có thời gian build source lần đầu; đây không phải cam kết build sẽ xong trong 60 phút.
 
-`deploy.sh <commit-sha>` không có tham số image vẫn là luồng manual build source
-trên VPS; chỉ dùng khi đã cân nhắc RAM/thời gian build. Các lệnh Compose build
-trong phần thiết lập manual cũng build source. Không dùng Dockerfile cũ cho VPS v1.
+Giữ Docker layer cache để các lần sau tái sử dụng libvips/Sharp source đã build.
+Meson và node-gyp dùng một job; VPS 1 vCPU/2GB RAM vẫn cần RAM cho PostgreSQL,
+Redis và OS, có thể chậm hoặc OOM nếu thiếu headroom. Không tự dừng database hoặc
+đổi swap/volumes để build. Dockerfile có kiểm tra dependency/Sharp trong runtime;
+deploy script kiểm tra lại trên CPU VPS trước migration/thay API. Build hoặc smoke
+thất bại thì không thay API và không chạy migration.
+
+Luồng prebuilt archive vẫn có thể dùng thủ công với tham số image thứ hai của
+deploy.sh; load-image.sh và export-sharp-test.ps1 được giữ làm công cụ tùy chọn.
+Workflow test-sharp-v1.yml vẫn là kiểm thử độc lập, không deploy production.
 Sau deploy tự động, lệnh Compose thao tác API/migration cần export `BACKEND_IMAGE`
 bằng image ID đang chạy để tránh quay lại tag local cũ:
 
