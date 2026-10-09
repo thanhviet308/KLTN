@@ -3,6 +3,16 @@ set -euo pipefail
 
 expected_commit=${1:?Pass the GitHub commit SHA to deploy}
 [[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid commit SHA' >&2; exit 1; }
+release_image=${2:-}
+if [[ -n "$release_image" ]]; then
+  [[ "$release_image" == "pingpong-api:release-$expected_commit" ]] || {
+    echo 'Release image tag must match the checked commit' >&2; exit 1;
+  }
+  export BACKEND_IMAGE="$release_image"
+else
+  # Ignore inherited values when explicitly using the manual local-build path.
+  export BACKEND_IMAGE=pingpong-api:local
+fi
 export GIT_TERMINAL_PROMPT=0
 
 for tool in git docker flock curl; do
@@ -50,6 +60,14 @@ report_failure() {
   exit "$status"
 }
 trap 'report_failure "$?"' ERR
+if [[ -n "$release_image" ]]; then
+  [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$release_image")" == linux/amd64 ]] || {
+    echo 'Prebuilt release must be a local linux/amd64 image' >&2; exit 1;
+  }
+  # Pin the loaded image ID for this deployment; do not rely on a mutable tag.
+  export BACKEND_IMAGE=$(docker image inspect --format '{{.Id}}' "$release_image")
+  [[ "$BACKEND_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid release image ID' >&2; exit 1; }
+fi
 "${compose[@]}" config --quiet
 running_container=$("${compose[@]}" ps -q api)
 if [[ -n "$running_container" ]]; then
@@ -58,10 +76,19 @@ if [[ -n "$running_container" ]]; then
 elif docker image inspect pingpong-api:local >/dev/null 2>&1; then
   docker image tag pingpong-api:local pingpong-api:previous
 fi
-"${compose[@]}" build api
+if [[ -z "$release_image" ]]; then
+  "${compose[@]}" build api
+fi
+# Verify on the real VPS CPU before starting services or production migrations.
+docker run --rm --pull never --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --memory 256m --cpus 1 "$BACKEND_IMAGE" \
+  node apps/api/tests/api-runtime-dependencies.cjs
+docker run --rm --pull never --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --memory 256m --cpus 1 "$BACKEND_IMAGE" \
+  node apps/api/tests/sharp-runtime-smoke.cjs --source
 "${compose[@]}" up -d --wait --wait-timeout 120 db
 "${compose[@]}" run --rm -T migrate </dev/null
-"${compose[@]}" up -d --no-deps --wait --wait-timeout 120 --force-recreate api
+"${compose[@]}" up -d --no-deps --no-build --wait --wait-timeout 120 --force-recreate api
 curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors \
   --connect-timeout 5 --max-time 15 http://127.0.0.1:3000/api/v1/health/ready
 printf '\nBackend deployment completed: %s\n' "$expected_commit"

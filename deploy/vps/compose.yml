@@ -1,7 +1,8 @@
 name: pingpong-backend
 
 x-runtime: &runtime
-  image: pingpong-api:local
+  image: ${BACKEND_IMAGE:-pingpong-api:local}
+  pull_policy: never
   env_file:
     - path: .env
       format: raw
@@ -53,7 +54,9 @@ services:
     <<: *runtime
     build:
       context: ../..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: apps/api/Dockerfile.x86-64-v1
+      target: runtime
+      platforms: [linux/amd64]
     restart: unless-stopped
     environment:
       CHAT_FILES_DIR: /app/storage/chat
@@ -82,7 +85,9 @@ services:
     <<: *runtime
     build:
       context: ../..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: apps/api/Dockerfile.x86-64-v1
+      target: runtime
+      platforms: [linux/amd64]
     depends_on:
       db:
         condition: service_healthy

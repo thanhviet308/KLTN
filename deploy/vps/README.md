@@ -115,9 +115,33 @@ Hướng dẫn test và API: [chat-media.md](../../apps/api/tests/chat-media.md)
 WebAssembly khi native không chạy được, nhưng Wasm cũng cần CPU hỗ trợ SIMD.
 VPS báo cả `require v2 microarchitecture` và `Wasm SIMD unsupported` không dùng
 được phương án fallback này. Thử nghiệm build source và kiểm thử độc lập nằm ở
-[sharp-x86-64-v1.md](sharp-x86-64-v1.md); Dockerfile production chưa được chuyển đổi.
-Docker image kiểm tra chuyển ảnh sang WebP trong lúc build bằng user `node`,
-trước khi deploy thay container API hiện tại.
+[sharp-x86-64-v1.md](sharp-x86-64-v1.md). Compose API và migration hiện dùng
+`Dockerfile.x86-64-v1`, target `runtime`, platform `linux/amd64`.
+
+GitHub Actions build image trên runner, kiểm tra dependency/Sharp và khởi động
+NestJS với PostgreSQL staging riêng trước khi xuất archive. Job deploy chuyển
+archive qua SSH có xác minh host, kiểm tra SHA256 trước khi load, rồi gọi
+`deploy.sh <commit-sha> pingpong-api:release-<commit-sha>`. VPS không build source
+trong luồng tự động. Script pin image ID local và kiểm tra dependency/JPEG/PNG/WebP
+trên CPU VPS trước khi chạy migration production hoặc thay API. Nếu build/test
+trên runner, checksum hoặc smoke VPS thất bại thì không thay container API.
+
+`deploy.sh <commit-sha>` không có tham số image vẫn là luồng manual build source
+trên VPS; chỉ dùng khi đã cân nhắc RAM/thời gian build. Các lệnh Compose build
+trong phần thiết lập manual cũng build source. Không dùng Dockerfile cũ cho VPS v1.
+Sau deploy tự động, lệnh Compose thao tác API/migration cần export `BACKEND_IMAGE`
+bằng image ID đang chạy để tránh quay lại tag local cũ:
+
+```bash
+api_id=$(docker compose -f deploy/vps/compose.yml ps -q api)
+export BACKEND_IMAGE=$(docker inspect --format '{{.Image}}' "$api_id")
+docker compose -f deploy/vps/compose.yml ps
+```
+
+Rollback dùng [compose.rollback.yml](compose.rollback.yml) với image known-good
+đã kiểm thử và schema tương thích; `pingpong-api:previous` chưa đảm bảo healthy.
+Không tự rollback migration hoặc xóa volume. Workflow không tự rollback khi API
+mới không qua readiness; kiểm tra diagnostics và chọn image đã xác minh.
 
 Kiểm thử luồng ảnh với bản WebAssembly trên máy local:
 

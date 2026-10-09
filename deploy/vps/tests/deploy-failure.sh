@@ -24,6 +24,12 @@ printf 'docker %s\n' "$*" >> "$command_log"
 case "$*" in
   'compose -f deploy/vps/compose.yml ps -q api') echo running-api ;;
   'inspect --format {{.Image}} running-api') echo sha256:known-running-image ;;
+  'image inspect --format {{.Os}}/{{.Architecture}} '*) echo linux/amd64 ;;
+  'image inspect --format {{.Id}} '*) printf 'sha256:%064d\n' 0 ;;
+  'run --rm '*api-runtime-dependencies.cjs)
+    [[ "$failure_mode" != dependency ]] || exit 19 ;;
+  'run --rm '*sharp-runtime-smoke.cjs*)
+    [[ "$failure_mode" != sharp ]] || exit 20 ;;
   'compose -f deploy/vps/compose.yml build api')
     [[ "$failure_mode" != build ]] || exit 17 ;;
   'compose -f deploy/vps/compose.yml run --rm -T migrate')
@@ -63,3 +69,31 @@ for failure_mode in build migrate; do
   fi
   echo "$failure_mode failure: exit=$status; existing API and volumes untouched"
 done
+
+for failure_mode in dependency sharp; do
+  export failure_mode
+  : > "$command_log"
+  set +e
+  (cd "$fixture/checkout" && bash deploy/vps/deploy.sh "$expected_sha" "pingpong-api:release-$expected_sha") > "$fixture/output" 2>&1
+  status=$?
+  set -e
+  expected_status=19
+  [[ "$failure_mode" != sharp ]] || expected_status=20
+  [[ "$status" == "$expected_status" ]] || { cat "$fixture/output"; exit 1; }
+  if grep -Eq 'docker .* (build|up|down|stop|rm|volume)|docker .* migrate$|^curl$' "$command_log"; then
+    cat "$command_log"
+    echo 'Prebuilt validation failure unexpectedly built/started services or ran migration' >&2
+    exit 1
+  fi
+  echo "prebuilt $failure_mode failure: exit=$status; no build, migration or API replacement"
+done
+
+export failure_mode=none
+: > "$command_log"
+(cd "$fixture/checkout" && bash deploy/vps/deploy.sh "$expected_sha" "pingpong-api:release-$expected_sha") > "$fixture/output" 2>&1
+! grep -Eq 'docker .* build ' "$command_log"
+grep -q 'api-runtime-dependencies.cjs' "$command_log"
+grep -q 'sharp-runtime-smoke.cjs' "$command_log"
+grep -q 'run --rm -T migrate' "$command_log"
+grep -q 'up -d --no-deps --no-build' "$command_log"
+echo 'prebuilt success: validates runtime, runs migration and starts API without building'

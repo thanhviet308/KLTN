@@ -166,3 +166,7 @@ Workflow GitHub mới chưa chạy trên GitHub; chỉ được chuẩn bị và
 - [Sharp 0.35.5: min libvips và build deps](https://github.com/lovell/sharp/blob/v0.35.5/package.json)
 - [libvips build](https://www.libvips.org/install.html)
 - [libvips 8.18.7 build options](https://github.com/libvips/libvips/blob/v8.18.7/meson_options.txt)
+
+# Trạng thái tài liệu
+
+Đây là báo cáo giai đoạn thử nghiệm. Luồng production hiện đã chuyển sang build/test trên GitHub runner và chuyển image qua SSH, dùng Dockerfile x86-64-v1; xem [README](README.md#cpu-vps-và-xử-lý-ảnh) để dùng cấu hình deploy hiện tại.
