@@ -8,3 +8,7 @@
 !apps/api/tsconfig.build.json
 !apps/api/src/
 !apps/api/src/**
+!apps/api/tests/
+!apps/api/tests/sharp-runtime-smoke.cjs
+!apps/api/tests/api-runtime-dependencies.cjs
+!apps/api/tests/api-runtime-health.cjs

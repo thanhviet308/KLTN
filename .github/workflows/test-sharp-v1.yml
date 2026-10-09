@@ -1,0 +1,64 @@
+name: Test Sharp x86-64-v1 (no deploy)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: bash deploy/vps/tests/deploy-failure.sh
+      - uses: docker/setup-buildx-action@v3
+      - name: Build standalone experimental runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile.x86-64-v1
+          target: runtime
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: pingpong-api:sharp-v1-experiment
+          cache-from: type=gha,scope=sharp-v1
+          cache-to: type=gha,mode=max,scope=sharp-v1
+      - name: Test final non-root runtime without services or volumes
+        run: >-
+          docker run --rm --network none --read-only --cap-drop ALL
+          --security-opt no-new-privileges --memory 256m --cpus 1
+          pingpong-api:sharp-v1-experiment
+          node apps/api/tests/sharp-runtime-smoke.cjs --source
+      - name: Verify under emulated baseline CPU
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile.x86-64-v1
+          target: cpu-v1-check
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=sharp-v1
+          cache-to: type=gha,mode=max,scope=sharp-v1
+      - name: Migrate and boot actual NestJS in isolated staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull postgres:17-bookworm
+          export SHARP_TEST_IMAGE=$(docker image inspect --format '{{.Id}}' pingpong-api:sharp-v1-experiment)
+          export STAGING_POSTGRES_IMAGE=$(docker image inspect --format '{{.Id}}' postgres:17-bookworm)
+          export STAGING_DB_PASSWORD=$(openssl rand -hex 24)
+          export STAGING_JWT_SECRET=$(openssl rand -hex 32)
+          staging=(docker compose -p pingpong-sharp-ci -f deploy/vps/compose.sharp-staging.yml)
+          trap '"${staging[@]}" logs --no-color --tail=100 staging-api; "${staging[@]}" stop staging-api staging-db' EXIT
+          "${staging[@]}" up -d --no-build --wait --wait-timeout 120 staging-db
+          "${staging[@]}" run --rm -T --no-deps staging-migrate
+          "${staging[@]}" up -d --no-build --no-deps --wait --wait-timeout 120 staging-api
+          "${staging[@]}" exec -T staging-api node apps/api/tests/api-runtime-dependencies.cjs
+          "${staging[@]}" exec -T staging-api node apps/api/tests/api-runtime-health.cjs
+          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3100/api/v1/health/ready

@@ -20,6 +20,8 @@ credentials*.json
 service-account*.json
 deploy/vps/postgres.env
 deploy/vps/backups/
+/.sharp-vps-transfer/
+/.sharp-vps-transfer-*/
 
 # Private chat attachments
 /storage/

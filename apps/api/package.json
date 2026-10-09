@@ -37,6 +37,8 @@
     "@types/express": "5.0.6",
     "@types/node": "24.19.0",
     "@types/nodemailer": "8.0.2",
+    "node-addon-api": "8.9.2",
+    "node-gyp": "12.4.0",
     "tsc-watch": "7.2.1",
     "typescript": "5.9.3"
   }

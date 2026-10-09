@@ -1,0 +1,5 @@
+# Explicit manual rollback only. Always combine with compose.yml.
+# Require an immutable, verified-good image ID/tag; never assume :previous works.
+services:
+  api:
+    image: ${ROLLBACK_IMAGE:?Set ROLLBACK_IMAGE to a verified-good local image}

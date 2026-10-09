@@ -1,0 +1,82 @@
+# Standalone project. Never combine this file with production compose.yml.
+name: pingpong-sharp-staging
+x-api: &api
+  image: ${SHARP_TEST_IMAGE:?Set SHARP_TEST_IMAGE to the verified local image ID}
+  pull_policy: never
+  init: true
+  read_only: true
+  tmpfs: ['/tmp:size=32m,mode=1777']
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 384m
+  cpus: 0.5
+  networks: [staging]
+  environment:
+    NODE_ENV: test
+    HOST: 0.0.0.0
+    PORT: '3000'
+    WEB_ORIGIN: http://localhost:5173
+    JWT_ACCESS_SECRET: ${STAGING_JWT_SECRET:?Generate a separate staging JWT secret}
+    DATABASE_URL: postgresql://pingpong_staging:${STAGING_DB_PASSWORD:?Generate a staging password}@staging-db:5432/pingpong_staging
+    DATABASE_DIRECT_URL: postgresql://pingpong_staging:${STAGING_DB_PASSWORD:?Generate a staging password}@staging-db:5432/pingpong_staging
+    CHAT_FILES_DIR: /app/storage/chat
+  logging:
+    driver: json-file
+    options: { max-size: 5m, max-file: '2' }
+services:
+  staging-db:
+    image: ${STAGING_POSTGRES_IMAGE:?Set to the existing PostgreSQL 17 image ID}
+    pull_policy: never
+    mem_limit: 256m
+    cpus: 0.25
+    shm_size: 64m
+    networks: [staging]
+    environment:
+      POSTGRES_USER: pingpong_staging
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?Generate a staging password}
+      POSTGRES_DB: pingpong_staging
+      TZ: UTC
+      PGTZ: UTC
+    volumes: [staging_postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U pingpong_staging -d pingpong_staging']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: 'no'
+  staging-migrate:
+    <<: *api
+    command: [node, apps/api/dist/modules/database/migrate.js]
+    restart: 'no'
+    depends_on:
+      staging-db: { condition: service_healthy }
+  staging-api:
+    <<: *api
+    # Internal-only networks do not publish host ports on Docker Engine 29.
+    # A separate staging bridge enables loopback HTTP without exposing the DB.
+    networks: [staging, staging-http]
+    restart: 'no'
+    volumes: [staging_chat:/app/storage/chat]
+    ports: ['127.0.0.1:3100:3000']
+    depends_on:
+      staging-db: { condition: service_healthy }
+      staging-migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/v1/health/ready', {signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 6s
+      start_period: 30s
+      retries: 6
+networks:
+  staging:
+    internal: true
+  staging-http:
+volumes:
+  staging_postgres:
+  staging_chat:

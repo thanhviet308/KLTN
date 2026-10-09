@@ -1,0 +1,96 @@
+# syntax=docker/dockerfile:1
+# Experiment only: never selected by production Compose/deploy.sh.
+ARG NODE_IMAGE=node:24.21.0-bookworm-slim
+FROM ${NODE_IMAGE} AS vips-build
+ARG TARGETARCH
+ARG VIPS_VERSION=8.18.7
+ARG VIPS_SHA256=5BAAEAD3B0BB20FFDB9E9FF09AA9FDA08620923DF77B63B436654CB5E0B3BF94
+ENV CFLAGS="-O2 -march=x86-64 -mtune=generic" \
+    CXXFLAGS="-O2 -march=x86-64 -mtune=generic" \
+    PKG_CONFIG_PATH=/opt/vips/lib/pkgconfig \
+    LD_LIBRARY_PATH=/opt/vips/lib
+RUN test "$TARGETARCH" = amd64 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       build-essential python3 meson ninja-build pkg-config curl ca-certificates \
+       libglib2.0-dev libexpat1-dev libjpeg62-turbo-dev libpng-dev \
+       libwebp-dev libexif-dev liblcms2-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN curl --fail --location --retry 3 \
+      "https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/vips-${VIPS_VERSION}.tar.xz" \
+      -o vips.tar.xz \
+    && printf '%s  vips.tar.xz\n' "$VIPS_SHA256" | sha256sum --check --strict \
+    && mkdir source && tar -xJf vips.tar.xz -C source --strip-components=1 \
+    && meson setup source/build source --prefix=/opt/vips --libdir=lib \
+       --buildtype=release --wrap-mode=nofallback -Dauto_features=disabled \
+       -Dcplusplus=true -Dmodules=disabled -Dintrospection=disabled \
+       -Dexamples=false -Ddocs=false -Dcpp-docs=false \
+       -Djpeg=enabled -Dpng=enabled -Dwebp=enabled -Dzlib=enabled \
+       -Dexif=enabled -Dlcms=enabled -Dhighway=disabled -Dorc=disabled \
+       -Dnsgif=false -Dppm=false -Danalyze=false -Dradiance=false \
+    && meson compile -C source/build -j 1 \
+    && meson install --no-rebuild -C source/build \
+    && pkg-config --atleast-version=8.18.7 vips-cpp
+
+FROM vips-build AS api-build
+ENV SHARP_FORCE_GLOBAL_LIBVIPS=1 \
+    npm_config_jobs=1 \
+    MAKEFLAGS=-j1 \
+    NODE_OPTIONS=--max-old-space-size=512
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+RUN --mount=type=cache,id=pingpong-npm-v1,target=/root/.npm \
+    npm ci --ignore-scripts --omit=optional --workspace=@chat/api \
+       --include-workspace-root=false --no-audit --no-fund \
+    && npm explore sharp -- npm run build
+COPY apps/api/tsconfig*.json apps/api/
+COPY apps/api/src apps/api/src
+RUN npm run build --workspace=@chat/api \
+    && npm prune --omit=dev --omit=optional --ignore-scripts \
+       --workspace=@chat/api --include-workspace-root=false --no-audit --no-fund \
+    && mkdir -p /app/apps/api/node_modules
+# Do not ship any prebuilt Sharp addon/libvips or Wasm fallback in this experiment.
+RUN node -e "const fs=require('node:fs'); const p='/app/node_modules/@img'; for(const n of fs.readdirSync(p)){if(n.startsWith('sharp-')) fs.rmSync(p+'/'+n,{recursive:true,force:true});}"
+
+FROM ${NODE_IMAGE} AS runtime
+ENV NODE_ENV=production \
+    LD_LIBRARY_PATH=/opt/vips/lib \
+    VIPS_CONCURRENCY=1 \
+    MALLOC_ARENA_MAX=2
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       libglib2.0-0 libexpat1 libjpeg62-turbo libpng16-16 \
+       libwebp7 libwebpdemux2 libwebpmux3 libexif12 liblcms2-2 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=api-build /app/node_modules ./node_modules
+# npm's lockfile can place production dependencies inside the workspace.
+# Preserve both installation locations and their relative resolution paths.
+COPY --from=api-build /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=api-build /app/apps/api/package.json ./apps/api/package.json
+COPY --from=api-build /app/apps/api/dist ./apps/api/dist
+COPY --from=vips-build /opt/vips/lib /opt/vips/lib
+COPY apps/api/tests/sharp-runtime-smoke.cjs ./apps/api/tests/sharp-runtime-smoke.cjs
+COPY apps/api/tests/api-runtime-dependencies.cjs ./apps/api/tests/api-runtime-dependencies.cjs
+COPY apps/api/tests/api-runtime-health.cjs ./apps/api/tests/api-runtime-health.cjs
+RUN printf '/opt/vips/lib\n' > /etc/ld.so.conf.d/pingpong-vips.conf \
+    && ldconfig \
+    && mkdir -p /app/storage/chat && chown -R node:node /app/storage
+USER node
+# Execute in the final, non-root runtime, not just the build stage.
+RUN node apps/api/tests/api-runtime-dependencies.cjs \
+    && node apps/api/tests/sharp-runtime-smoke.cjs --source
+EXPOSE 3000
+CMD ["node", "apps/api/dist/main.js"]
+
+# Optional verification target; QEMU is never included in the runtime image.
+FROM runtime AS cpu-v1-check
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends qemu-user \
+    && rm -rf /var/lib/apt/lists/*
+USER node
+RUN qemu-x86_64 -cpu qemu64 /usr/local/bin/node apps/api/tests/sharp-runtime-smoke.cjs --source
+
+FROM runtime AS experiment

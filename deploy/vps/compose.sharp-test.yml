@@ -1,0 +1,14 @@
+# Standalone image check. No production services, env files, ports or volumes.
+name: pingpong-sharp-test
+services:
+  image-check:
+    image: ${SHARP_TEST_IMAGE:?Set SHARP_TEST_IMAGE to the verified local image ID}
+    pull_policy: never
+    command: [node, apps/api/tests/sharp-runtime-smoke.cjs, --source]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1
+    restart: 'no'

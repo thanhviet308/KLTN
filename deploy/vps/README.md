@@ -111,9 +111,11 @@ Hướng dẫn test và API: [chat-media.md](../../apps/api/tests/chat-media.md)
 
 ### CPU VPS và xử lý ảnh
 
-`sharp` và `@img/sharp-wasm32` được khóa cùng phiên bản. Khi CPU Linux x64 không
-đáp ứng yêu cầu x64-v2 của binary native, sharp tự dùng WebAssembly. Cách này
-không cần đổi VPS hay build libvips từ source; xử lý ảnh có thể chậm hơn native.
+`sharp` và `@img/sharp-wasm32` được khóa cùng phiên bản. Sharp có thể thử
+WebAssembly khi native không chạy được, nhưng Wasm cũng cần CPU hỗ trợ SIMD.
+VPS báo cả `require v2 microarchitecture` và `Wasm SIMD unsupported` không dùng
+được phương án fallback này. Thử nghiệm build source và kiểm thử độc lập nằm ở
+[sharp-x86-64-v1.md](sharp-x86-64-v1.md); Dockerfile production chưa được chuyển đổi.
 Docker image kiểm tra chuyển ảnh sang WebP trong lúc build bằng user `node`,
 trước khi deploy thay container API hiện tại.
 
@@ -124,3 +126,9 @@ npm run build --workspace=@chat/api
 node -r ./apps/api/tests/sharp-wasm-preload.cjs apps/api/tests/profile.integration.cjs
 node -r ./apps/api/tests/sharp-wasm-preload.cjs apps/api/tests/chat-media.integration.cjs
 ```
+
+## Kiểm thử Sharp trên CPU VPS thật
+
+Xem [quy trình chuyển archive, smoke test và staging độc lập](sharp-vps-validation.md). Không chạy deployment production trong bước xác minh này.
+
+Lỗi runtime `Cannot find module '@nestjs/typeorm'`: xem [sửa COPY npm workspace dependencies và kiểm thử NestJS staging](sharp-runtime-fix.md).
