@@ -19,6 +19,8 @@ const options = typeormOptions(migrationUrl);
 
 export default new DataSource({
   ...options,
+  // A pending-migration check must not install extensions on initialization.
+  installExtensions: !process.argv.includes('--check'),
   poolSize: 1,
   extra: {
     ...options.extra,

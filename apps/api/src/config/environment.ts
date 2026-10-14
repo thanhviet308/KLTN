@@ -6,6 +6,7 @@ export interface Environment {
   TRUST_PROXY?: boolean;
   DATABASE_URL: string;
   JWT_ACCESS_SECRET: string;
+  DEPLOYMENT_REVISION?: string;
   SMTP_HOST?: string;
   SMTP_PORT?: string;
   SMTP_USER?: string;
@@ -79,6 +80,15 @@ export function validateEnvironment(
     );
   }
 
+  const revision = input.DEPLOYMENT_REVISION;
+  if (
+    revision !== undefined &&
+    revision !== '' &&
+    (typeof revision !== 'string' || !/^[a-f0-9]{40}$/.test(revision))
+  ) {
+    throw new Error('DEPLOYMENT_REVISION must be a full Git commit SHA');
+  }
+
   return {
     NODE_ENV: mode,
     HOST: host,
@@ -87,6 +97,8 @@ export function validateEnvironment(
     TRUST_PROXY: trustProxy === 'true' || trustProxy === true,
     DATABASE_URL: databaseUrl,
     JWT_ACCESS_SECRET: jwtSecret,
+    DEPLOYMENT_REVISION:
+      typeof revision === 'string' && revision ? revision : undefined,
     SMTP_HOST:
       typeof input.SMTP_HOST === 'string' ? input.SMTP_HOST : undefined,
     SMTP_PORT:

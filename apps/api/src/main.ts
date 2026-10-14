@@ -21,6 +21,7 @@ async function bootstrap(): Promise<void> {
       TRUST_PROXY: config.get('TRUST_PROXY', { infer: true }),
     };
     configureApp(app, env);
+    app.enableShutdownHooks();
     await app.listen(env.PORT, env.HOST);
     Logger.log(`API listening on ${await app.getUrl()}/api/v1`, 'Bootstrap');
   } catch (error) {

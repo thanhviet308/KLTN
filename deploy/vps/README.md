@@ -3,8 +3,14 @@
 Compose chạy PostgreSQL 17, migration và NestJS. API kết nối bằng hostname `db`
 trong mạng Docker. PostgreSQL không publish cổng 5432; API chỉ publish
 `127.0.0.1:3000` để Nginx trên VPS chuyển tiếp HTTPS và WebSocket.
-Backend và database mỗi service giới hạn 1 GiB RAM; cần dành thêm RAM cho hệ điều hành,
-Nginx và build image. Đây là giới hạn ban đầu, cần điều chỉnh theo tải thực tế.
+Mỗi slot API giới hạn 512 MiB, database giữ 1 GiB. Cần RAM cho hệ điều hành,
+Nginx và build image; phải đo tài nguyên trước khi bật hai slot cùng lúc.
+
+Deploy hiện dùng [Blue-Green](blue-green.md): giữ Blue phục vụ trong lúc Green
+build/khởi động, health check rồi đổi upstream Nginx, giữ bản cũ để rollback.
+Cần cài helper Nginx một lần theo hướng dẫn trước khi chạy workflow mới. Các lệnh
+thiết lập `up api` dưới đây chỉ dùng bootstrap ban đầu, không dùng để cập nhật slot
+khi Blue-Green đã hoạt động.
 
 ## Thiết lập mới
 
@@ -83,9 +89,9 @@ Theo dõi dung lượng ổ đĩa, RAM, CPU và log; restart policy không thay 
 Một VPS lỗi sẽ ảnh hưởng cả API và database. SSL database không bật trong cấu hình
 này: kết nối chỉ đi trong mạng Docker cùng host, không dùng URL này qua Internet.
 
-`deploy.sh <commit-sha>` đã được cập nhật: chờ database, chạy migration rồi recreate
-API. Migration thay đổi schema vẫn phải tương thích với API cũ trong lúc deploy,
-hoặc cần cửa sổ bảo trì.
+`deploy.sh <commit-sha>` build slot inactive, kiểm tra không có migration pending,
+chạy candidate và chuyển Nginx khi healthy. Nó không recreate database hoặc tự
+áp dụng migration. Migration mới phải review/apply riêng theo [Blue-Green](blue-green.md).
 
 ## Tệp trong đoạn chat
 
@@ -100,7 +106,9 @@ Backup phải gồm cả database và tệp. Dừng ghi vào API trong lúc tạ
 
 ```bash
 umask 077
-docker compose -f deploy/vps/compose.yml exec -T api \
+active_port=$(sudo -n /usr/local/sbin/pingpong-switch-upstream status)
+if [ "$active_port" = 3000 ]; then active_service=api; else active_service=api-green; fi
+docker compose -f deploy/vps/compose.yml exec -T "$active_service" \
   tar -C /app/storage/chat -czf - . \
   > "deploy/vps/backups/chat-files-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
 ```
@@ -114,13 +122,12 @@ Hướng dẫn test và API: [chat-media.md](../../apps/api/tests/chat-media.md)
 `sharp` và `@img/sharp-wasm32` được khóa cùng phiên bản. Sharp có thể thử
 WebAssembly khi native không chạy được, nhưng Wasm cũng cần CPU hỗ trợ SIMD.
 VPS báo cả `require v2 microarchitecture` và `Wasm SIMD unsupported` không dùng
-được phương án fallback này. Thử nghiệm build source và kiểm thử độc lập nằm ở
-[sharp-x86-64-v1.md](sharp-x86-64-v1.md). Compose API và migration hiện dùng
+được phương án fallback này. Compose API và migration hiện dùng
 `Dockerfile.x86-64-v1`, target `runtime`, platform `linux/amd64`.
 
 GitHub Actions chạy checks rồi gửi deploy script nhỏ qua SSH có xác minh host.
-VPS fetch đúng commit main và gọi `deploy.sh <commit-sha>` để build image bằng
-Docker Compose ngay trên VPS. Không còn job build image, upload/download artifact
+VPS fetch đúng commit main và gọi `deploy.sh <commit-sha>` để build image candidate
+bằng Docker Compose ngay trên VPS. Không có job build image, upload/download artifact
 hoặc chuyển Docker archive trong workflow production. Job deploy giới hạn 60 phút
 để có thời gian build source lần đầu; đây không phải cam kết build sẽ xong trong 60 phút.
 
@@ -129,24 +136,25 @@ Meson và node-gyp dùng một job; VPS 1 vCPU/2GB RAM vẫn cần RAM cho Postg
 Redis và OS, có thể chậm hoặc OOM nếu thiếu headroom. Không tự dừng database hoặc
 đổi swap/volumes để build. Dockerfile có kiểm tra dependency/Sharp trong runtime;
 deploy script kiểm tra lại trên CPU VPS trước migration/thay API. Build hoặc smoke
-thất bại thì không thay API và không chạy migration.
+thất bại thì không đổi traffic; migration check chỉ đọc schema. Readiness candidate
+đạt mới chuyển Nginx; lỗi sau switch trong cửa sổ kiểm tra sẽ phục hồi slot cũ.
 
-Luồng prebuilt archive vẫn có thể dùng thủ công với tham số image thứ hai của
-deploy.sh; load-image.sh và export-sharp-test.ps1 được giữ làm công cụ tùy chọn.
 Workflow test-sharp-v1.yml vẫn là kiểm thử độc lập, không deploy production.
 Sau deploy tự động, lệnh Compose thao tác API/migration cần export `BACKEND_IMAGE`
 bằng image ID đang chạy để tránh quay lại tag local cũ:
 
 ```bash
-api_id=$(docker compose -f deploy/vps/compose.yml ps -q api)
+active_port=$(sudo -n /usr/local/sbin/pingpong-switch-upstream status)
+if [ "$active_port" = 3000 ]; then active_service=api; else active_service=api-green; fi
+api_id=$(docker compose --profile blue-green -f deploy/vps/compose.yml ps -q "$active_service")
 export BACKEND_IMAGE=$(docker inspect --format '{{.Image}}' "$api_id")
-docker compose -f deploy/vps/compose.yml ps
+docker compose --profile blue-green -f deploy/vps/compose.yml ps
 ```
 
-Rollback dùng [compose.rollback.yml](compose.rollback.yml) với image known-good
-đã kiểm thử và schema tương thích; `pingpong-api:previous` chưa đảm bảo healthy.
-Không tự rollback migration hoặc xóa volume. Workflow không tự rollback khi API
-mới không qua readiness; kiểm tra diagnostics và chọn image đã xác minh.
+Rollback Blue-Green dùng `bash deploy/vps/rollback.sh`, restart đúng container
+standby và chuyển lại Nginx sau health check; schema phải tương thích. Không tự
+rollback migration hoặc xóa volume. `compose.rollback.yml` chỉ dành cho phục hồi
+image Blue thủ công trong bootstrap cũ, không phải cách rollback Blue-Green.
 
 Kiểm thử luồng ảnh với bản WebAssembly trên máy local:
 
@@ -158,6 +166,18 @@ node -r ./apps/api/tests/sharp-wasm-preload.cjs apps/api/tests/chat-media.integr
 
 ## Kiểm thử Sharp trên CPU VPS thật
 
-Xem [quy trình chuyển archive, smoke test và staging độc lập](sharp-vps-validation.md). Không chạy deployment production trong bước xác minh này.
+Kiểm tra image đã build mà không kết nối database:
 
-Lỗi runtime `Cannot find module '@nestjs/typeorm'`: xem [sửa COPY npm workspace dependencies và kiểm thử NestJS staging](sharp-runtime-fix.md).
+```bash
+docker run --rm --network none --read-only pingpong-api:local node apps/api/tests/api-runtime-dependencies.cjs
+docker run --rm --network none --read-only pingpong-api:local node apps/api/tests/sharp-runtime-smoke.cjs --source
+```
+
+Smoke Sharp kiểm tra JPEG/PNG/WebP; dependency check resolve từ `dist/main.js`,
+gồm package được npm cài trong `apps/api/node_modules`. Dockerfile phải giữ cả
+root và workspace node_modules trong runtime để NestJS khởi động đúng.
+
+Kiểm thử migration và API startup với PostgreSQL staging độc lập dùng
+`compose.sharp-staging.yml` và workflow thủ công `test-sharp-v1.yml`.
+Không dùng env hoặc volume production cho staging. `api-runtime-health.cjs`
+chỉ chạy khi NODE_ENV=test và database là staging-db/pingpong_staging.

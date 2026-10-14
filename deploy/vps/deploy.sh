@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 expected_commit=${1:?Pass the GitHub commit SHA to deploy}
+[[ "$#" == 1 ]] || { echo 'Usage: deploy.sh <commit-sha>' >&2; exit 1; }
 [[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid commit SHA' >&2; exit 1; }
-release_image=${2:-}
-if [[ -n "$release_image" ]]; then
-  [[ "$release_image" == "pingpong-api:release-$expected_commit" ]] || {
-    echo 'Release image tag must match the checked commit' >&2; exit 1;
-  }
-  export BACKEND_IMAGE="$release_image"
-else
-  # Ignore inherited values when explicitly using the manual local-build path.
-  export BACKEND_IMAGE=pingpong-api:local
-fi
+# Always build locally; ignore any inherited image override.
+export BACKEND_IMAGE=pingpong-api:local
 export GIT_TERMINAL_PROMPT=0
 
 for tool in git docker flock curl; do
@@ -40,55 +33,87 @@ printf 'VPS checkout updated to %s\n' "$expected_commit"
 [[ -f deploy/vps/.env ]] || { echo 'Code updated, but deployment stopped: create deploy/vps/.env using .env.example' >&2; exit 1; }
 [[ -f deploy/vps/postgres.env ]] || { echo 'Code updated, but deployment stopped: create deploy/vps/postgres.env using postgres.env.example and configure matching database URLs in .env' >&2; exit 1; }
 
-compose=(docker compose -f deploy/vps/compose.yml)
-report_failure() {
-  local status=$1 container_id
-  trap - ERR
-  printf '\nBackend deployment failed (exit %s). API diagnostics:\n' "$status" >&2
-  "${compose[@]}" ps --all api >&2 || true
-  container_id=$("${compose[@]}" ps --all -q api) || container_id=''
-  if [[ -n "$container_id" ]]; then
-    # Inspect only runtime state; never dump Config.Env or credentials.
-    docker inspect --format \
-      'status={{.State.Status}} exit={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} restarts={{.RestartCount}}' \
-      "$container_id" >&2 || true
-    docker inspect --format \
-      '{{if .State.Health}}{{range .State.Health.Log}}healthcheck exit={{.ExitCode}} output={{printf "%q" .Output}}{{println}}{{end}}{{end}}' \
-      "$container_id" >&2 || true
-    "${compose[@]}" logs --no-color --tail=100 api >&2 || true
+compose=(docker compose --profile blue-green -f deploy/vps/compose.yml)
+health_url=${DEPLOY_HEALTH_URL:-https://pingpongapi.id.vn/api/v1/health/ready}
+[[ "$health_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/api/v1/health/ready$ ]] || { echo 'Invalid proxy health URL' >&2; exit 1; }
+for tool in sudo; do command -v "$tool" >/dev/null || exit 1; done
+active_port=$(sudo -n /usr/local/sbin/pingpong-switch-upstream status)
+case "$active_port" in
+  3000) active=api; candidate=api-green; candidate_port=3001 ;;
+  3001) active=api-green; candidate=api; candidate_port=3000 ;;
+  *) echo 'Invalid active upstream' >&2; exit 1 ;;
+esac
+active_container=$("${compose[@]}" ps --all -q "$active")
+[[ -n "$active_container" ]] || { echo 'Start the initial Blue API before enabling blue-green deploy' >&2; exit 1; }
+curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "http://127.0.0.1:$active_port/api/v1/health/ready"
+db_container=$("${compose[@]}" ps -q db)
+[[ -n "$db_container" && "$(docker inspect --format '{{.State.Health.Status}}' "$db_container")" == healthy ]] || { echo 'Existing database must be healthy' >&2; exit 1; }
+# Avoid starting a build with no memory headroom on the small VPS.
+available_kb=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+[[ "$available_kb" -ge 524288 ]] || { echo 'Less than 512 MiB RAM available; deployment stopped' >&2; exit 1; }
+export BACKEND_IMAGE="pingpong-api:release-$expected_commit"
+export DEPLOYMENT_REVISION="$expected_commit"
+"${compose[@]}" config --quiet
+candidate_started=false
+switched=false
+old_stopped=false
+failure() {
+  status=$1
+  trap - ERR INT TERM HUP
+  echo "Blue-green deployment failed (exit $status)" >&2
+  "${compose[@]}" logs --no-color --tail=60 "$candidate" >&2 || true
+  safe_to_stop=true
+  if [[ "$switched" == true ]]; then
+    safe_to_stop=false
+    if [[ "$old_stopped" == true ]]; then docker start "$active_container" >/dev/null || true; fi
+    if curl --fail --silent --show-error --retry 12 --retry-delay 2 --retry-all-errors --connect-timeout 3 --max-time 5 "http://127.0.0.1:$active_port/api/v1/health/ready" \
+      && sudo -n /usr/local/sbin/pingpong-switch-upstream "$active_port"; then
+      safe_to_stop=true
+      echo "Traffic restored to $active" >&2
+    else
+      echo 'CRITICAL: rollback failed; candidate kept running for investigation' >&2
+    fi
   fi
+  if [[ "$candidate_started" == true && "$safe_to_stop" == true ]]; then "${compose[@]}" stop "$candidate" >&2 || true; fi
   exit "$status"
 }
-trap 'report_failure "$?"' ERR
-if [[ -n "$release_image" ]]; then
-  [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$release_image")" == linux/amd64 ]] || {
-    echo 'Prebuilt release must be a local linux/amd64 image' >&2; exit 1;
-  }
-  # Pin the loaded image ID for this deployment; do not rely on a mutable tag.
-  export BACKEND_IMAGE=$(docker image inspect --format '{{.Id}}' "$release_image")
-  [[ "$BACKEND_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid release image ID' >&2; exit 1; }
-fi
-"${compose[@]}" config --quiet
-running_container=$("${compose[@]}" ps -q api)
-if [[ -n "$running_container" ]]; then
-  running_image=$(docker inspect --format '{{.Image}}' "$running_container")
-  docker image tag "$running_image" pingpong-api:previous
-elif docker image inspect pingpong-api:local >/dev/null 2>&1; then
-  docker image tag pingpong-api:local pingpong-api:previous
-fi
-if [[ -z "$release_image" ]]; then
-  "${compose[@]}" build api
-fi
-# Verify on the real VPS CPU before starting services or production migrations.
-docker run --rm --pull never --network none --read-only --cap-drop ALL \
-  --security-opt no-new-privileges --memory 256m --cpus 1 "$BACKEND_IMAGE" \
-  node apps/api/tests/api-runtime-dependencies.cjs
-docker run --rm --pull never --network none --read-only --cap-drop ALL \
-  --security-opt no-new-privileges --memory 256m --cpus 1 "$BACKEND_IMAGE" \
-  node apps/api/tests/sharp-runtime-smoke.cjs --source
-"${compose[@]}" up -d --wait --wait-timeout 120 db
-"${compose[@]}" run --rm -T migrate </dev/null
-"${compose[@]}" up -d --no-deps --no-build --wait --wait-timeout 120 --force-recreate api
-curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors \
-  --connect-timeout 5 --max-time 15 http://127.0.0.1:3000/api/v1/health/ready
-printf '\nBackend deployment completed: %s\n' "$expected_commit"
+trap 'failure "$?"' ERR
+trap 'failure 130' INT
+trap 'failure 143' TERM
+trap 'failure 129' HUP
+proxy_health() {
+  headers=$(curl --fail --silent --show-error --retry 3 --retry-delay 1 --retry-all-errors \
+    --connect-timeout 5 --max-time 10 --dump-header - --output /dev/null "$health_url") || return $?
+  printf '%s\n' "$headers" | tr -d '\r' | grep -iFx "X-PingPong-Revision: $expected_commit" >/dev/null
+}
+printf '\nActive: %s. Building candidate: %s\n' "$active" "$candidate"
+"${compose[@]}" build "$candidate"
+# Pin the artifact used by all following candidate and migration commands.
+BACKEND_IMAGE=$(docker image inspect --format '{{.Id}}' "$BACKEND_IMAGE")
+export BACKEND_IMAGE
+[[ "$BACKEND_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid built image ID' >&2; exit 1; }
+for script in api-runtime-dependencies.cjs sharp-runtime-smoke.cjs; do
+  args=()
+  [[ "$script" != sharp-runtime-smoke.cjs ]] || args=(--source)
+  docker run --rm --pull never --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --memory 256m --cpus 1 "$BACKEND_IMAGE" \
+    node "apps/api/tests/$script" "${args[@]}"
+done
+# Read-only pending-migration check. Never auto-change schema while Blue is live.
+"${compose[@]}" run --rm -T --no-deps migrate node apps/api/dist/modules/database/migrate.js --check </dev/null
+candidate_started=true
+"${compose[@]}" up -d --no-deps --no-build --wait --wait-timeout 120 "$candidate"
+curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "http://127.0.0.1:$candidate_port/api/v1/health/ready"
+# Mark first: signals/errors during reload must also trigger restoration.
+switched=true
+sudo -n /usr/local/sbin/pingpong-switch-upstream "$candidate_port"
+proxy_health
+# No shared Socket.IO adapter: old sockets must reconnect to the new active API.
+old_stopped=true
+"${compose[@]}" stop "$active"
+for check in 1 2 3; do
+  curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "http://127.0.0.1:$candidate_port/api/v1/health/ready"
+  proxy_health
+  [[ "$check" == 3 ]] || sleep 2
+done
+printf '\nBlue-green deployment completed: %s on %s; %s retained as cold standby\n' "$expected_commit" "$candidate" "$active"

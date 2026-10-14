@@ -21,6 +21,24 @@ async function migrate(): Promise<void> {
     // Run migrations and the lock on the same PostgreSQL connection.
     const executor = new MigrationExecutor(dataSource, runner);
     executor.transaction = 'all';
+    if (process.argv.includes('--check')) {
+      await runner.startTransaction();
+      await runner.query('SET TRANSACTION READ ONLY');
+      let pending;
+      try {
+        pending = await executor.getPendingMigrations();
+      } finally {
+        await runner.rollbackTransaction();
+      }
+      console.log(`Pending TypeORM migrations: ${pending.length}`);
+      if (pending.length) {
+        console.error(
+          'Blue-green deployment requires applying reviewed backwards-compatible migrations separately before switching API versions',
+        );
+        process.exitCode = 1;
+      }
+      return;
+    }
     const applied = await executor.executePendingMigrations();
     console.log(
       applied.length

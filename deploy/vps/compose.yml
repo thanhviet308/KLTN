@@ -50,7 +50,7 @@ services:
         max-size: 10m
         max-file: '3'
 
-  api:
+  api: &api
     <<: *runtime
     build:
       context: ../..
@@ -58,8 +58,10 @@ services:
       target: runtime
       platforms: [linux/amd64]
     restart: unless-stopped
+    mem_limit: 512m
     environment:
       CHAT_FILES_DIR: /app/storage/chat
+      DEPLOYMENT_REVISION: ${DEPLOYMENT_REVISION:-}
     volumes:
       - chat_files:/app/storage/chat
     depends_on:
@@ -80,6 +82,12 @@ services:
       timeout: 6s
       start_period: 45s
       retries: 3
+
+  api-green:
+    <<: *api
+    profiles: [blue-green]
+    ports:
+      - '127.0.0.1:3001:3000'
 
   migrate:
     <<: *runtime

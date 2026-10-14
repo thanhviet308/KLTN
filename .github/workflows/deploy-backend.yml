@@ -39,7 +39,16 @@ jobs:
       - run: npm run typecheck --workspace=@chat/api
       - run: npm run build --workspace=@chat/api
       - run: bash -n deploy/vps/deploy.sh
+      - run: bash -n deploy/vps/switch-upstream.sh && bash -n deploy/vps/rollback.sh
       - run: bash deploy/vps/tests/deploy-failure.sh
+      - name: Verify actual Nginx switching and failed-reload recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'FROM nginx:stable-alpine\nRUN apk add --no-cache bash flock curl\n' | docker build -t pingpong-nginx-test:validation -
+          docker run --rm --network none \
+            --mount "type=bind,source=$PWD/deploy/vps,target=/fixtures,readonly" \
+            --entrypoint bash pingpong-nginx-test:validation /fixtures/tests/nginx-switch.integration.sh
 
   deploy:
     needs: checks
@@ -59,6 +68,7 @@ jobs:
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
           VPS_PORT: ${{ vars.VPS_PORT || '22' }}
           VPS_DEPLOY_PATH: ${{ vars.VPS_DEPLOY_PATH }}
+          DEPLOY_HEALTH_URL: ${{ vars.VPS_HEALTH_URL || 'https://pingpongapi.id.vn/api/v1/health/ready' }}
         run: |
           set -euo pipefail
           : "${VPS_HOST:?Set VPS_HOST secret}"
@@ -76,7 +86,7 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > "$ssh_dir/key"
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
           # Read the entire script before running commands that may consume stdin.
-          printf -v remote_command 'cd -- %q && deploy_script=$(cat) && bash -c "$deploy_script" -- %q' "$VPS_DEPLOY_PATH" "$GITHUB_SHA"
+          printf -v remote_command 'cd -- %q && export DEPLOY_HEALTH_URL=%q && deploy_script=$(cat) && bash -c "$deploy_script" -- %q' "$VPS_DEPLOY_PATH" "$DEPLOY_HEALTH_URL" "$GITHUB_SHA"
           ssh -i "$ssh_dir/key" -p "$VPS_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \

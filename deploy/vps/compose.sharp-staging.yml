@@ -39,7 +39,11 @@ services:
       PGTZ: UTC
     volumes: [staging_postgres:/var/lib/postgresql/data]
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U pingpong_staging -d pingpong_staging']
+      test:
+        [
+          CMD-SHELL,
+          'pg_isready -h 127.0.0.1 -U pingpong_staging -d pingpong_staging',
+        ]
       interval: 5s
       timeout: 3s
       retries: 12
