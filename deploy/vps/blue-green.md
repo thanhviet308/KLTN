@@ -27,7 +27,11 @@ WebSocket hoàn toàn không gián đoạn. Bản mới chạy song song trướ
 chưa nhận traffic người dùng. Xem [Nginx reload](https://nginx.org/en/docs/control.html)
 và [Socket.IO multiple nodes](https://socket.io/docs/v4/using-multiple-nodes/).
 
-## Cài đặt một lần trên VPS (chưa tự thực hiện)
+## Cài đặt một lần trên VPS
+
+Đã bootstrap revision trên VPS production ngày 2026-10-18: Blue ở port 3000
+healthy và readiness qua localhost/HTTPS đều trả đúng full Git SHA. Các lệnh dưới
+đây vẫn là checklist khi dựng lại VPS hoặc thay cấu hình Nginx/helper.
 
 Thực hiện tại checkout production trên VPS sau khi commit mới đã có trên máy.
 Giữ cấu hình TLS/Certbot hiện tại. Không ghi đè toàn bộ site bằng template HTTP.
