@@ -64,6 +64,9 @@ async function client(key) {
       "import { BACKEND_ORIGIN } from './config';",
       "const BACKEND_ORIGIN = '';",
     )
+    // The fetch mock resolves explicitly; retaining production timeout signals
+    // would keep the Node test worker alive after every successful request.
+    .replace('signal: AbortSignal.timeout(15000),', 'signal: undefined,')
     .replace('import.meta.env.DEV', 'true');
   const compiled = ts.transpileModule(source, {
     compilerOptions: {

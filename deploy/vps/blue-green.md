@@ -14,7 +14,10 @@ inactive → readiness trực tiếp → nginx -t và reload upstream → health
 
 Health qua Nginx phải trả `X-PingPong-Revision` đúng commit candidate, không chỉ
 HTTP 200. Nhờ vậy response của Blue hoặc proxy trỏ sai không được coi là switch
-thành công. Header chỉ lấy từ cấu hình server và được validate bằng full Git SHA.
+thành công. Trước khi build, slot active cũng phải trả một full Git SHA; candidate
+phải trả đúng SHA mới ngay trên localhost trước khi switch. Khi rollback, script
+chỉ dừng candidate sau khi HTTPS trả đúng SHA của slot cũ. Header được validate
+bằng full Git SHA.
 
 Nginx reload giữ kết nối cũ. Chat hiện chưa dùng Socket.IO adapter chia sẻ:
 không giữ hai bản phục vụ WebSocket lâu sau switch, vì message/presence nằm trong
@@ -31,7 +34,10 @@ Giữ cấu hình TLS/Certbot hiện tại. Không ghi đè toàn bộ site bằ
 Đảm bảo API Blue đang healthy trước khi bật luồng mới:
 
 ```bash
-curl --fail http://127.0.0.1:3000/api/v1/health/ready
+# Gắn revision cho lần bootstrap cuối trước khi Blue-Green quản lý hai slot.
+export DEPLOYMENT_REVISION=$(git rev-parse HEAD)
+docker compose -f deploy/vps/compose.yml up -d --build --no-deps --force-recreate api
+curl --fail --dump-header - --output /dev/null http://127.0.0.1:3000/api/v1/health/ready
 sudo install -o root -g root -m 0755 deploy/vps/switch-upstream.sh /usr/local/sbin/pingpong-switch-upstream
 # Chỉ tạo upstream lần đầu. Không ghi đè nếu đã chạy Blue-Green trước đó.
 if ! sudo test -e /etc/nginx/conf.d/pingpong-upstream.conf; then
@@ -101,8 +107,9 @@ API không rollback schema hoặc hoàn tác các ghi dữ liệu đã phát sin
 Lỗi build, smoke, migration-check hoặc candidate readiness: giữ traffic và slot
 active cũ. Lỗi switch/proxy health hoặc health trong ba vòng kiểm tra sau switch:
 restart container cũ nếu đã dừng, đợi ready, chuyển upstream về cổng cũ rồi dừng
-candidate. Nếu phục hồi cũ hoặc switch-back thất bại, giữ candidate chạy và báo
-CRITICAL để tránh tự dừng backend duy nhất còn có thể phục vụ.
+candidate, nhưng chỉ sau khi HTTPS trả đúng revision cũ. Nếu phục hồi cũ,
+switch-back hoặc xác minh revision thất bại, giữ candidate chạy và báo CRITICAL
+để tránh tự dừng backend duy nhất còn có thể phục vụ.
 
 Ngoài cửa sổ kiểm tra này, rollback thủ công tại checkout VPS:
 
@@ -112,7 +119,9 @@ bash deploy/vps/rollback.sh
 ```
 
 Script dùng cùng lock với deploy, restart đúng container standby giữ nguyên image,
-kiểm tra ready trước khi chuyển Nginx. Không build, recreate database hoặc migration.
+đọc revision qua readiness localhost, chuyển Nginx rồi đợi HTTPS trả đúng revision
+đó. Nếu phải quay lại upstream ban đầu, HTTPS cũng phải xác nhận revision ban đầu.
+Không build, recreate database hoặc migration.
 Lần deploy tiếp theo có thể ghi đè slot inactive; chỉ giữ một phiên bản rollback.
 Không chạy rollback image ngẫu nhiên nếu schema đã không còn tương thích.
 
@@ -153,7 +162,8 @@ dừng. Container dừng khi hoàn tất; volume staging được giữ để đ
 
 - Typecheck, build NestJS, lint, Docker runtime dependency/Sharp JPEG/PNG/WebP đạt.
 - Các nhánh deploy lỗi build/dependency/Sharp/migration/startup/readiness/switch,
-  proxy health, lỗi sau dừng Blue và rollback fail giữ đúng traffic/container theo mock.
+  proxy health/revision, reload trễ, lỗi sau dừng Blue và rollback fail giữ đúng
+  traffic/container theo mock.
 - Hai chiều switch và rollback thủ công qua mock đạt.
 - Nginx thật trong container: Blue → Green → Blue, reload lỗi khôi phục upstream đạt.
 - PostgreSQL 17 staging mới: --check báo 10 pending và giữ nguyên `0|plpgsql`;

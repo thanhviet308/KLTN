@@ -38,6 +38,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck --workspace=@chat/api
       - run: npm run build --workspace=@chat/api
+      - run: npm test
       - run: bash -n deploy/vps/deploy.sh
       - run: bash -n deploy/vps/switch-upstream.sh && bash -n deploy/vps/rollback.sh
       - run: bash deploy/vps/tests/deploy-failure.sh

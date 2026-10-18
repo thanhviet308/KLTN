@@ -36,6 +36,39 @@ printf 'VPS checkout updated to %s\n' "$expected_commit"
 compose=(docker compose --profile blue-green -f deploy/vps/compose.yml)
 health_url=${DEPLOY_HEALTH_URL:-https://pingpongapi.id.vn/api/v1/health/ready}
 [[ "$health_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/api/v1/health/ready$ ]] || { echo 'Invalid proxy health URL' >&2; exit 1; }
+revision_health() {
+  local url=$1 expected=$2 label=$3 attempts=${4:-10}
+  local headers attempt status=1
+  [[ "$expected" =~ ^[0-9a-f]{40}$ ]] || { echo "$label: invalid expected revision" >&2; return 1; }
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if headers=$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 \
+      --dump-header - --output /dev/null "$url"); then
+      if printf '%s\n' "$headers" | tr -d '\r' | grep -iFx "X-PingPong-Revision: $expected" >/dev/null; then
+        return 0
+      fi
+      status=1
+    else
+      status=$?
+    fi
+    echo "$label attempt $attempt/$attempts: revision $expected not confirmed" >&2
+    [[ "$attempt" == "$attempts" ]] || sleep 1
+  done
+  echo "$label failed: expected X-PingPong-Revision: $expected" >&2
+  return "$status"
+}
+read_local_revision() {
+  local port=$1 label=$2 headers revision
+  headers=$(curl --fail --silent --show-error --connect-timeout 3 --max-time 5 \
+    --dump-header - --output /dev/null "http://127.0.0.1:$port/api/v1/health/ready") || return $?
+  revision=$(printf '%s\n' "$headers" | tr -d '\r' \
+    | grep -iE '^X-PingPong-Revision: [0-9a-f]{40}$' \
+    | sed -E 's/^[^:]+: //' || true)
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "$label returned no unique full X-PingPong-Revision" >&2
+    return 1
+  }
+  printf '%s\n' "$revision"
+}
 for tool in sudo; do command -v "$tool" >/dev/null || exit 1; done
 active_port=$(sudo -n /usr/local/sbin/pingpong-switch-upstream status)
 case "$active_port" in
@@ -45,7 +78,7 @@ case "$active_port" in
 esac
 active_container=$("${compose[@]}" ps --all -q "$active")
 [[ -n "$active_container" ]] || { echo 'Start the initial Blue API before enabling blue-green deploy' >&2; exit 1; }
-curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "http://127.0.0.1:$active_port/api/v1/health/ready"
+active_revision=$(read_local_revision "$active_port" 'Active API readiness')
 db_container=$("${compose[@]}" ps -q db)
 [[ -n "$db_container" && "$(docker inspect --format '{{.State.Health.Status}}' "$db_container")" == healthy ]] || { echo 'Existing database must be healthy' >&2; exit 1; }
 # Avoid starting a build with no memory headroom on the small VPS.
@@ -66,8 +99,9 @@ failure() {
   if [[ "$switched" == true ]]; then
     safe_to_stop=false
     if [[ "$old_stopped" == true ]]; then docker start "$active_container" >/dev/null || true; fi
-    if curl --fail --silent --show-error --retry 12 --retry-delay 2 --retry-all-errors --connect-timeout 3 --max-time 5 "http://127.0.0.1:$active_port/api/v1/health/ready" \
-      && sudo -n /usr/local/sbin/pingpong-switch-upstream "$active_port"; then
+    if revision_health "http://127.0.0.1:$active_port/api/v1/health/ready" "$active_revision" 'Previous API recovery' 12 \
+      && sudo -n /usr/local/sbin/pingpong-switch-upstream "$active_port" \
+      && revision_health "$health_url" "$active_revision" 'Rollback proxy readiness'; then
       safe_to_stop=true
       echo "Traffic restored to $active" >&2
     else
@@ -82,9 +116,9 @@ trap 'failure 130' INT
 trap 'failure 143' TERM
 trap 'failure 129' HUP
 proxy_health() {
-  headers=$(curl --fail --silent --show-error --retry 3 --retry-delay 1 --retry-all-errors \
-    --connect-timeout 5 --max-time 10 --dump-header - --output /dev/null "$health_url") || return $?
-  printf '%s\n' "$headers" | tr -d '\r' | grep -iFx "X-PingPong-Revision: $expected_commit" >/dev/null
+  # Reload returns before all new workers accept traffic. This also retries a
+  # stale HTTP 200 carrying the previous slot's revision.
+  revision_health "$health_url" "$expected_commit" 'Proxy readiness'
 }
 printf '\nActive: %s. Building candidate: %s\n' "$active" "$candidate"
 "${compose[@]}" build "$candidate"
@@ -103,7 +137,7 @@ done
 "${compose[@]}" run --rm -T --no-deps migrate node apps/api/dist/modules/database/migrate.js --check </dev/null
 candidate_started=true
 "${compose[@]}" up -d --no-deps --no-build --wait --wait-timeout 120 "$candidate"
-curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "http://127.0.0.1:$candidate_port/api/v1/health/ready"
+revision_health "http://127.0.0.1:$candidate_port/api/v1/health/ready" "$expected_commit" 'Candidate readiness' 1
 # Mark first: signals/errors during reload must also trigger restoration.
 switched=true
 sudo -n /usr/local/sbin/pingpong-switch-upstream "$candidate_port"

@@ -152,7 +152,8 @@ docker compose --profile blue-green -f deploy/vps/compose.yml ps
 ```
 
 Rollback Blue-Green dùng `bash deploy/vps/rollback.sh`, restart đúng container
-standby và chuyển lại Nginx sau health check; schema phải tương thích. Không tự
+standby, đọc full revision từ readiness localhost và chỉ dừng slot hiện tại sau
+khi HTTPS qua Nginx trả đúng revision đó; schema phải tương thích. Không tự
 rollback migration hoặc xóa volume. `compose.rollback.yml` chỉ dành cho phục hồi
 image Blue thủ công trong bootstrap cũ, không phải cách rollback Blue-Green.
 

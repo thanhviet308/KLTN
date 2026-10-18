@@ -9,7 +9,8 @@ cp "$root/deploy/vps/deploy.sh" "$fixture/checkout/deploy/vps/deploy.sh"
 cp "$root/deploy/vps/rollback.sh" "$fixture/checkout/deploy/vps/rollback.sh"
 touch "$fixture/checkout/deploy/vps/.env" "$fixture/checkout/deploy/vps/postgres.env"
 export expected_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-export command_log="$fixture/commands.log" port_file="$fixture/port" stopped_file="$fixture/stopped"
+export old_sha=cccccccccccccccccccccccccccccccccccccccc
+export command_log="$fixture/commands.log" port_file="$fixture/port" initial_port_file="$fixture/initial-port" stopped_file="$fixture/stopped"
 cat > "$fixture/bin/git" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -52,11 +53,26 @@ cat > "$fixture/bin/curl" <<'STUB'
 printf 'curl %s\n' "$*" >> "$command_log"
 url=${!#}
 if [[ "$url" == *':3001/'* && "$failure_mode" == candidate ]]; then exit 22; fi
-if [[ "$url" == https:* && ( "$failure_mode" == proxy || "$failure_mode" == rollback-fail ) ]]; then exit 23; fi
 if [[ "$url" == *':3001/'* && "$failure_mode" == post-stop && -e "$stopped_file" ]]; then exit 25; fi
 if [[ "$*" == *'--dump-header'* ]]; then
-  revision="$expected_sha"
-  [[ "$failure_mode" != wrong-revision ]] || revision=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  current_port=$(cat "$port_file")
+  initial_port=$(cat "$initial_port_file")
+  revision=$expected_sha
+  if [[ "$url" == https:* ]]; then
+    [[ "$current_port" != "$initial_port" ]] || revision=$old_sha
+  elif [[ "$url" == *":$initial_port/"* ]]; then
+    revision=$old_sha
+  fi
+  if [[ "$url" == https:* && "$current_port" != "$initial_port" && "$failure_mode" == proxy ]]; then exit 23; fi
+  if [[ "$url" == https:* && "$failure_mode" == rollback-fail ]]; then exit 23; fi
+  if [[ "$url" == https:* && "$current_port" != "$initial_port" && "$failure_mode" == reload-delay && ! -e "$stopped_file.headers" ]]; then
+    touch "$stopped_file.headers"
+    revision=$old_sha
+  fi
+  if [[ "$url" == https:* && "$current_port" != "$initial_port" \
+    && ( "$failure_mode" == wrong-revision || "$failure_mode" == manual-wrong-revision ) ]]; then
+    revision=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  fi
   printf 'HTTP/1.1 200 OK\r\nX-PingPong-Revision: %s\r\n\r\n' "$revision"
 fi
 STUB
@@ -74,12 +90,13 @@ echo 1048576
 STUB
 chmod +x "$fixture/bin/"*
 export PATH="$fixture/bin:$PATH"
-for failure_mode in build dependency sharp migrate startup candidate switch proxy wrong-revision post-stop rollback-fail none reverse; do
+for failure_mode in build dependency sharp migrate startup candidate switch proxy wrong-revision post-stop rollback-fail none reverse reload-delay; do
   export failure_mode
   : > "$command_log"
-  rm -f -- "$stopped_file"
+  rm -f -- "$stopped_file" "$stopped_file.headers"
   echo 3000 > "$port_file"
   [[ "$failure_mode" != reverse ]] || echo 3001 > "$port_file"
+  cp "$port_file" "$initial_port_file"
   set +e
   (cd "$fixture/checkout" && bash deploy/vps/deploy.sh "$expected_sha") > "$fixture/output" 2>&1
   status=$?
@@ -92,7 +109,7 @@ for failure_mode in build dependency sharp migrate startup candidate switch prox
   [[ "$status" == "$expected" ]] || { cat "$fixture/output"; exit 1; }
   ! grep -Eq 'docker .* (up .*db|down|rm|volume)' "$command_log"
   ! grep -Eq 'docker .*migrate$' "$command_log"
-  if [[ "$failure_mode" == none ]]; then
+  if [[ "$failure_mode" == none || "$failure_mode" == reload-delay ]]; then
     test "$(cat "$port_file")" = 3001
     grep -q 'stop api$' "$command_log"
     ! grep -q 'stop api-green$' "$command_log"
@@ -118,12 +135,29 @@ for failure_mode in build dependency sharp migrate startup candidate switch prox
   fi
   echo "blue-green $failure_mode: exit=$status, traffic/container invariants OK"
 done
+export failure_mode=manual-wrong-revision
+: > "$command_log"
+rm -f -- "$stopped_file" "$stopped_file.headers"
+echo 3001 > "$port_file"
+cp "$port_file" "$initial_port_file"
+set +e
+(cd "$fixture/checkout" && bash deploy/vps/rollback.sh) > "$fixture/output" 2>&1
+status=$?
+set -e
+test "$status" = 1
+test "$(cat "$port_file")" = 3001
+! grep -q 'stop api-green$' "$command_log"
+grep -q 'original traffic restored' "$fixture/output"
+echo 'manual rollback wrong revision: original traffic retained and active API not stopped'
+
 export failure_mode=none
 : > "$command_log"
 echo 3001 > "$port_file"
+cp "$port_file" "$initial_port_file"
 (cd "$fixture/checkout" && bash deploy/vps/rollback.sh) > "$fixture/output" 2>&1
 test "$(cat "$port_file")" = 3000
 grep -q 'docker start blue-container' "$command_log"
 grep -q 'stop api-green$' "$command_log"
+grep -q -- '--dump-header - --output /dev/null https://' "$command_log"
 ! grep -Eq 'docker .* (build|up|run|down|volume)' "$command_log"
-echo 'manual rollback: restarts retained Blue, switches traffic, no build or migration'
+echo 'manual rollback: restarts retained Blue, verifies revision, switches traffic, no build or migration'

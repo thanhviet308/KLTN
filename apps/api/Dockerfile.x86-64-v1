@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-# Experiment only: never selected by production Compose/deploy.sh.
+# Production runtime for baseline x86-64 VPS CPUs; also used by the standalone
+# Sharp compatibility workflow.
 ARG NODE_IMAGE=node:24.21.0-bookworm-slim
 FROM ${NODE_IMAGE} AS vips-build
 ARG TARGETARCH
