@@ -114,54 +114,78 @@ function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.loginPage}
     >
-      <View style={styles.brandMark}>
-        <Text style={styles.brandLetter}>P</Text>
+      <View style={styles.loginGlowLarge} />
+      <View style={styles.loginGlowSmall} />
+      <View style={styles.loginContent}>
+        <View style={styles.brandMark}>
+          <View style={styles.brandDotBack} />
+          <View style={styles.brandDotFront} />
+        </View>
+        <Text style={styles.title}>PingPong</Text>
+        <Text style={styles.subtitle}>Nhắn tin gần nhau hơn, mỗi ngày.</Text>
+        <View style={styles.loginCard}>
+          <View style={styles.loginHeadingRow}>
+            <View>
+              <Text style={styles.loginHeading}>Chào mừng trở lại</Text>
+              <Text style={styles.loginCaption}>
+                Đăng nhập để tiếp tục trò chuyện
+              </Text>
+            </View>
+            <View style={styles.securePill}>
+              <Text style={styles.securePillText}>BẢO MẬT</Text>
+            </View>
+          </View>
+          <Text style={styles.fieldLabel}>EMAIL</Text>
+          <TextInput
+            accessibilityLabel="Email"
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            onChangeText={setEmail}
+            placeholder="ban@example.com"
+            placeholderTextColor="#98a2b3"
+            returnKeyType="next"
+            style={styles.input}
+            value={email}
+          />
+          <Text style={styles.fieldLabel}>MẬT KHẨU</Text>
+          <TextInput
+            accessibilityLabel="Mật khẩu"
+            autoComplete="current-password"
+            onChangeText={setPassword}
+            onSubmitEditing={() => void submit()}
+            placeholder="Nhập mật khẩu"
+            placeholderTextColor="#98a2b3"
+            returnKeyType="done"
+            secureTextEntry
+            style={styles.input}
+            value={password}
+          />
+          {!!error && <Text style={styles.error}>{error}</Text>}
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy || !email.trim() || !password}
+            onPress={() => void submit()}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              pressed && styles.pressed,
+              (busy || !email.trim() || !password) && styles.disabled,
+            ]}
+          >
+            {busy ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.primaryButtonText}>Đăng nhập →</Text>
+            )}
+          </Pressable>
+        </View>
+        <Text style={styles.securityNote}>
+          Phiên đăng nhập được bảo vệ bởi Android Keystore
+        </Text>
       </View>
-      <Text style={styles.title}>PingPong</Text>
-      <Text style={styles.subtitle}>Đăng nhập để tiếp tục trò chuyện</Text>
-      <TextInput
-        accessibilityLabel="Email"
-        autoCapitalize="none"
-        autoComplete="email"
-        keyboardType="email-address"
-        onChangeText={setEmail}
-        placeholder="Email"
-        style={styles.input}
-        value={email}
-      />
-      <TextInput
-        accessibilityLabel="Mật khẩu"
-        autoComplete="current-password"
-        onChangeText={setPassword}
-        onSubmitEditing={() => void submit()}
-        placeholder="Mật khẩu"
-        secureTextEntry
-        style={styles.input}
-        value={password}
-      />
-      {!!error && <Text style={styles.error}>{error}</Text>}
-      <Pressable
-        accessibilityRole="button"
-        disabled={busy || !email.trim() || !password}
-        onPress={() => void submit()}
-        style={({ pressed }) => [
-          styles.primaryButton,
-          pressed && styles.pressed,
-          busy && styles.disabled,
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator color="white" />
-        ) : (
-          <Text style={styles.primaryButtonText}>Đăng nhập</Text>
-        )}
-      </Pressable>
-      <Text style={styles.securityNote}>
-        Refresh token được bảo vệ bởi Android Keystore.
-      </Text>
     </KeyboardAvoidingView>
   );
 }
@@ -218,15 +242,40 @@ function ConversationList({
   return (
     <View style={styles.page}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>Xin chào</Text>
-          <Text style={styles.headerTitle}>{user.displayName}</Text>
+        <View style={styles.headerIdentity}>
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileAvatarText}>
+              {initials(user.displayName)}
+            </Text>
+          </View>
+          <View>
+            <Text style={styles.eyebrow}>CHÀO BUỔI TỐT LÀNH</Text>
+            <Text style={styles.profileName}>{user.displayName}</Text>
+          </View>
         </View>
-        <Pressable onPress={() => void logout()}>
-          <Text style={styles.link}>Đăng xuất</Text>
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={10}
+          onPress={() => void logout()}
+          style={styles.iconButton}
+        >
+          <Text style={styles.iconButtonText}>↗</Text>
         </Pressable>
       </View>
-      <Text style={styles.sectionTitle}>Đoạn chat</Text>
+      <View style={styles.sectionHeadingRow}>
+        <View>
+          <Text style={styles.sectionTitle}>Tin nhắn</Text>
+          <Text style={styles.sectionCaption}>
+            {items.length
+              ? `${items.length} cuộc trò chuyện`
+              : 'Luôn giữ kết nối'}
+          </Text>
+        </View>
+        <View style={styles.onlinePill}>
+          <View style={styles.onlineDot} />
+          <Text style={styles.onlinePillText}>Đang hoạt động</Text>
+        </View>
+      </View>
       {!!error && <Text style={styles.error}>{error}</Text>}
       {loading ? (
         <Centered label="Đang tải hội thoại…" />
@@ -241,8 +290,15 @@ function ConversationList({
             />
           }
           ListEmptyComponent={
-            <Text style={styles.empty}>Bạn chưa có cuộc trò chuyện nào.</Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyIcon}>✦</Text>
+              <Text style={styles.emptyTitle}>Chưa có tin nhắn</Text>
+              <Text style={styles.empty}>
+                Cuộc trò chuyện mới sẽ xuất hiện tại đây.
+              </Text>
+            </View>
           }
+          contentContainerStyle={styles.conversationList}
           renderItem={({ item }) => (
             <Pressable
               onPress={() => onOpen(item)}
@@ -253,7 +309,7 @@ function ConversationList({
             >
               <View style={styles.avatar}>
                 <Text style={styles.avatarText}>
-                  {conversationName(item).slice(0, 1).toUpperCase()}
+                  {initials(conversationName(item))}
                 </Text>
               </View>
               <View style={styles.conversationBody}>
@@ -261,15 +317,22 @@ function ConversationList({
                   <Text numberOfLines={1} style={styles.conversationName}>
                     {conversationName(item)}
                   </Text>
+                  <Text style={styles.messageTime}>
+                    {item.lastMessage
+                      ? shortTime(item.lastMessage.createdAt)
+                      : ''}
+                  </Text>
+                </View>
+                <View style={styles.rowBetween}>
+                  <Text numberOfLines={1} style={styles.preview}>
+                    {item.lastMessage?.body ?? 'Bắt đầu trò chuyện ngay'}
+                  </Text>
                   {!!item.unreadCount && (
                     <View style={styles.badge}>
                       <Text style={styles.badgeText}>{item.unreadCount}</Text>
                     </View>
                   )}
                 </View>
-                <Text numberOfLines={1} style={styles.preview}>
-                  {item.lastMessage?.body ?? 'Chưa có tin nhắn'}
-                </Text>
               </View>
             </Pressable>
           )}
@@ -283,6 +346,23 @@ function conversationName(item: api.Conversation) {
   return item.type === 'direct'
     ? (item.peer?.displayName ?? 'Trò chuyện')
     : (item.title ?? 'Nhóm');
+}
+
+function initials(value: string) {
+  return value
+    .trim()
+    .split(/\s+/)
+    .slice(-2)
+    .map(part => part[0])
+    .join('')
+    .toUpperCase();
+}
+
+function shortTime(value: string) {
+  return new Intl.DateTimeFormat('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
 }
 
 function mergeMessages(current: api.Message[], incoming: api.Message[]) {
@@ -488,18 +568,31 @@ function Chat({
       style={styles.page}
     >
       <View style={styles.chatHeader}>
-        <Pressable onPress={onBack}>
+        <Pressable hitSlop={10} onPress={onBack} style={styles.backButton}>
           <Text style={styles.back}>‹</Text>
         </Pressable>
+        <View style={styles.chatAvatar}>
+          <Text style={styles.chatAvatarText}>
+            {initials(conversationName(conversation))}
+          </Text>
+        </View>
         <View style={styles.chatTitleBox}>
           <Text numberOfLines={1} style={styles.headerTitle}>
             {conversationName(conversation)}
           </Text>
-          <Text
-            style={[styles.connection, connected && styles.connectionOnline]}
-          >
-            {connected ? 'Realtime đã kết nối' : 'Đang đồng bộ…'}
-          </Text>
+          <View style={styles.connectionRow}>
+            <View
+              style={[styles.statusDot, connected && styles.statusDotOnline]}
+            />
+            <Text
+              style={[styles.connection, connected && styles.connectionOnline]}
+            >
+              {connected ? 'Đang hoạt động' : 'Đang đồng bộ…'}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.chatAction}>
+          <Text style={styles.chatActionText}>•••</Text>
         </View>
       </View>
       {!!error && <Text style={styles.error}>{error}</Text>}
@@ -511,7 +604,13 @@ function Chat({
           data={messages}
           keyExtractor={item => item.id}
           ListEmptyComponent={
-            <Text style={styles.empty}>Hãy gửi tin nhắn đầu tiên.</Text>
+            <View style={styles.emptyChat}>
+              <Text style={styles.emptyIcon}>👋</Text>
+              <Text style={styles.emptyTitle}>Bắt đầu trò chuyện</Text>
+              <Text style={styles.empty}>
+                Hãy gửi một lời chào thật dễ thương.
+              </Text>
+            </View>
           }
           renderItem={({ item }) => {
             const mine = item.senderId === user.id;
@@ -528,6 +627,11 @@ function Chat({
                   >
                     {item.deletedAt ? 'Tin nhắn đã được thu hồi' : item.body}
                   </Text>
+                  <Text
+                    style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}
+                  >
+                    {shortTime(item.createdAt)}
+                  </Text>
                 </View>
               </View>
             );
@@ -539,7 +643,8 @@ function Chat({
           accessibilityLabel="Nội dung tin nhắn"
           multiline
           onChangeText={setBody}
-          placeholder="Nhập tin nhắn…"
+          placeholder="Viết tin nhắn…"
+          placeholderTextColor="#98a2b3"
           style={styles.composerInput}
           value={body}
         />
@@ -554,7 +659,7 @@ function Chat({
           {sending ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text style={styles.sendText}>Gửi</Text>
+            <Text style={styles.sendText}>➤</Text>
           )}
         </Pressable>
       </View>
@@ -563,7 +668,7 @@ function Chat({
 }
 
 const styles = StyleSheet.create({
-  app: { flex: 1, backgroundColor: '#f7f8fc' },
+  app: { flex: 1, backgroundColor: '#f5f7fb' },
   page: { flex: 1 },
   centered: {
     flex: 1,
@@ -571,95 +676,251 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
   },
-  muted: { color: '#667085', fontSize: 14 },
-  loginPage: { flex: 1, justifyContent: 'center', padding: 28, gap: 14 },
+  muted: { color: '#718096', fontSize: 14 },
+  loginPage: {
+    flex: 1,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#eef2ff',
+  },
+  loginGlowLarge: {
+    position: 'absolute',
+    width: 360,
+    height: 360,
+    borderRadius: 180,
+    backgroundColor: '#dbe5ff',
+    top: -190,
+    right: -120,
+  },
+  loginGlowSmall: {
+    position: 'absolute',
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    backgroundColor: '#e1dcff',
+    bottom: -140,
+    left: -100,
+  },
+  loginContent: { paddingHorizontal: 24 },
   brandMark: {
     alignSelf: 'center',
-    width: 64,
-    height: 64,
-    borderRadius: 22,
+    width: 68,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#4f46e5',
+    marginBottom: 10,
   },
-  brandLetter: { color: 'white', fontWeight: '800', fontSize: 30 },
+  brandDotBack: {
+    position: 'absolute',
+    left: 4,
+    width: 45,
+    height: 45,
+    borderRadius: 23,
+    backgroundColor: '#5b5df0',
+  },
+  brandDotFront: {
+    position: 'absolute',
+    right: 4,
+    width: 45,
+    height: 45,
+    borderRadius: 23,
+    backgroundColor: '#22c4c9',
+    borderWidth: 5,
+    borderColor: '#eef2ff',
+  },
   title: {
-    color: '#101828',
-    fontWeight: '800',
-    fontSize: 32,
+    color: '#17203a',
+    fontWeight: '900',
+    fontSize: 35,
+    letterSpacing: -1,
     textAlign: 'center',
   },
-  subtitle: { color: '#667085', textAlign: 'center', marginBottom: 14 },
-  input: {
+  subtitle: {
+    color: '#667085',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 22,
+  },
+  loginCard: {
     backgroundColor: 'white',
-    borderColor: '#d0d5dd',
+    borderRadius: 28,
+    padding: 22,
+    gap: 10,
+    shadowColor: '#344054',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  loginHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  loginHeading: { color: '#17203a', fontSize: 20, fontWeight: '800' },
+  loginCaption: { color: '#718096', fontSize: 13, marginTop: 3 },
+  securePill: {
+    backgroundColor: '#e8fbf8',
+    borderRadius: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  securePillText: { color: '#16877f', fontSize: 9, fontWeight: '900' },
+  fieldLabel: {
+    color: '#667085',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginTop: 4,
+    marginLeft: 3,
+  },
+  input: {
+    backgroundColor: '#f8f9fc',
+    borderColor: '#e1e6ef',
     borderWidth: 1,
-    borderRadius: 14,
-    color: '#101828',
+    borderRadius: 16,
+    color: '#17203a',
     fontSize: 16,
     paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingVertical: 12,
   },
   error: {
     color: '#b42318',
     backgroundColor: '#fef3f2',
-    padding: 10,
-    marginHorizontal: 16,
-    borderRadius: 10,
+    padding: 11,
+    marginHorizontal: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   primaryButton: {
-    minHeight: 50,
-    borderRadius: 14,
-    backgroundColor: '#4f46e5',
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#5557e8',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  primaryButtonText: { color: 'white', fontSize: 16, fontWeight: '700' },
-  disabled: { opacity: 0.45 },
-  pressed: { opacity: 0.72 },
-  securityNote: {
-    color: '#98a2b3',
-    fontSize: 12,
-    textAlign: 'center',
     marginTop: 8,
+  },
+  primaryButtonText: { color: 'white', fontSize: 16, fontWeight: '800' },
+  disabled: { opacity: 0.48 },
+  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+  securityNote: {
+    color: '#7b849b',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 18,
   },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 16,
+    paddingBottom: 22,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: '#17203a',
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  eyebrow: { color: '#667085', fontSize: 12 },
-  headerTitle: { color: '#101828', fontWeight: '700', fontSize: 20 },
-  link: { color: '#4f46e5', fontWeight: '700' },
-  sectionTitle: {
-    color: '#101828',
-    fontSize: 24,
-    fontWeight: '800',
-    paddingHorizontal: 20,
-    marginBottom: 10,
-  },
-  empty: { color: '#667085', textAlign: 'center', padding: 28 },
-  conversation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 13,
-    backgroundColor: 'white',
-    borderBottomColor: '#eaecf0',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 17,
-    backgroundColor: '#eef2ff',
+  headerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  profileAvatar: {
+    width: 45,
+    height: 45,
+    borderRadius: 16,
+    backgroundColor: '#5557e8',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { color: '#4338ca', fontWeight: '800', fontSize: 18 },
+  profileAvatarText: { color: 'white', fontSize: 15, fontWeight: '900' },
+  eyebrow: {
+    color: '#aeb8d0',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  profileName: { color: 'white', fontWeight: '800', fontSize: 18 },
+  headerTitle: { color: '#17203a', fontWeight: '800', fontSize: 18 },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#26314f',
+  },
+  iconButtonText: { color: '#dce3f5', fontSize: 20, fontWeight: '700' },
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 12,
+  },
+  sectionTitle: {
+    color: '#17203a',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+  },
+  sectionCaption: { color: '#8490a8', fontSize: 12, marginTop: 2 },
+  onlinePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#e8fbf8',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 99,
+  },
+  onlineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#17a398',
+  },
+  onlinePillText: { color: '#16877f', fontSize: 10, fontWeight: '800' },
+  conversationList: { paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 },
+  emptyCard: {
+    marginTop: 44,
+    alignItems: 'center',
+    padding: 30,
+    backgroundColor: 'white',
+    borderRadius: 24,
+  },
+  emptyChat: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyIcon: { fontSize: 28, marginBottom: 9 },
+  emptyTitle: { color: '#17203a', fontSize: 17, fontWeight: '800' },
+  empty: { color: '#8490a8', textAlign: 'center', paddingTop: 5 },
+  conversation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: 'white',
+    borderRadius: 20,
+    marginBottom: 9,
+    shadowColor: '#344054',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 19,
+    backgroundColor: '#e9eaff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { color: '#4f51d9', fontWeight: '900', fontSize: 17 },
   conversationBody: { flex: 1, gap: 4 },
   rowBetween: {
     flexDirection: 'row',
@@ -667,76 +928,132 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   conversationName: {
-    color: '#101828',
-    fontWeight: '700',
-    fontSize: 16,
+    color: '#17203a',
+    fontWeight: '800',
+    fontSize: 15,
     flex: 1,
   },
-  preview: { color: '#667085', fontSize: 14 },
+  messageTime: { color: '#a1aabc', fontSize: 10, marginLeft: 8 },
+  preview: { color: '#7b849b', fontSize: 13, flex: 1, marginRight: 8 },
   badge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 6,
-    backgroundColor: '#4f46e5',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: '#5557e8',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: { color: 'white', fontWeight: '700', fontSize: 12 },
+  badgeText: { color: 'white', fontWeight: '800', fontSize: 10 },
   chatHeader: {
-    minHeight: 66,
-    paddingHorizontal: 14,
+    minHeight: 72,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomColor: '#eaecf0',
-    borderBottomWidth: 1,
     backgroundColor: 'white',
+    shadowColor: '#344054',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  back: { color: '#4f46e5', fontSize: 38, width: 38, lineHeight: 40 },
+  backButton: {
+    width: 38,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  back: { color: '#4f51d9', fontSize: 38, lineHeight: 39 },
+  chatAvatar: {
+    width: 43,
+    height: 43,
+    borderRadius: 16,
+    backgroundColor: '#e9eaff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  chatAvatarText: { color: '#4f51d9', fontSize: 14, fontWeight: '900' },
   chatTitleBox: { flex: 1 },
-  connection: { color: '#b54708', fontSize: 12 },
-  connectionOnline: { color: '#027a48' },
-  messageList: { padding: 14, flexGrow: 1, justifyContent: 'flex-end' },
-  messageRow: { alignItems: 'flex-start', marginVertical: 4 },
+  connectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#f59e0b',
+  },
+  statusDotOnline: { backgroundColor: '#17a398' },
+  connection: { color: '#ad6800', fontSize: 11 },
+  connectionOnline: { color: '#16877f' },
+  chatAction: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: '#f2f4f8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatActionText: { color: '#667085', fontWeight: '900', letterSpacing: 1 },
+  messageList: { padding: 16, flexGrow: 1, justifyContent: 'flex-end' },
+  messageRow: { alignItems: 'flex-start', marginVertical: 5 },
   messageRowMine: { alignItems: 'flex-end' },
   bubble: {
-    maxWidth: '82%',
-    borderRadius: 18,
+    maxWidth: '80%',
+    borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingTop: 10,
+    paddingBottom: 7,
   },
-  bubblePeer: { backgroundColor: 'white', borderBottomLeftRadius: 5 },
-  bubbleMine: { backgroundColor: '#4f46e5', borderBottomRightRadius: 5 },
-  messageText: { color: '#101828', fontSize: 16, lineHeight: 22 },
+  bubblePeer: {
+    backgroundColor: 'white',
+    borderBottomLeftRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e8ebf2',
+  },
+  bubbleMine: { backgroundColor: '#5557e8', borderBottomRightRadius: 6 },
+  messageText: { color: '#17203a', fontSize: 15, lineHeight: 21 },
   messageTextMine: { color: 'white' },
+  bubbleTime: {
+    color: '#98a2b3',
+    fontSize: 9,
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  bubbleTimeMine: { color: '#d6d7ff' },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
-    padding: 12,
-    borderTopColor: '#eaecf0',
-    borderTopWidth: 1,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
     backgroundColor: 'white',
   },
   composerInput: {
     flex: 1,
     maxHeight: 110,
-    minHeight: 44,
-    borderRadius: 16,
-    backgroundColor: '#f2f4f7',
-    color: '#101828',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    minHeight: 48,
+    borderRadius: 19,
+    backgroundColor: '#f2f4f8',
+    color: '#17203a',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
   },
   sendButton: {
-    minWidth: 58,
-    height: 44,
-    borderRadius: 15,
-    backgroundColor: '#4f46e5',
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    backgroundColor: '#5557e8',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendText: { color: 'white', fontWeight: '800' },
+  sendText: { color: 'white', fontSize: 19, fontWeight: '900' },
 });
 
 export default App;
