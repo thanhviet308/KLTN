@@ -1,6 +1,17 @@
 import { MigrationExecutor } from 'typeorm';
 import dataSource from './data-source';
 
+function reviewedMigrationNames(): Set<string> | undefined {
+  const argumentsWithAllow = process.argv
+    .slice(2)
+    .filter((argument) => argument.startsWith('--allow='));
+  if (!argumentsWithAllow.length) return undefined;
+  const values = argumentsWithAllow
+    .flatMap((argument) => argument.slice('--allow='.length).split(','))
+    .filter(Boolean);
+  return new Set(values);
+}
+
 async function migrate(): Promise<void> {
   await dataSource.initialize();
   const runner = dataSource.createQueryRunner();
@@ -38,6 +49,23 @@ async function migrate(): Promise<void> {
         process.exitCode = 1;
       }
       return;
+    }
+    const allowed = reviewedMigrationNames();
+    if (allowed) {
+      const pending = await executor.getPendingMigrations();
+      const unreviewed = pending
+        .map((migration) => migration.name)
+        .filter((name) => !allowed.has(name));
+      if (unreviewed.length) {
+        console.error(
+          `Refusing unreviewed pending migration(s): ${unreviewed.join(', ')}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      console.log(
+        `Reviewed pending migrations: ${pending.length ? pending.map((migration) => migration.name).join(', ') : 'none'}`,
+      );
     }
     const applied = await executor.executePendingMigrations();
     console.log(

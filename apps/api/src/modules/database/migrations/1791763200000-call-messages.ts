@@ -2,6 +2,9 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CallMessages1791763200000 implements MigrationInterface {
   async up(runner: QueryRunner): Promise<void> {
+    // Fail the deployment instead of queueing writes behind a long schema lock.
+    await runner.query(`SET LOCAL lock_timeout = '5s'`);
+    await runner.query(`SET LOCAL statement_timeout = '5min'`);
     await runner.query(`ALTER TABLE messages
       DROP CONSTRAINT messages_type_valid,
       DROP CONSTRAINT messages_body_valid,

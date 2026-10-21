@@ -39,9 +39,10 @@ jobs:
       - run: npm run typecheck --workspace=@chat/api
       - run: npm run build --workspace=@chat/api
       - run: npm test
-      - run: bash -n deploy/vps/deploy.sh
-      - run: bash -n deploy/vps/switch-upstream.sh && bash -n deploy/vps/rollback.sh
-      - run: bash deploy/vps/tests/deploy-failure.sh
+      - name: Validate Blue-Green script syntax
+        run: bash -n deploy/vps/deploy.sh && bash -n deploy/vps/switch-upstream.sh && bash -n deploy/vps/rollback.sh
+      - name: Verify fail-closed migration, health and traffic switching
+        run: bash deploy/vps/tests/deploy-failure.sh
       - name: Verify actual Nginx switching and failed-reload recovery
         shell: bash
         run: |

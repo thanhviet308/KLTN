@@ -31,7 +31,8 @@ case "$*" in
   *'build api'|*'build api-green') [[ "$failure_mode" != build ]] || exit 17 ;;
   'run --rm '*api-runtime-dependencies.cjs) [[ "$failure_mode" != dependency ]] || exit 19 ;;
   'run --rm '*sharp-runtime-smoke.cjs*) [[ "$failure_mode" != sharp ]] || exit 20 ;;
-  *'migrate node apps/api/dist/modules/database/migrate.js --check') [[ "$failure_mode" != migrate ]] || exit 18 ;;
+  *'migrate node apps/api/dist/modules/database/migrate.js --allow=CallMessages1791763200000') [[ "$failure_mode" != migration-apply ]] || exit 18 ;;
+  *'migrate node apps/api/dist/modules/database/migrate.js --check') [[ "$failure_mode" != migration-check ]] || exit 27 ;;
   *'up -d --no-deps --no-build --wait --wait-timeout 120 '* ) [[ "$failure_mode" != startup ]] || exit 21 ;;
   *'stop api'|*'stop api-green') touch "$stopped_file" ;;
 esac
@@ -90,7 +91,7 @@ echo 1048576
 STUB
 chmod +x "$fixture/bin/"*
 export PATH="$fixture/bin:$PATH"
-for failure_mode in build dependency sharp migrate startup candidate switch proxy wrong-revision post-stop rollback-fail none reverse reload-delay; do
+for failure_mode in build dependency sharp migration-apply migration-check startup candidate switch proxy wrong-revision post-stop rollback-fail none reverse reload-delay; do
   export failure_mode
   : > "$command_log"
   rm -f -- "$stopped_file" "$stopped_file.headers"
@@ -102,13 +103,16 @@ for failure_mode in build dependency sharp migrate startup candidate switch prox
   status=$?
   set -e
   case "$failure_mode" in
-    build) expected=17 ;; dependency) expected=19 ;; sharp) expected=20 ;; migrate) expected=18 ;;
+    build) expected=17 ;; dependency) expected=19 ;; sharp) expected=20 ;;
+    migration-apply) expected=18 ;; migration-check) expected=27 ;;
     startup) expected=21 ;; candidate) expected=22 ;; switch) expected=24 ;;
     proxy|rollback-fail) expected=23 ;; wrong-revision) expected=1 ;; post-stop) expected=25 ;; *) expected=0 ;;
   esac
   [[ "$status" == "$expected" ]] || { cat "$fixture/output"; exit 1; }
   ! grep -Eq 'docker .* (up .*db|down|rm|volume)' "$command_log"
-  ! grep -Eq 'docker .*migrate$' "$command_log"
+  if [[ "$failure_mode" != build && "$failure_mode" != dependency && "$failure_mode" != sharp ]]; then
+    grep -q 'migrate node apps/api/dist/modules/database/migrate.js --allow=CallMessages1791763200000' "$command_log"
+  fi
   if [[ "$failure_mode" == none || "$failure_mode" == reload-delay ]]; then
     test "$(cat "$port_file")" = 3001
     grep -q 'stop api$' "$command_log"
@@ -128,7 +132,7 @@ for failure_mode in build dependency sharp migrate startup candidate switch prox
     else
       ! grep -q 'stop api$' "$command_log"
     fi
-    if [[ "$failure_mode" == build || "$failure_mode" == dependency || "$failure_mode" == sharp || "$failure_mode" == migrate ]]; then
+    if [[ "$failure_mode" == build || "$failure_mode" == dependency || "$failure_mode" == sharp || "$failure_mode" == migration-apply || "$failure_mode" == migration-check ]]; then
       ! grep -q 'up -d' "$command_log"
       ! grep -Eq 'pingpong-switch-upstream (3000|3001)' "$command_log"
     fi

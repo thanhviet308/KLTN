@@ -133,8 +133,19 @@ for script in api-runtime-dependencies.cjs sharp-runtime-smoke.cjs; do
     --security-opt no-new-privileges --memory 256m --cpus 1 "$BACKEND_IMAGE" \
     node "apps/api/tests/$script" "${args[@]}"
 done
-# Read-only pending-migration check. Never auto-change schema while Blue is live.
-"${compose[@]}" run --rm -T --no-deps migrate node apps/api/dist/modules/database/migrate.js --check </dev/null
+# Only migrations explicitly reviewed as backwards-compatible may run while
+# Blue is serving traffic. Future pending migrations fail closed until added.
+reviewed_migrations=(CallMessages1791763200000)
+migration_args=()
+for migration in "${reviewed_migrations[@]}"; do
+  migration_args+=("--allow=$migration")
+done
+"${compose[@]}" run --rm -T --no-deps migrate \
+  node apps/api/dist/modules/database/migrate.js "${migration_args[@]}" </dev/null
+# Verify the reviewed step left no pending migration before Green can start.
+"${compose[@]}" run --rm -T --no-deps migrate \
+  node apps/api/dist/modules/database/migrate.js --check </dev/null
+echo 'Database migration completed. It will not be rolled back automatically if the API deployment later fails.'
 candidate_started=true
 "${compose[@]}" up -d --no-deps --no-build --wait --wait-timeout 120 "$candidate"
 revision_health "http://127.0.0.1:$candidate_port/api/v1/health/ready" "$expected_commit" 'Candidate readiness' 1
