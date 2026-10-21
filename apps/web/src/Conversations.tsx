@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
 import * as api from './api';
 import { Chat } from './Chat';
 import { Avatar } from './Avatar';
 import { UiIcon } from './UiIcon';
 import { presenceBadge, presenceLabel, type Presence } from './usePresence';
 import { cachedHistory, loadRecentHistory } from './chat-history-cache';
-import type { History } from './chat-model';
+import { messageSummary, type History, type Message } from './chat-model';
+import { CallExperience, type StartCall } from './CallExperience';
 
 type Role = 'owner' | 'admin' | 'member';
 interface Peer {
@@ -25,8 +27,9 @@ interface Conversation {
     senderId: string;
     senderName?: string;
     sequence: string;
-    type?: string;
+    type?: Message['type'];
     body: string | null;
+    content?: Message['content'];
     createdAt: string;
     deletedAt?: string | null;
   } | null;
@@ -107,6 +110,17 @@ export function Conversations({
   const listVersion = useRef(0);
   const listRequests = useRef(0);
   const handledRecipient = useRef<number | undefined>(undefined);
+  const callStart = useRef<StartCall | undefined>(undefined);
+  const inboxSocket = useRef<Socket | undefined>(undefined);
+  const conversationIds = useRef<string[]>([]);
+  const selectedId = useRef<string | undefined>(undefined);
+  const viewActive = useRef(active);
+  conversationIds.current = items.slice(0, 50).map((item) => item.id);
+  selectedId.current = selected?.id;
+  viewActive.current = active;
+  const registerCallStart = useCallback((start: StartCall | undefined) => {
+    callStart.current = start;
+  }, []);
   function preload(id: string) {
     const key = `${user.id}:${id}`;
     if (cachedHistory(key)) return;
@@ -218,6 +232,100 @@ export function Conversations({
       listVersion.current++;
     };
   }, []);
+  useEffect(() => {
+    let stopped = false;
+    let currentToken = '';
+    const client = io(`${api.API_ORIGIN}/chat`, {
+      transports: ['websocket'],
+      autoConnect: false,
+      auth: (done) => {
+        void api.accessToken().then(
+          (accessToken) => {
+            if (!stopped) {
+              currentToken = accessToken;
+              done({ accessToken });
+            }
+          },
+          () => done({}),
+        );
+      },
+    });
+    inboxSocket.current = client;
+    const subscribe = () => {
+      if (!client.connected) return;
+      for (const conversationId of conversationIds.current)
+        client.emit('conversation:subscribe', { conversationId });
+    };
+    client.on('connect', subscribe);
+    client.on('message:created', (message: Message) => {
+      if (stopped) return;
+      const mine = message.senderId === user.id;
+      setItems((previous) => {
+        if (!previous.some((item) => item.id === message.conversationId))
+          return previous;
+        return previous
+          .map((item) =>
+            item.id === message.conversationId
+              ? {
+                  ...item,
+                  updatedAt: message.createdAt,
+                  lastMessage: {
+                    ...message,
+                    body: message.body?.slice(0, 200) ?? null,
+                    senderName:
+                      item.type === 'direct'
+                        ? item.peer?.displayName
+                        : undefined,
+                  },
+                  unreadCount:
+                    mine ||
+                    (viewActive.current &&
+                      selectedId.current === message.conversationId)
+                      ? item.unreadCount
+                      : (item.unreadCount ?? 0) + 1,
+                }
+              : item,
+          )
+          .sort(
+            (left, right) =>
+              Date.parse(right.updatedAt ?? right.createdAt) -
+              Date.parse(left.updatedAt ?? left.createdAt),
+          );
+      });
+      if (!mine)
+        void api
+          .authenticated(
+            `/conversations/${message.conversationId}/messages/delivered`,
+            { messageId: message.id },
+          )
+          .catch(() => {});
+    });
+    client.connect();
+    const refresh = window.setInterval(() => {
+      void api
+        .accessToken()
+        .then((accessToken) => {
+          if (stopped) return;
+          if (client.connected && accessToken !== currentToken) {
+            client.disconnect();
+            client.connect();
+          } else if (!client.connected) client.connect();
+        })
+        .catch(() => {});
+    }, 15000);
+    return () => {
+      stopped = true;
+      window.clearInterval(refresh);
+      client.removeAllListeners();
+      client.disconnect();
+      if (inboxSocket.current === client) inboxSocket.current = undefined;
+    };
+  }, [user.id]);
+  useEffect(() => {
+    if (!inboxSocket.current?.connected) return;
+    for (const conversationId of conversationIds.current)
+      inboxSocket.current.emit('conversation:subscribe', { conversationId });
+  }, [items.map((item) => item.id).join(',')]);
   useEffect(() => {
     if (!active) return;
     const refreshFriends = () => {
@@ -535,7 +643,7 @@ export function Conversations({
                     <div className="thread-preview-row">
                       <small>
                         {item.lastMessage
-                          ? `${item.lastMessage.senderId === user.id ? 'Bạn: ' : item.type === 'group' ? `${item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${item.lastMessage.deletedAt ? 'Tin nhắn đã thu hồi' : item.lastMessage.body || (item.lastMessage.type === 'image' ? 'Đã gửi ảnh' : 'Đã gửi tệp')}`
+                          ? `${item.lastMessage.senderId === user.id ? 'Bạn: ' : item.type === 'group' ? `${item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${messageSummary(item.lastMessage)}`
                           : 'Hãy gửi lời chào 👋'}
                       </small>
                     </div>
@@ -657,18 +765,36 @@ export function Conversations({
             )}
           </h2>
           {selected && (
-            <button
-              type="button"
-              className="chat-info-button"
-              aria-label="Thông tin cuộc trò chuyện"
-              aria-expanded={showInfo}
-              onClick={() => {
-                setShowInfo(!showInfo);
-                if (!showInfo) void run(() => detail(selected.id));
-              }}
-            >
-              <UiIcon name="info" />
-            </button>
+            <div className="chat-call-actions">
+              <button
+                type="button"
+                className="chat-info-button"
+                aria-label="Gọi thoại"
+                onClick={() => void callStart.current?.(selected.id, 'audio')}
+              >
+                <UiIcon name="phone" />
+              </button>
+              <button
+                type="button"
+                className="chat-info-button"
+                aria-label="Gọi video"
+                onClick={() => void callStart.current?.(selected.id, 'video')}
+              >
+                <UiIcon name="video" />
+              </button>
+              <button
+                type="button"
+                className="chat-info-button"
+                aria-label="Thông tin cuộc trò chuyện"
+                aria-expanded={showInfo}
+                onClick={() => {
+                  setShowInfo(!showInfo);
+                  if (!showInfo) void run(() => detail(selected.id));
+                }}
+              >
+                <UiIcon name="info" />
+              </button>
+            </div>
           )}
         </div>
         {error && (
@@ -1157,6 +1283,11 @@ export function Conversations({
           </section>
         )}
       </div>
+      <CallExperience
+        user={user}
+        onExpired={onExpired}
+        registerStart={registerCallStart}
+      />
     </section>
   );
 }

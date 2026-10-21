@@ -256,6 +256,8 @@ export function errorMessage(error: unknown) {
         'Yêu cầu tạo nhóm đã thay đổi. Hãy kiểm tra thông tin và tạo lại.',
       GROUP_MEMBER_LIMIT: 'Nhóm đã đủ giới hạn 50 thành viên.',
       OWNER_TRANSFER_REQUIRED: 'Hãy chuyển quyền chủ nhóm trước khi rời nhóm.',
+      CALL_ALREADY_OPEN:
+        'Hội thoại đang có một cuộc gọi khác. Hãy tiếp tục hoặc kết thúc cuộc gọi đó.',
       SELF_CONVERSATION: 'Bạn không thể tạo trò chuyện riêng với chính mình.',
       ALREADY_FRIENDS: 'Hai bạn đã là bạn bè.',
       INCOMING_REQUEST_EXISTS:

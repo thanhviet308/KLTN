@@ -10,6 +10,7 @@ import { FriendshipsModule } from './modules/friendships/friendships.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { CallsModule } from './modules/calls/calls.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
     ConversationsModule,
     MessagesModule,
     RealtimeModule,
+    CallsModule,
   ],
 })
 export class AppModule {}

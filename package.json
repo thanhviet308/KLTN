@@ -24,7 +24,7 @@
     "build": "npm run build --workspaces --if-present",
     "start:api": "npm run start --workspace=@chat/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "node --test apps/api/tests/presence.test.cjs apps/web/tests/chat-history-cache.test.mjs apps/web/tests/chat-model.test.mjs apps/web/tests/session-refresh.test.mjs && npm test --workspace=@chat/android -- --runInBand",
+    "test": "node --test apps/api/tests/calls.test.cjs apps/api/tests/presence.test.cjs apps/web/tests/chat-history-cache.test.mjs apps/web/tests/chat-model.test.mjs apps/web/tests/session-refresh.test.mjs && npm test --workspace=@chat/android -- --runInBand",
     "lint": "eslint apps/api/src && npm run lint --workspace=@chat/android",
     "format:check": "prettier --check .",
     "format": "prettier --write .",

@@ -7,10 +7,13 @@ export interface ChatEvent {
     | 'message:deleted'
     | 'message:reactions'
     | 'message:receipt'
-    | 'typing:update';
+    | 'typing:update'
+    | 'call:incoming'
+    | 'call:updated';
   conversationId: string;
   messageId?: string;
   actorId?: string;
+  targetUserIds?: string[];
   payload: unknown;
 }
 

@@ -14,6 +14,174 @@
   font-size: 22px;
   margin: 12px 0;
 }
+
+.chat-call-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(4 10 20 / 78%);
+  backdrop-filter: blur(8px);
+}
+
+.call-window {
+  width: min(960px, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 1.25rem;
+  background: #111827;
+  color: white;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.call-window > header {
+  display: flex;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+}
+
+.call-window > header strong,
+.call-window > header small {
+  display: block;
+}
+
+.call-window > header small {
+  margin-top: 0.25rem;
+  color: #9ca3af;
+}
+
+.call-stage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.5rem;
+  min-height: 360px;
+  padding: 0.5rem;
+  background: #030712;
+}
+
+.call-stage.audio {
+  place-items: center;
+}
+
+.call-track {
+  position: relative;
+  min-height: 220px;
+  overflow: hidden;
+  border-radius: 0.9rem;
+  background: #1f2937;
+}
+
+.call-track.local {
+  border: 1px solid rgb(255 255 255 / 16%);
+}
+
+.call-track video {
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  object-fit: cover;
+}
+
+.call-track audio {
+  width: 100%;
+}
+
+.call-audio-placeholder {
+  display: grid;
+  place-items: center;
+  width: 7rem;
+  height: 7rem;
+  border-radius: 50%;
+  background: #374151;
+  color: #d1d5db;
+  font-size: 3rem;
+}
+
+.call-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.25rem;
+}
+
+.call-control {
+  min-width: 7rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.75rem 1.1rem;
+  background: #374151;
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+
+.call-control.accept {
+  background: #16a34a;
+}
+
+.call-control.reject {
+  background: #dc2626;
+}
+
+.call-control.disabled {
+  background: #6b7280;
+}
+
+.call-control:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.call-error-toast {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: min(30rem, calc(100vw - 2rem));
+  padding: 0.9rem 1rem;
+  border: 1px solid #fecaca;
+  border-radius: 0.8rem;
+  background: #fff1f2;
+  color: #991b1b;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+}
+
+.call-error-toast button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .call-overlay {
+    padding: 0;
+  }
+
+  .call-window {
+    min-height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .call-stage {
+    min-height: 55vh;
+  }
+}
 .conversations select {
   display: block;
   margin-top: 9px;
@@ -927,6 +1095,29 @@ a:focus-visible {
   background: #134e4a;
   color: #fff;
   border-radius: 18px 18px 4px 18px;
+}
+.chat-message.call-event .message-body {
+  background: #fff;
+  color: #183633;
+  border: 1px solid #e1e7e5;
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+}
+.call-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 170px;
+}
+.call-message > span {
+  display: grid;
+  line-height: 1.35;
+}
+.call-message small {
+  opacity: 0.75;
+}
+.call-message.missed > svg {
+  color: #dc2626;
 }
 .message-meta {
   display: flex;
@@ -1983,6 +2174,22 @@ a:focus-visible {
     min-height: 42px;
     height: 42px;
   }
+}
+
+/* Call history cards use the same neutral appearance in both directions. */
+.chat-message.mine .message-body.call-message-body,
+.chat-message:not(.mine) .message-body.call-message-body {
+  background: #fff;
+  color: #183633;
+  border: 1px solid #dfe7e4;
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+}
+.call-message-time {
+  margin-top: 2px;
+  color: #7a8783;
+  font-size: 11px;
+  font-weight: 400;
 }
 @media (max-width: 680px) {
   .messenger-layout {

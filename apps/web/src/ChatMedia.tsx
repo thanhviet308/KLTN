@@ -506,6 +506,52 @@ function VoicePlayer({
 }
 
 export function MessageMedia({ message }: { message: Message }) {
+  if (message.type === 'call') {
+    const seconds = Math.max(0, message.content?.durationSeconds ?? 0);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    const duration = [
+      hours ? `${hours} giờ` : '',
+      minutes ? `${minutes} phút` : '',
+      remainingSeconds || (!hours && !minutes)
+        ? `${remainingSeconds} giây`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const type = message.content?.callType === 'video' ? 'video' : 'thoại';
+    const status = message.content?.callStatus;
+    const occurredAt = new Intl.DateTimeFormat('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(new Date(message.createdAt));
+    const label =
+      status === 'missed'
+        ? `Cuộc gọi ${type} bị nhỡ`
+        : status === 'rejected'
+          ? `Cuộc gọi ${type} bị từ chối`
+          : status === 'cancelled'
+            ? `Cuộc gọi ${type} đã hủy`
+            : `Cuộc gọi ${type}`;
+    return (
+      <span className={`call-message${status === 'missed' ? ' missed' : ''}`}>
+        <UiIcon
+          name={message.content?.callType === 'video' ? 'video' : 'phone'}
+        />
+        <span>
+          <strong>{label}</strong>
+          {status === 'ended' && <small>{duration}</small>}
+          {status === 'missed' && (
+            <time className="call-message-time" dateTime={message.createdAt}>
+              {occurredAt}
+            </time>
+          )}
+        </span>
+      </span>
+    );
+  }
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);

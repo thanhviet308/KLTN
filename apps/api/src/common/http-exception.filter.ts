@@ -41,9 +41,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       status === 503 &&
       exception instanceof HttpException &&
       typeof exception.getResponse() === 'object' &&
-      ['MAIL_NOT_CONFIGURED', 'MAIL_DELIVERY_FAILED', 'AUTH_BUSY'].includes(
-        String((exception.getResponse() as { code?: unknown }).code),
-      );
+      [
+        'MAIL_NOT_CONFIGURED',
+        'MAIL_DELIVERY_FAILED',
+        'AUTH_BUSY',
+        'LIVEKIT_NOT_CONFIGURED',
+      ].includes(String((exception.getResponse() as { code?: unknown }).code));
     if (
       (status < 500 || publicServiceError) &&
       exception instanceof HttpException

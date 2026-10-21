@@ -12,6 +12,9 @@ export interface Environment {
   SMTP_USER?: string;
   SMTP_PASSWORD?: string;
   SMTP_FROM?: string;
+  LIVEKIT_URL?: string;
+  LIVEKIT_API_KEY?: string;
+  LIVEKIT_API_SECRET?: string;
 }
 
 export type HttpEnvironment = Pick<
@@ -89,6 +92,50 @@ export function validateEnvironment(
     throw new Error('DEPLOYMENT_REVISION must be a full Git commit SHA');
   }
 
+  const livekitValues = [
+    input.LIVEKIT_URL,
+    input.LIVEKIT_API_KEY,
+    input.LIVEKIT_API_SECRET,
+  ];
+  const configuredLivekit = livekitValues.filter(
+    (value) => typeof value === 'string' && value.length > 0,
+  ).length;
+  if (configuredLivekit !== 0 && configuredLivekit !== livekitValues.length) {
+    throw new Error(
+      'LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be configured together',
+    );
+  }
+  let livekitUrl: string | undefined;
+  if (configuredLivekit) {
+    if (
+      livekitValues.some(
+        (value) =>
+          typeof value !== 'string' ||
+          value !== value.trim() ||
+          /\s/.test(value),
+      )
+    )
+      throw new Error('LiveKit configuration must not contain whitespace');
+    try {
+      const candidate = new URL(String(input.LIVEKIT_URL));
+      if (
+        !['ws:', 'wss:'].includes(candidate.protocol) ||
+        candidate.username ||
+        candidate.password ||
+        candidate.pathname !== '/' ||
+        candidate.search ||
+        candidate.hash ||
+        (mode === 'production' && candidate.protocol !== 'wss:')
+      )
+        throw new Error();
+      livekitUrl = candidate.href.replace(/\/$/, '');
+    } catch {
+      throw new Error(
+        'LIVEKIT_URL must be a WebSocket origin; production requires wss://',
+      );
+    }
+  }
+
   return {
     NODE_ENV: mode,
     HOST: host,
@@ -109,6 +156,15 @@ export function validateEnvironment(
       typeof input.SMTP_PASSWORD === 'string' ? input.SMTP_PASSWORD : undefined,
     SMTP_FROM:
       typeof input.SMTP_FROM === 'string' ? input.SMTP_FROM : undefined,
+    LIVEKIT_URL: livekitUrl,
+    LIVEKIT_API_KEY:
+      configuredLivekit && typeof input.LIVEKIT_API_KEY === 'string'
+        ? input.LIVEKIT_API_KEY
+        : undefined,
+    LIVEKIT_API_SECRET:
+      configuredLivekit && typeof input.LIVEKIT_API_SECRET === 'string'
+        ? input.LIVEKIT_API_SECRET
+        : undefined,
   };
 }
 

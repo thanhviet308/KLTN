@@ -9,6 +9,9 @@ export function UiIcon({ name, size = 20 }: { name: string; size?: number }) {
     profile: 'M4 21a8 8 0 0 1 16 0',
     compose: 'M13 5H5v14h14v-8 M10 14l1-4 8-8 3 3-8 8-4 1Z',
     info: 'M12 11v6 M12 7h.01',
+    phone:
+      'M5 4h4l2 5-3 2a15 15 0 0 0 5 5l2-3 5 2v4c0 1-1 2-2 2C10 21 3 14 3 6c0-1 1-2 2-2Z',
+    video: 'M3 6h13v12H3Z M16 10l5-3v10l-5-3Z',
     microphone:
       'M9 4a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V4Z M5 10v1a7 7 0 0 0 14 0v-1 M12 18v4 M8 22h8',
     image: 'M3 3h18v18H3Z M3 16l5-5 4 4 3-3 6 6 M8 7h.01',

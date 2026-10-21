@@ -386,11 +386,18 @@ export class ChatGateway
       let event: ChatEvent | undefined;
       while (!this.closing && (event = this.queue.shift())) {
         const current = event;
-        const ids = [
-          ...(this.server.adapter.rooms.get(
-            `conversation:${current.conversationId}`,
-          ) ?? []),
-        ];
+        const targets = current.targetUserIds
+          ? new Set(current.targetUserIds)
+          : undefined;
+        const ids = targets
+          ? [...this.connections]
+              .filter(([, connection]) => targets.has(connection.userId))
+              .map(([id]) => id)
+          : [
+              ...(this.server.adapter.rooms.get(
+                `conversation:${current.conversationId}`,
+              ) ?? []),
+            ];
         for (const id of ids) {
           const socket = this.server.sockets.get(id);
           const connection = this.connections.get(id);
@@ -405,7 +412,7 @@ export class ChatGateway
               () => {
                 if (
                   socket.connected &&
-                  connection.rooms.has(current.conversationId)
+                  (targets || connection.rooms.has(current.conversationId))
                 )
                   socket.emit(current.name, current.payload);
               },

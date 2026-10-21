@@ -25,6 +25,7 @@
     "class-validator": "0.15.1",
     "express": "5.2.1",
     "helmet": "8.3.0",
+    "livekit-server-sdk": "^2.19.1",
     "nodemailer": "10.0.14",
     "pg": "8.23.1",
     "reflect-metadata": "0.2.2",

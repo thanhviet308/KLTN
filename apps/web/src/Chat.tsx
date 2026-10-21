@@ -727,25 +727,29 @@ export function Chat({
               )}
               <div
                 data-message-id={message.id}
-                className={`chat-message ${mine ? 'mine' : ''}${continuesGroup ? ' continues-group' : ''}`}
+                className={`chat-message ${mine ? 'mine' : ''}${message.type === 'call' ? ' call-event' : ''}${message.content?.callStatus === 'missed' ? ' missed-call' : ''}${continuesGroup ? ' continues-group' : ''}`}
               >
-                <MessageActions
-                  message={message}
-                  mine={mine}
-                  onUpdate={(updated) => accept([updated])}
-                  onReply={(message) => {
-                    setReplyTo(message);
-                    composer.current?.focus();
-                  }}
-                  onReact={() => setReactionTarget(message.id)}
-                />
-                <MessageReactions
-                  message={message}
-                  revision={reactionVersions[message.id] ?? 0}
-                  open={reactionTarget === message.id}
-                  onClose={() => setReactionTarget(undefined)}
-                  active={active}
-                />
+                {message.type !== 'call' && (
+                  <>
+                    <MessageActions
+                      message={message}
+                      mine={mine}
+                      onUpdate={(updated) => accept([updated])}
+                      onReply={(message) => {
+                        setReplyTo(message);
+                        composer.current?.focus();
+                      }}
+                      onReact={() => setReactionTarget(message.id)}
+                    />
+                    <MessageReactions
+                      message={message}
+                      revision={reactionVersions[message.id] ?? 0}
+                      open={reactionTarget === message.id}
+                      onClose={() => setReactionTarget(undefined)}
+                      active={active}
+                    />
+                  </>
+                )}
                 {!mine && (
                   <span
                     className={`message-sender-avatar${continuesGroup ? ' avatar-spacer' : ''}`}
@@ -765,7 +769,9 @@ export function Chat({
                     />
                   </span>
                 )}
-                <div className="message-body">
+                <div
+                  className={`message-body${message.type === 'call' ? ' call-message-body' : ''}`}
+                >
                   {message.deletedAt ? (
                     'Tin nhắn đã thu hồi'
                   ) : message.type && message.type !== 'text' ? (
@@ -774,29 +780,35 @@ export function Chat({
                     message.body
                   )}
                 </div>
-                {lastSent && !message.deletedAt && readers.length === 0 && (
-                  <div className="message-meta">
-                    <button onClick={() => void viewReceipts(message.id)}>
-                      {delivered ? `Đã nhận (${delivered})` : 'Đã gửi'}
-                    </button>
-                  </div>
-                )}
-                {lastSent && !message.deletedAt && readers.length > 0 && (
-                  <div className="read-avatars" aria-label="Người đã đọc">
-                    {readers.map((reader) => (
-                      <button
-                        key={reader.userId}
-                        type="button"
-                        className="read-avatar"
-                        title={`${names(reader.userId)} đã đọc`}
-                        aria-label={`${names(reader.userId)} đã đọc. Xem trạng thái tin nhắn`}
-                        onClick={() => void viewReceipts(message.id)}
-                      >
-                        {Array.from(names(reader.userId))[0]?.toUpperCase()}
+                {message.type !== 'call' &&
+                  lastSent &&
+                  !message.deletedAt &&
+                  readers.length === 0 && (
+                    <div className="message-meta">
+                      <button onClick={() => void viewReceipts(message.id)}>
+                        {delivered ? `Đã nhận (${delivered})` : 'Đã gửi'}
                       </button>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  )}
+                {message.type !== 'call' &&
+                  lastSent &&
+                  !message.deletedAt &&
+                  readers.length > 0 && (
+                    <div className="read-avatars" aria-label="Người đã đọc">
+                      {readers.map((reader) => (
+                        <button
+                          key={reader.userId}
+                          type="button"
+                          className="read-avatar"
+                          title={`${names(reader.userId)} đã đọc`}
+                          aria-label={`${names(reader.userId)} đã đọc. Xem trạng thái tin nhắn`}
+                          onClick={() => void viewReceipts(message.id)}
+                        >
+                          {Array.from(names(reader.userId))[0]?.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  )}
               </div>
             </Fragment>
           );

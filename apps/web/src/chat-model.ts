@@ -5,7 +5,7 @@ export interface Message {
   clientMessageId: string;
   sequence: string;
   body: string | null;
-  type?: 'text' | 'image' | 'file' | 'voice' | 'location';
+  type?: 'text' | 'image' | 'file' | 'voice' | 'location' | 'call';
   content?: {
     attachmentId?: string;
     fileName?: string;
@@ -13,6 +13,10 @@ export interface Message {
     size?: number;
     latitude?: number;
     longitude?: number;
+    callId?: string;
+    callType?: 'audio' | 'video';
+    callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
+    durationSeconds?: number;
   } | null;
   editedAt?: string | null;
   deletedAt?: string | null;
@@ -59,11 +63,24 @@ export function mergeReceipt(
   };
 }
 
-export function messageSummary(message: Message) {
+export function messageSummary(
+  message: Pick<Message, 'deletedAt' | 'body' | 'type' | 'content'>,
+) {
   if (message.deletedAt) return 'Tin nhắn đã thu hồi';
   if (message.body) return message.body;
   if (message.type === 'location') return 'Vị trí được chia sẻ';
   if (message.type === 'voice') return 'Tin nhắn thoại';
+  if (message.type === 'call') {
+    const video = message.content?.callType === 'video';
+    const status = message.content?.callStatus;
+    if (status === 'missed')
+      return `Cuộc gọi ${video ? 'video' : 'thoại'} bị nhỡ`;
+    if (status === 'rejected')
+      return `Cuộc gọi ${video ? 'video' : 'thoại'} bị từ chối`;
+    if (status === 'cancelled')
+      return `Cuộc gọi ${video ? 'video' : 'thoại'} đã hủy`;
+    return `Cuộc gọi ${video ? 'video' : 'thoại'}`;
+  }
   return (
     message.content?.fileName ??
     (message.type === 'image' ? 'Ảnh' : 'Tệp đính kèm')

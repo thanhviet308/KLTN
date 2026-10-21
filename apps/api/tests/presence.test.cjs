@@ -68,3 +68,54 @@ test('presence only exposes friends and handles multiple devices and expired ses
   gateway.handleDisconnect({ id: 'tab2' });
   assert.equal((await sync()).data.friend.online, false);
 });
+
+test('call events reach targeted participants without a conversation subscription', async () => {
+  const received = [];
+  const auth = { authenticate: async () => ({ user: { id: 'active' } }) };
+  const messages = {
+    authorizedEvent: async (_userId, _conversationId, _messageId, action) =>
+      action(),
+  };
+  const gateway = new ChatGateway({}, auth, messages, {}, {});
+  const connection = (userId) => ({
+    userId,
+    expiresAt: Date.now() + 60000,
+    token: 'test',
+    window: Date.now(),
+    requests: 0,
+    pending: 0,
+    rooms: new Set(),
+  });
+  gateway.connections.set('caller', connection('caller'));
+  gateway.connections.set('recipient', connection('recipient'));
+  gateway.connections.set('stranger', connection('stranger'));
+  gateway.server = {
+    adapter: { rooms: new Map() },
+    sockets: new Map(
+      ['caller', 'recipient', 'stranger'].map((id) => [
+        id,
+        {
+          connected: true,
+          emit: (name, payload) => received.push({ id, name, payload }),
+        },
+      ]),
+    ),
+  };
+  gateway.queue.push({
+    name: 'call:incoming',
+    actorId: 'caller',
+    conversationId: 'conversation',
+    targetUserIds: ['recipient'],
+    payload: { call: { id: 'call' } },
+  });
+
+  await gateway.drain();
+
+  assert.deepEqual(received, [
+    {
+      id: 'recipient',
+      name: 'call:incoming',
+      payload: { call: { id: 'call' } },
+    },
+  ]);
+});

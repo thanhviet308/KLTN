@@ -7,6 +7,7 @@ import { ConversationMember } from '../database/entities/conversation-member.ent
 import { ConversationMemberPeriod } from '../database/entities/conversation-member-period.entity';
 import { Friendship } from '../database/entities/friendship.entity';
 import { User } from '../database/entities/user.entity';
+import type { Message } from '../database/entities/message.entity';
 import { pageResult } from '../../common/page.dto';
 import type { PageDto } from '../../common/page.dto';
 import { publicUserView } from '../users/user-view';
@@ -333,6 +334,7 @@ export class ConversationsService {
       sequence: string;
       type: string;
       body: string | null;
+      content: Message['content'];
       createdAt: Date;
       deletedAt: Date | null;
     }[] = members.length
@@ -342,7 +344,7 @@ export class ConversationsService {
       FROM unnest($1::uuid[]) AS requested(conversation_id)
       CROSS JOIN LATERAL (
         SELECT m.conversation_id AS "conversationId", m.id,
-          m.sender_id AS "senderId", m.sequence::text AS sequence, m.type,
+          m.sender_id AS "senderId", m.sequence::text AS sequence, m.type, m.content,
           CASE WHEN m.deleted_at IS NULL THEN left(COALESCE(m.edited_body, m.body), 200)
             ELSE NULL END AS body,
           m.created_at AS "createdAt", m.deleted_at AS "deletedAt"
