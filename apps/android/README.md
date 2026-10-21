@@ -21,10 +21,10 @@ npm.cmd run start --workspace=@chat/android
 npm.cmd run android --workspace=@chat/android
 ```
 
-Debug mặc định gọi backend local từ Android Emulator qua
-`http://10.0.2.2:3000`. Thiết bị thật không dùng được địa chỉ này; đổi
-`API_ORIGIN` trong `src/api.ts` sang IP LAN HTTPS/tunnel phù hợp trước khi test.
-Bản release gọi `https://pingpongapi.id.vn` và không cho cleartext HTTP.
+Cả bản debug và release mặc định gọi backend production tại
+`https://pingpongapi.id.vn`. Nếu cần kiểm thử với backend local trên Android
+Emulator, tạm đổi `API_ORIGIN` trong `src/api.ts` thành
+`http://10.0.2.2:3000`; thiết bị thật phải dùng IP LAN HTTPS/tunnel phù hợp.
 
 ## Kiểm tra
 

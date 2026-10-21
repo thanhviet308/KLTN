@@ -1,8 +1,7 @@
 import * as Keychain from 'react-native-keychain';
+import ReactNativeBlobUtil from 'react-native-blob-util';
 
-export const API_ORIGIN = __DEV__
-  ? 'http://10.0.2.2:3000'
-  : 'https://pingpongapi.id.vn';
+export const API_ORIGIN = 'https://pingpongapi.id.vn';
 
 const API = `${API_ORIGIN}/api/v1`;
 const KEYCHAIN_SERVICE = 'com.pingpong.android.refresh-token';
@@ -11,6 +10,10 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
+  avatarUrl?: string | null;
+  role?: string;
+  status?: string;
+  createdAt?: string;
 }
 
 export interface Session {
@@ -40,6 +43,8 @@ export interface Conversation {
     createdAt: string;
     deletedAt: string | null;
   } | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Message {
@@ -48,8 +53,16 @@ export interface Message {
   senderId: string;
   clientMessageId: string;
   sequence: string;
-  type: string;
+  type: 'text' | 'image' | 'file' | 'voice' | 'location';
   body: string | null;
+  content?: {
+    attachmentId?: string;
+    fileName?: string;
+    mimeType?: string;
+    size?: number;
+    latitude?: number;
+    longitude?: number;
+  } | null;
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
@@ -134,6 +147,36 @@ async function request<T>(
   return response.status === 204
     ? (undefined as T)
     : ((await response.json()) as T);
+}
+
+export function requestRegistrationCode(email: string) {
+  return request<{ challengeId: string; resendAfterSeconds: number }>(
+    '/auth/register/request-code',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    },
+  );
+}
+
+export function verifyRegistrationCode(challengeId: string, code: string) {
+  return request<{ verificationToken: string }>('/auth/register/verify-code', {
+    method: 'POST',
+    body: JSON.stringify({ challengeId, code }),
+  });
+}
+
+export function register(input: {
+  email: string;
+  password: string;
+  confirmPassword: string;
+  displayName: string;
+  verificationToken: string;
+}) {
+  return request<{ user: User }>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 async function acceptSession(session: Session) {
@@ -223,6 +266,120 @@ export async function authenticated<T>(
   }
 }
 
+export async function me() {
+  const result = await authenticated<{ user: User }>('/users/me');
+  currentUser = result.user;
+  return result.user;
+}
+
+export function rememberUser(user: User) {
+  currentUser = user;
+}
+
+export function avatarUrl(path?: string | null) {
+  return path ? `${API_ORIGIN}/api/v1${path}` : undefined;
+}
+
+export interface LocalUpload {
+  uri: string;
+  name: string;
+  mimeType: string;
+}
+
+function queryString(values: Record<string, string>) {
+  return Object.entries(values)
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join('&');
+}
+
+async function uploadAttempt<T>(
+  path: string,
+  bearer: string,
+  file: LocalUpload,
+) {
+  const response = await ReactNativeBlobUtil.config({ timeout: 60000 }).fetch(
+    'POST',
+    `${API}${path}`,
+    {
+      Accept: 'application/json',
+      Authorization: `Bearer ${bearer}`,
+      'Content-Type': file.mimeType || 'application/octet-stream',
+      'X-Auth-Client': 'android',
+    },
+    ReactNativeBlobUtil.wrap(file.uri),
+  );
+  const status = response.info().status;
+  if (status < 200 || status >= 300) {
+    const problem = await Promise.resolve(response.json()).catch(() => ({}));
+    throw new ApiError(status, problem?.code ?? 'UNKNOWN');
+  }
+  return (await Promise.resolve(response.json())) as T;
+}
+
+export async function uploadChatFile(
+  conversationId: string,
+  id: string,
+  file: LocalUpload,
+  type: 'image' | 'file' | 'voice',
+) {
+  const query = queryString({
+    clientMessageId: id,
+    fileName: file.name,
+    type,
+    mimeType: file.mimeType || 'application/octet-stream',
+  });
+  const path = `/conversations/${conversationId}/messages/upload?${query}`;
+  const attempted = await accessToken();
+  try {
+    return await uploadAttempt<{ message: Message }>(path, attempted, file);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) throw error;
+    if (access === attempted) await refresh();
+    return uploadAttempt<{ message: Message }>(path, access!, file);
+  }
+}
+
+async function downloadAttempt(
+  path: string,
+  bearer: string,
+  extension?: string,
+) {
+  const response = await ReactNativeBlobUtil.config({
+    fileCache: true,
+    ...(extension ? { appendExt: extension.replace(/^\./, '') } : {}),
+    timeout: 60000,
+  }).fetch('GET', `${API}${path}`, {
+    Authorization: `Bearer ${bearer}`,
+    'X-Auth-Client': 'android',
+  });
+  const status = response.info().status;
+  if (status < 200 || status >= 300) {
+    const problem = await Promise.resolve(response.json()).catch(() => ({}));
+    throw new ApiError(status, problem?.code ?? 'UNKNOWN');
+  }
+  return response.path();
+}
+
+export async function downloadChatFile(
+  conversationId: string,
+  messageId: string,
+  fileName?: string,
+) {
+  const path = `/conversations/${conversationId}/messages/${messageId}/file`;
+  const extension = fileName?.match(/\.([a-z0-9]{1,10})$/i)?.[1];
+  const attempted = await accessToken();
+  try {
+    return await downloadAttempt(path, attempted, extension);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) throw error;
+    if (access === attempted) await refresh();
+    return downloadAttempt(path, access!, extension);
+  }
+}
+
 export async function logout() {
   const refreshToken = await storedRefreshToken();
   try {
@@ -246,6 +403,17 @@ export function errorMessage(error: unknown) {
     return 'Không thể kết nối máy chủ. Kiểm tra mạng và thử lại.';
   if (error.code === 'SECURE_STORAGE_FAILED')
     return 'Không thể lưu phiên an toàn trên thiết bị.';
+  const messages: Record<string, string> = {
+    EMAIL_ALREADY_EXISTS: 'Email này đã được sử dụng.',
+    EMAIL_VERIFICATION_REQUIRED: 'Email cần được xác minh trước khi đăng ký.',
+    INVALID_VERIFICATION_CODE: 'Mã xác minh chưa đúng hoặc đã hết hạn.',
+    FRIEND_REQUEST_ALREADY_EXISTS: 'Lời mời kết bạn đã tồn tại.',
+    FRIENDSHIP_ALREADY_EXISTS: 'Hai bạn đã là bạn bè.',
+    FRIENDSHIP_REQUIRED: 'Bạn cần kết bạn trước khi nhắn tin.',
+    MESSAGE_EDIT_CONFLICT: 'Tin nhắn đã thay đổi. Hãy tải lại và thử lại.',
+    MESSAGE_SEND_FORBIDDEN: 'Hiện không thể gửi tin nhắn vào cuộc trò chuyện.',
+  };
+  if (messages[error.code]) return messages[error.code];
   if (error.status === 401)
     return 'Phiên hoặc thông tin đăng nhập không hợp lệ.';
   if (error.status === 429)
