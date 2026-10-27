@@ -33,6 +33,7 @@
 }
 
 .call-window {
+  position: relative;
   width: min(960px, 100%);
   max-height: calc(100vh - 2rem);
   overflow: auto;
@@ -43,10 +44,22 @@
   box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
 }
 
+.call-window.connected {
+  overflow: hidden;
+}
+
 .call-window > header {
   display: flex;
   justify-content: space-between;
   padding: 1.25rem 1.5rem;
+}
+
+.call-window.connected > header {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 4;
+  background: linear-gradient(180deg, rgb(3 7 18 / 82%), transparent);
+  pointer-events: none;
 }
 
 .call-window > header strong,
@@ -61,11 +74,36 @@
 
 .call-stage {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 0.5rem;
-  min-height: 360px;
+  min-height: min(68vh, 620px);
   padding: 0.5rem;
   background: #030712;
+}
+
+.call-stage.one-to-one {
+  position: relative;
+  display: block;
+  padding: 0;
+}
+
+.call-stage.one-to-one .call-track.video {
+  position: absolute;
+  inset: 0;
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.call-stage.one-to-one.has-remote .call-track.video.local {
+  inset: 76px 16px auto auto;
+  z-index: 3;
+  width: clamp(120px, 23%, 210px);
+  min-height: 0;
+  aspect-ratio: 16 / 10;
+  border: 2px solid rgb(255 255 255 / 75%);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 40%);
 }
 
 .call-stage.audio {
@@ -84,11 +122,28 @@
   border: 1px solid rgb(255 255 255 / 16%);
 }
 
+.call-track.audio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
 .call-track video {
   width: 100%;
   height: 100%;
   min-height: 220px;
   object-fit: cover;
+}
+
+.call-stage.one-to-one .call-track video {
+  min-height: 100%;
+}
+
+.call-track.local video {
+  transform: scaleX(-1);
 }
 
 .call-track audio {
@@ -114,23 +169,53 @@
   padding: 1.25rem;
 }
 
+.call-window.connected .call-controls {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 4;
+  padding: 3rem 1.25rem 1.25rem;
+  background: linear-gradient(0deg, rgb(3 7 18 / 88%), transparent);
+}
+
 .call-control {
-  min-width: 7rem;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
   border: 0;
-  border-radius: 999px;
-  padding: 0.75rem 1.1rem;
-  background: #374151;
+  border-radius: 50%;
+  padding: 0;
+  background: rgb(55 65 81 / 88%);
   color: white;
   font: inherit;
   cursor: pointer;
+}
+
+.call-control:hover:not(:disabled) {
+  filter: brightness(1.12);
 }
 
 .call-control.accept {
   background: #16a34a;
 }
 
+.call-control.rejoin {
+  width: auto;
+  min-width: 112px;
+  border-radius: 999px;
+  padding: 0 18px;
+}
+
 .call-control.reject {
   background: #dc2626;
+}
+
+.call-control.reject svg {
+  transform: rotate(135deg);
+}
+
+.call-control.accept svg {
+  transform: rotate(-20deg);
 }
 
 .call-control.disabled {
@@ -179,7 +264,13 @@
   }
 
   .call-stage {
-    min-height: 55vh;
+    min-height: 100vh;
+  }
+
+  .call-stage.one-to-one.has-remote .call-track.video.local {
+    inset: 76px 12px auto auto;
+    width: 32vw;
+    max-width: 150px;
   }
 }
 .conversations select {

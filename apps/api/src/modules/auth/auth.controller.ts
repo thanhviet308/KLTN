@@ -83,10 +83,17 @@ export class AuthController {
   }
 
   private cookieOptions() {
+    const production =
+      this.config.get('NODE_ENV', { infer: true }) === 'production';
     return {
       httpOnly: true,
-      secure: this.config.get('NODE_ENV', { infer: true }) === 'production',
-      sameSite: 'strict' as const,
+      secure: production,
+      // The deployed web and API currently use different registrable sites.
+      // Strict/Lax cookies are not sent during the cross-site refresh request,
+      // so a reload loses the in-memory access token and appears to log out.
+      // CSRF remains constrained by the exact WEB_ORIGIN and X-Auth-Client
+      // checks in client(), plus credentialed CORS with no wildcard origin.
+      sameSite: production ? ('none' as const) : ('lax' as const),
       path: COOKIE_PATH,
     };
   }

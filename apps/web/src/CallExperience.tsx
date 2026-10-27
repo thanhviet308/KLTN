@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalTrack, RemoteTrack, Room } from 'livekit-client';
 import { io, type Socket } from 'socket.io-client';
 import * as api from './api';
+import { UiIcon } from './UiIcon';
 
 type CallStatus =
   'ringing' | 'active' | 'ended' | 'rejected' | 'missed' | 'cancelled';
@@ -31,6 +32,7 @@ interface MediaTrack {
   key: string;
   track: RemoteTrack | LocalTrack;
   local: boolean;
+  kind: 'audio' | 'video';
 }
 
 export type StartCall = (
@@ -54,7 +56,10 @@ function AttachedTrack({ item }: { item: MediaTrack }) {
     };
   }, [item]);
   return (
-    <div className={`call-track${item.local ? ' local' : ''}`} ref={holder} />
+    <div
+      className={`call-track ${item.kind}${item.local ? ' local' : ''}`}
+      ref={holder}
+    />
   );
 }
 
@@ -136,6 +141,7 @@ export function CallExperience({
             key: `local:${publication.trackSid}`,
             track: publication.track,
             local: true,
+            kind: 'video',
           });
       for (const participant of mediaRoom.remoteParticipants.values())
         for (const publication of participant.trackPublications.values())
@@ -144,6 +150,8 @@ export function CallExperience({
               key: `remote:${participant.identity}:${publication.trackSid}`,
               track: publication.track,
               local: false,
+              kind:
+                publication.track.kind === Track.Kind.Video ? 'video' : 'audio',
             });
       setTracks(values);
     };
@@ -159,18 +167,35 @@ export function CallExperience({
     roomRef.current = mediaRoom;
     try {
       await mediaRoom.connect(credentials.url, credentials.token);
-      await mediaRoom.localParticipant.setMicrophoneEnabled(true);
-      if (credentials.callType === 'video')
-        await mediaRoom.localParticipant.setCameraEnabled(true);
-      setMicrophone(true);
-      setCamera(credentials.callType === 'video');
-      setRoom(mediaRoom);
-      syncTracks();
     } catch (failure) {
       if (roomRef.current === mediaRoom) roomRef.current = undefined;
       await mediaRoom.disconnect();
       throw failure;
     }
+    setRoom(mediaRoom);
+    syncTracks();
+    const unavailable: string[] = [];
+    try {
+      await mediaRoom.localParticipant.setMicrophoneEnabled(true);
+      setMicrophone(true);
+    } catch {
+      setMicrophone(false);
+      unavailable.push('microphone');
+    }
+    if (credentials.callType === 'video') {
+      try {
+        await mediaRoom.localParticipant.setCameraEnabled(true);
+        setCamera(true);
+      } catch {
+        setCamera(false);
+        unavailable.push('camera');
+      }
+    } else setCamera(false);
+    syncTracks();
+    if (unavailable.length)
+      setError(
+        `Đã vào cuộc gọi nhưng không sử dụng được ${unavailable.join(' và ')}. Bạn vẫn có thể xem và nghe người kia.`,
+      );
   }, []);
 
   const start = useCallback<StartCall>(
@@ -291,6 +316,27 @@ export function CallExperience({
     if (!call || busy) return;
     setBusy(true);
     setError('');
+    if (action !== 'accept') {
+      const ending = call;
+      currentCall.current = undefined;
+      setCall(undefined);
+      await closeMedia();
+      try {
+        await api.authenticated<CallResponse>(
+          `/calls/${ending.id}/${action}`,
+          {},
+        );
+      } catch (failure) {
+        currentCall.current = ending;
+        setCall(ending);
+        setError(
+          `${callErrorMessage(failure)} Cuộc gọi chưa được kết thúc trên máy chủ, hãy thử lại.`,
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const result = await api.authenticated<CallResponse>(
         `/calls/${call.id}/${action}`,
@@ -298,14 +344,9 @@ export function CallExperience({
       );
       currentCall.current = result.call;
       setCall(result.call);
-      if (action === 'accept') await connectMedia(result.call);
-      if (action !== 'accept') await closeMedia();
+      await connectMedia(result.call);
     } catch (failure) {
-      if (action !== 'accept') {
-        await closeMedia();
-        currentCall.current = undefined;
-        setCall(undefined);
-      } else setError(callErrorMessage(failure));
+      setError(callErrorMessage(failure));
     } finally {
       setBusy(false);
     }
@@ -314,15 +355,31 @@ export function CallExperience({
   async function toggleMicrophone() {
     if (!room) return;
     const enabled = !microphone;
-    await room.localParticipant.setMicrophoneEnabled(enabled);
-    setMicrophone(enabled);
+    try {
+      await room.localParticipant.setMicrophoneEnabled(enabled);
+      setMicrophone(enabled);
+      setError('');
+    } catch (failure) {
+      setMicrophone(false);
+      setError(callErrorMessage(failure));
+    }
   }
 
   async function toggleCamera() {
     if (!room || call?.type !== 'video') return;
     const enabled = !camera;
-    await room.localParticipant.setCameraEnabled(enabled);
-    setCamera(enabled);
+    try {
+      await room.localParticipant.setCameraEnabled(enabled);
+      setCamera(enabled);
+      setError('');
+    } catch (failure) {
+      setCamera(false);
+      setError(
+        failure instanceof DOMException
+          ? callErrorMessage(failure)
+          : 'Không thể bật camera. Bạn vẫn đang kết nối với cuộc gọi.',
+      );
+    }
   }
 
   async function rejoin() {
@@ -365,9 +422,12 @@ export function CallExperience({
     ) : null;
   const incoming =
     call.status === 'ringing' && call.initiatorId !== user.id && !room;
+  const remoteVideoCount = tracks.filter(
+    (item) => item.kind === 'video' && !item.local,
+  ).length;
   return (
     <div className="call-overlay" role="dialog" aria-modal="true">
-      <section className="call-window">
+      <section className={`call-window${room ? ' connected' : ''}`}>
         <header>
           <div>
             <strong>
@@ -388,7 +448,9 @@ export function CallExperience({
         </header>
         {error && <p className="message error">{error}</p>}
         {room && (
-          <div className={`call-stage${call.type === 'audio' ? ' audio' : ''}`}>
+          <div
+            className={`call-stage${call.type === 'audio' ? ' audio' : ''}${call.type === 'video' && remoteVideoCount <= 1 ? ' one-to-one' : ''}${remoteVideoCount ? ' has-remote' : ''}`}
+          >
             {tracks.map((item) => (
               <AttachedTrack key={item.key} item={item} />
             ))}
@@ -406,22 +468,26 @@ export function CallExperience({
                 className="call-control reject"
                 disabled={busy}
                 onClick={() => void transition('reject')}
+                aria-label="Từ chối cuộc gọi"
+                title="Từ chối"
               >
-                Từ chối
+                <UiIcon name="phone" size={24} />
               </button>
               <button
                 className="call-control accept"
                 disabled={busy}
                 onClick={() => void transition('accept')}
+                aria-label="Nhận cuộc gọi"
+                title="Nhận cuộc gọi"
               >
-                Nhận cuộc gọi
+                <UiIcon name="phone" size={24} />
               </button>
             </>
           ) : (
             <>
               {!room && call.status === 'active' && (
                 <button
-                  className="call-control accept"
+                  className="call-control accept rejoin"
                   disabled={busy}
                   onClick={() => void rejoin()}
                 >
@@ -432,16 +498,20 @@ export function CallExperience({
                 className={`call-control${microphone ? '' : ' disabled'}`}
                 disabled={!room || busy}
                 onClick={() => void toggleMicrophone()}
+                aria-label={microphone ? 'Tắt mic' : 'Bật mic'}
+                title={microphone ? 'Tắt mic' : 'Bật mic'}
               >
-                {microphone ? 'Tắt mic' : 'Bật mic'}
+                <UiIcon name="microphone" size={24} />
               </button>
               {call.type === 'video' && (
                 <button
                   className={`call-control${camera ? '' : ' disabled'}`}
                   disabled={!room || busy}
                   onClick={() => void toggleCamera()}
+                  aria-label={camera ? 'Tắt camera' : 'Bật camera'}
+                  title={camera ? 'Tắt camera' : 'Bật camera'}
                 >
-                  {camera ? 'Tắt camera' : 'Bật camera'}
+                  <UiIcon name="video" size={24} />
                 </button>
               )}
               <button
@@ -452,8 +522,10 @@ export function CallExperience({
                     call.initiatorId === user.id ? 'end' : 'leave',
                   )
                 }
+                aria-label="Kết thúc cuộc gọi"
+                title="Kết thúc"
               >
-                Kết thúc
+                <UiIcon name="phone" size={24} />
               </button>
             </>
           )}

@@ -51,7 +51,7 @@ Lỗi kết nối giữ nguyên biểu mẫu hoặc tài khoản để người 
 Build: `npm.cmd run build --workspace=@chat/web`.
 Domain BE được đặt chung tại `src/config.ts`: `https://pingpongapi.id.vn`.
 Bản production gọi trực tiếp domain này cho REST và Socket.IO; đặt `WEB_ORIGIN` đúng địa chỉ HTTPS của web và `NODE_ENV=production` trên API.
-Refresh cookie hiện dùng SameSite=Strict, nên FE production phải cùng site với API (ví dụ `app.pingpongapi.id.vn`). Nếu FE ở site khác, cần proxy cùng origin cho REST/socket hoặc thiết kế lại cookie/CSRF trước khi sử dụng.
+Vì web `pingpong.id.vn` và API `pingpongapi.id.vn` là hai site khác nhau, refresh cookie production dùng `SameSite=None; Secure`. Backend vẫn chỉ chấp nhận `WEB_ORIGIN` chính xác, yêu cầu `X-Auth-Client: web` và CORS credentials với origin cụ thể. Phương án vận hành bền vững hơn là dùng API dưới site của web (ví dụ `api.pingpong.id.vn`) hoặc reverse proxy `/api` và `/socket.io` cùng origin; khi đó có thể chuyển cookie về `SameSite=Strict`.
 Reverse proxy `/socket.io` cần hỗ trợ WebSocket upgrade. Backend realtime hiện chạy một instance theo doc 14.
 
 Kiểm tra thực tế với API/DB đang chạy: đăng ký email mới, email trùng, mật khẩu dưới 6 ký tự,

@@ -8,6 +8,7 @@ import { Call } from '../database/entities/call.entity';
 import { CallParticipant } from '../database/entities/call-participant.entity';
 import { ConversationMember } from '../database/entities/conversation-member.entity';
 import { ConversationMemberPeriod } from '../database/entities/conversation-member-period.entity';
+import { Conversation } from '../database/entities/conversation.entity';
 import { Message } from '../database/entities/message.entity';
 import type { CreateCallDto } from './calls.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
@@ -538,6 +539,19 @@ export class CallsService {
       participant.status = 'left';
       participant.leftAt = now;
       await manager.getRepository(CallParticipant).save(participant);
+      const conversation = await manager.getRepository(Conversation).findOne({
+        where: { id: call.conversationId },
+        select: { id: true, type: true },
+      });
+      if (!conversation)
+        fail(404, 'CONVERSATION_NOT_FOUND', 'Conversation was not found');
+      if (conversation.type === 'direct') {
+        const message = await this.finish(manager, call, now);
+        return {
+          result: await this.result(manager, call),
+          message: expiredMessage ?? message,
+        };
+      }
       const joined = await manager.getRepository(CallParticipant).count({
         where: { callId: id, status: 'joined' },
       });
