@@ -8,6 +8,7 @@ import { presenceBadge, presenceLabel, type Presence } from './usePresence';
 import { cachedHistory, loadRecentHistory } from './chat-history-cache';
 import { messageSummary, type History, type Message } from './chat-model';
 import { CallExperience, type StartCall } from './CallExperience';
+import { playMessageSound } from './notification-sounds';
 
 type Role = 'owner' | 'admin' | 'member';
 interface Peer {
@@ -58,12 +59,14 @@ export function Conversations({
   active = true,
   recipient,
   presence = {},
+  onUnreadCount,
 }: {
   user: api.User;
   onExpired: () => void;
   active?: boolean;
   recipient?: { id: string; key: number };
   presence?: Record<string, Presence>;
+  onUnreadCount?: (count: number) => void;
 }) {
   const [items, setItems] = useState<Conversation[]>([]);
   const [directNames, setDirectNames] = useState<Record<string, string>>({});
@@ -118,6 +121,13 @@ export function Conversations({
   conversationIds.current = items.slice(0, 50).map((item) => item.id);
   selectedId.current = selected?.id;
   viewActive.current = active;
+  const totalUnread = items.reduce(
+    (total, item) => total + (item.unreadCount ?? 0),
+    0,
+  );
+  useEffect(() => {
+    onUnreadCount?.(totalUnread);
+  }, [onUnreadCount, totalUnread]);
   const registerCallStart = useCallback((start: StartCall | undefined) => {
     callStart.current = start;
   }, []);
@@ -260,6 +270,11 @@ export function Conversations({
     client.on('message:created', (message: Message) => {
       if (stopped) return;
       const mine = message.senderId === user.id;
+      const visibleConversation =
+        viewActive.current &&
+        selectedId.current === message.conversationId &&
+        document.visibilityState === 'visible' &&
+        document.hasFocus();
       setItems((previous) => {
         if (!previous.some((item) => item.id === message.conversationId))
           return previous;
@@ -278,9 +293,7 @@ export function Conversations({
                         : undefined,
                   },
                   unreadCount:
-                    mine ||
-                    (viewActive.current &&
-                      selectedId.current === message.conversationId)
+                    mine || visibleConversation
                       ? item.unreadCount
                       : (item.unreadCount ?? 0) + 1,
                 }
@@ -292,6 +305,7 @@ export function Conversations({
               Date.parse(left.updatedAt ?? left.createdAt),
           );
       });
+      if (!mine && !visibleConversation) void playMessageSound();
       if (!mine)
         void api
           .authenticated(

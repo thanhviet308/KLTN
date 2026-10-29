@@ -1149,7 +1149,7 @@ a:focus-visible {
 .chat-message:not(.mine) {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 .chat-message:not(.mine) .message-body {
   min-width: 0;

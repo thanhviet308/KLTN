@@ -4,6 +4,7 @@ import { Conversations } from './Conversations';
 import { Avatar } from './Avatar';
 import { UiIcon } from './UiIcon';
 import { presenceLabel, usePresence } from './usePresence';
+import { installAudioUnlock } from './notification-sounds';
 
 type Tab =
   'conversations' | 'friends' | 'incoming' | 'outgoing' | 'search' | 'profile';
@@ -41,6 +42,7 @@ export function Home({
   onExpired: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('conversations');
+  const [unreadCount, setUnreadCount] = useState(0);
   const presence = usePresence(user.id);
   const [accountOpen, setAccountOpen] = useState(false);
   const [profileSection, setProfileSection] = useState<
@@ -104,6 +106,7 @@ export function Home({
   useEffect(() => {
     setName(user.displayName);
   }, [user.displayName]);
+  useEffect(() => installAudioUnlock(), []);
 
   function fail(e: unknown) {
     if (e instanceof api.ApiError && e.status === 401) onExpired();
@@ -231,6 +234,14 @@ export function Home({
               >
                 <UiIcon name={key} />
                 <span className="nav-label">{label}</span>
+                {key === 'conversations' && unreadCount > 0 && (
+                  <span
+                    className="nav-unread-badge"
+                    aria-label={`${unreadCount} tin nhắn chưa đọc`}
+                  >
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </button>
             ))}
         </nav>
@@ -366,6 +377,7 @@ export function Home({
               onExpired={onExpired}
               active={tab === 'conversations'}
               recipient={chatRecipient}
+              onUnreadCount={setUnreadCount}
             />
           </div>
           {tab === 'conversations' ? null : tab === 'profile' ? (

@@ -3,6 +3,7 @@ import type { LocalTrack, RemoteTrack, Room } from 'livekit-client';
 import { io, type Socket } from 'socket.io-client';
 import * as api from './api';
 import { UiIcon } from './UiIcon';
+import { startIncomingCallRingtone } from './notification-sounds';
 
 type CallStatus =
   'ringing' | 'active' | 'ended' | 'rejected' | 'missed' | 'cancelled';
@@ -411,6 +412,13 @@ export function CallExperience({
     return () => window.clearTimeout(timer);
   }, [call, closeMedia]);
 
+  const incoming =
+    call?.status === 'ringing' && call.initiatorId !== user.id && !room;
+  useEffect(() => {
+    if (!incoming) return;
+    return startIncomingCallRingtone();
+  }, [incoming, call?.id]);
+
   if (!call || terminal.has(call.status))
     return error ? (
       <div className="call-error-toast" role="alert">
@@ -420,8 +428,6 @@ export function CallExperience({
         </button>
       </div>
     ) : null;
-  const incoming =
-    call.status === 'ringing' && call.initiatorId !== user.id && !room;
   const remoteVideoCount = tracks.filter(
     (item) => item.kind === 'video' && !item.local,
   ).length;
