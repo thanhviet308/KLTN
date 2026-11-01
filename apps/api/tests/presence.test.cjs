@@ -119,3 +119,45 @@ test('call events reach targeted participants without a conversation subscriptio
     },
   ]);
 });
+
+test('new message reaches an authorized inbox without subscription and never reaches outsiders', async () => {
+  const received = [];
+  const checked = [];
+  const gateway = new ChatGateway(
+    {},
+    { authenticate: async () => ({}) },
+    {
+      authorizedEvent: async (userId, _conversationId, _messageId, action) => {
+        checked.push(userId);
+        if (userId === 'recipient') await action();
+      },
+    },
+    {},
+    {},
+  );
+  for (const id of ['recipient', 'outsider'])
+    gateway.connections.set(id, {
+      userId: id,
+      token: 'test',
+      rooms: new Set(),
+      expiresAt: Date.now() + 60000,
+    });
+  gateway.server = {
+    adapter: { rooms: new Map() },
+    sockets: new Map(
+      ['recipient', 'outsider'].map((id) => [
+        id,
+        { connected: true, emit: (name) => received.push({ id, name }) },
+      ]),
+    ),
+  };
+  gateway.queue.push({
+    name: 'message:created',
+    conversationId: 'new-conversation',
+    messageId: 'message',
+    payload: { id: 'message' },
+  });
+  await gateway.drain();
+  assert.deepEqual(checked.sort(), ['outsider', 'recipient']);
+  assert.deepEqual(received, [{ id: 'recipient', name: 'message:created' }]);
+});

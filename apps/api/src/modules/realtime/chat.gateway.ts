@@ -389,15 +389,21 @@ export class ChatGateway
         const targets = current.targetUserIds
           ? new Set(current.targetUserIds)
           : undefined;
+        // Inbox notifications must also reach members who have not loaded or
+        // subscribed to this conversation yet. authorizedEvent below still
+        // checks each recipient's membership and message visibility.
+        const inboxEvent = current.name === 'message:created';
         const ids = targets
           ? [...this.connections]
               .filter(([, connection]) => targets.has(connection.userId))
               .map(([id]) => id)
-          : [
-              ...(this.server.adapter.rooms.get(
-                `conversation:${current.conversationId}`,
-              ) ?? []),
-            ];
+          : inboxEvent
+            ? [...this.connections.keys()]
+            : [
+                ...(this.server.adapter.rooms.get(
+                  `conversation:${current.conversationId}`,
+                ) ?? []),
+              ];
         for (const id of ids) {
           const socket = this.server.sockets.get(id);
           const connection = this.connections.get(id);
@@ -412,7 +418,9 @@ export class ChatGateway
               () => {
                 if (
                   socket.connected &&
-                  (targets || connection.rooms.has(current.conversationId))
+                  (targets ||
+                    inboxEvent ||
+                    connection.rooms.has(current.conversationId))
                 )
                   socket.emit(current.name, current.payload);
               },

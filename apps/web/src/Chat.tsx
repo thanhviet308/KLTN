@@ -41,6 +41,7 @@ export function Chat({
   onLatestMessage,
   active = true,
   onReadSequence,
+  onMessagesChange,
 }: {
   conversationId: string;
   user: api.User;
@@ -49,10 +50,14 @@ export function Chat({
   onLatestMessage?: (message: Message) => void;
   active?: boolean;
   onReadSequence?: (sequence: string) => void;
+  onMessagesChange?: (messages: Message[]) => void;
 }) {
   const draftKey = `${user.id}:${conversationId}`;
   const [cached] = useState(() => cachedHistory(draftKey));
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
+  useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
   const [pending, setPending] = useState<Draft[]>(() =>
     (drafts.get(draftKey)?.pending ?? []).map((item) => ({
       ...item,
@@ -870,7 +875,7 @@ export function Chat({
           .join(', ')}
         {Object.values(typing).some((expiry) => expiry > Date.now())
           ? ' đang nhập…'
-          : '\u00a0'}
+          : null}
       </p>
       {replyTo && (
         <div className="reply-preview">
@@ -918,7 +923,7 @@ export function Chat({
           <textarea
             ref={composer}
             aria-label="Nội dung tin nhắn"
-            placeholder="Aa"
+            placeholder="Nhập tin nhắn…"
             value={body}
             disabled={unavailable}
             maxLength={10000}

@@ -15,6 +15,7 @@ import { Home } from './Home';
 import './style.css';
 import './workspace.css';
 import './auth-design.css';
+import './workspace-sand.css';
 
 function App() {
   const reducedMotion = useReducedMotion();

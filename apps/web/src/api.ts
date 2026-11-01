@@ -296,7 +296,7 @@ export function errorMessage(error: unknown) {
   if (error.status === 409)
     return 'Email này đã được sử dụng. Hãy đăng nhập hoặc dùng email khác.';
   if (error.status === 401)
-    return 'Email hoặc mật khẩu chưa đúng, hoặc phiên đã hết hạn.';
+    return 'Email hoặc mật khẩu không đúng.';
   if (error.status === 403)
     return 'Không thể truy cập tài khoản. Vui lòng liên hệ người quản trị.';
   return 'Thông tin chưa hợp lệ. Vui lòng kiểm tra và thử lại.';

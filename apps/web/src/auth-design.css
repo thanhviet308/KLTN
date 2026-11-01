@@ -245,6 +245,10 @@
 .page .password input {
   padding-right: 54px;
 }
+.page input::-ms-reveal,
+.page input::-ms-clear {
+  display: none;
+}
 .page .password button {
   display: grid;
   place-items: center;

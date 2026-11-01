@@ -9,6 +9,10 @@ import { cachedHistory, loadRecentHistory } from './chat-history-cache';
 import { messageSummary, type History, type Message } from './chat-model';
 import { CallExperience, type StartCall } from './CallExperience';
 import { playMessageSound } from './notification-sounds';
+import { MessageMedia } from './ChatMedia';
+import { SharedMediaDialog } from './SharedMediaDialog';
+import { SharedFileRow } from './SharedFileRow';
+import { Bell, BellOff } from 'lucide-react';
 
 type Role = 'owner' | 'admin' | 'member';
 interface Peer {
@@ -73,6 +77,40 @@ export function Conversations({
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<Conversation>();
   const [members, setMembers] = useState<Member[]>([]);
+  const [sharedMessages, setSharedMessages] = useState<Message[]>([]);
+  const [incomingNotice, setIncomingNotice] = useState<Message>();
+  useEffect(() => {
+    if (!incomingNotice) return;
+    const timer = window.setTimeout(() => setIncomingNotice(undefined), 5000);
+    return () => window.clearTimeout(timer);
+  }, [incomingNotice]);
+  const [mediaView, setMediaView] = useState<{
+    id: string;
+    type: 'image' | 'file';
+  }>();
+  const [muted, setMuted] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(`chat-muted:${user.id}`) ?? '{}',
+      );
+      return stored && typeof stored === 'object' && !Array.isArray(stored)
+        ? stored
+        : {};
+    } catch {
+      return {};
+    }
+  });
+  const mutedRef = useRef(muted);
+  function toggleMute(id: string) {
+    const next = { ...mutedRef.current, [id]: !mutedRef.current[id] };
+    mutedRef.current = next;
+    setMuted(next);
+    try {
+      localStorage.setItem(`chat-muted:${user.id}`, JSON.stringify(next));
+    } catch {
+      /* Keep working in memory when storage is unavailable. */
+    }
+  }
   const [friends, setFriends] = useState<Peer[]>([]);
   const [friendsLoading, setFriendsLoading] = useState(true);
   const [friendsUnavailable, setFriendsUnavailable] = useState(false);
@@ -305,7 +343,12 @@ export function Conversations({
               Date.parse(left.updatedAt ?? left.createdAt),
           );
       });
-      if (!mine && !visibleConversation) void playMessageSound();
+      if (!mine && !mutedRef.current[message.conversationId]) {
+        void playMessageSound();
+        setIncomingNotice(message);
+      }
+      if (!conversationIds.current.includes(message.conversationId))
+        void list(undefined, true).catch(() => {});
       if (!mine)
         void api
           .authenticated(
@@ -466,7 +509,7 @@ export function Conversations({
   }
   return (
     <section
-      className={`conversations messenger-layout${selected || creating ? ' has-thread' : ''}`}
+      className={`conversations messenger-layout${selected || creating ? ' has-thread' : ''}${selected && !creating && !showInfo ? ' has-summary' : ''}`}
       aria-busy={busy}
     >
       <aside className="thread-sidebar" aria-label="Danh sách trò chuyện">
@@ -975,6 +1018,7 @@ export function Conversations({
           <Chat
             key={selected.id}
             conversationId={selected.id}
+            onMessagesChange={setSharedMessages}
             user={user}
             peers={members.map((member) => member.user)}
             active={active}
@@ -1297,6 +1341,168 @@ export function Conversations({
           </section>
         )}
       </div>
+      {selected && !creating && !showInfo && (
+        <aside
+          className="chat-summary-panel"
+          aria-label="Tóm tắt cuộc trò chuyện"
+        >
+          <div className="summary-profile">
+            <span className="summary-avatar">
+              <Avatar
+                peer={
+                  selectedPeer ?? {
+                    id: selected.id,
+                    displayName: heading ?? 'Nhóm',
+                  }
+                }
+              />
+            </span>
+            <h2>{heading}</h2>
+            <p>
+              {selectedPeer
+                ? presenceLabel(presence[selectedPeer.id])
+                : `${members.length} thành viên`}
+            </p>
+          </div>
+          <div className="summary-actions">
+            <button
+              type="button"
+              onClick={() => void callStart.current?.(selected.id, 'audio')}
+            >
+              <UiIcon name="phone" />
+              <span>Gọi thoại</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void callStart.current?.(selected.id, 'video')}
+            >
+              <UiIcon name="video" />
+              <span>Gọi video</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={!!muted[selected.id]}
+              onClick={() => toggleMute(selected.id)}
+              title="Bật hoặc tắt âm báo tin nhắn trên trình duyệt này"
+            >
+              {muted[selected.id] ? <BellOff size={20} /> : <Bell size={20} />}
+              <span>
+                {muted[selected.id] ? 'Bật thông báo' : 'Tắt thông báo'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowInfo(true);
+                void run(() => detail(selected.id));
+              }}
+            >
+              <UiIcon name="info" />
+              <span>Thông tin</span>
+            </button>
+          </div>
+          <section className="summary-section">
+            {muted[selected.id] && (
+              <p className="summary-empty" role="status">
+                Đã tắt âm báo tin nhắn trên trình duyệt này.
+              </p>
+            )}
+            <div className="summary-section-heading">
+              <h3>Ảnh đã chia sẻ</h3>
+              <button
+                type="button"
+                onClick={() => setMediaView({ id: selected.id, type: 'image' })}
+              >
+                Xem tất cả
+              </button>
+            </div>
+            <div className="summary-media-grid">
+              {sharedMessages
+                .filter(
+                  (message) =>
+                    message.conversationId === selected.id &&
+                    message.type === 'image' &&
+                    !message.deletedAt,
+                )
+                .slice(-6)
+                .map((message) => (
+                  <MessageMedia key={message.id} message={message} />
+                ))}
+            </div>
+            {!sharedMessages.some(
+              (message) =>
+                message.conversationId === selected.id &&
+                message.type === 'image' &&
+                !message.deletedAt,
+            ) && (
+              <p className="summary-empty">
+                Chưa có ảnh trong các tin nhắn đã tải.
+              </p>
+            )}
+          </section>
+          <section className="summary-section">
+            <div className="summary-section-heading">
+              <h3>Tệp đã chia sẻ</h3>
+              <button
+                type="button"
+                onClick={() => setMediaView({ id: selected.id, type: 'file' })}
+              >
+                Xem tất cả
+              </button>
+            </div>
+            {sharedMessages
+              .filter(
+                (message) =>
+                  message.conversationId === selected.id &&
+                  message.type === 'file' &&
+                  !message.deletedAt,
+              )
+              .slice(-4)
+              .map((message) => (
+                <SharedFileRow key={message.id} message={message} />
+              ))}
+            {!sharedMessages.some(
+              (message) =>
+                message.conversationId === selected.id &&
+                message.type === 'file' &&
+                !message.deletedAt,
+            ) && (
+              <p className="summary-empty">
+                Chưa có tệp trong các tin nhắn đã tải.
+              </p>
+            )}
+          </section>
+        </aside>
+      )}
+      {mediaView && (
+        <SharedMediaDialog
+          key={`${mediaView.id}:${mediaView.type}`}
+          conversationId={mediaView.id}
+          type={mediaView.type}
+          onClose={() => setMediaView(undefined)}
+        />
+      )}
+      {incomingNotice && (
+        <div className="incoming-message-toast" role="status">
+          <button
+            type="button"
+            onClick={() => {
+              void run(() => detail(incomingNotice.conversationId));
+              setIncomingNotice(undefined);
+            }}
+          >
+            <strong>Tin nhắn mới</strong>
+            <span>{messageSummary(incomingNotice)}</span>
+          </button>
+          <button
+            type="button"
+            aria-label="Đóng thông báo"
+            onClick={() => setIncomingNotice(undefined)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <CallExperience
         user={user}
         onExpired={onExpired}
