@@ -11,6 +11,8 @@
   "dependencies": {
     "leaflet": "^1.9.4",
     "livekit-client": "^2.23.0",
+    "lucide-react": "^1.64.0",
+    "motion": "^14.8.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "socket.io-client": "^4.8.1"

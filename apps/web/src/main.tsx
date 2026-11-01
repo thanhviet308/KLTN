@@ -1,11 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import {
+  ArrowRight,
+  Check,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Mail,
+  MessagesSquare,
+} from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import * as api from './api';
 import { Home } from './Home';
 import './style.css';
 import './workspace.css';
+import './auth-design.css';
 
 function App() {
+  const reducedMotion = useReducedMotion();
+  const [avatarPreview, setAvatarPreview] = useState('nova');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [user, setUser] = useState<api.User>();
   const [booting, setBooting] = useState(true);
@@ -267,52 +280,60 @@ function App() {
     );
 
   return (
-    <div className="page">
+    <div
+      className={`page ${mode === 'login' ? 'auth-login' : 'auth-register'}`}
+    >
+      <a className="brand" href="/" aria-label="PingPong — trang chủ">
+        <span className="social-brand-icon" aria-hidden="true">
+          <i>•••</i>
+          <i>•••</i>
+        </span>
+        <span>
+          Ping<span className="brand-coral">Pong</span>
+        </span>
+      </a>
       <aside className="story">
-        <a className="brand" href="/" aria-label="PingPong — trang chủ">
-          <span className="brand-icon">P</span> PingPong
-          <span className="brand-dot">.</span>
-        </a>
         <div className="story-content">
-          <span className="eyebrow">GẦN NHAU HƠN, MỖI NGÀY</span>
           <h1>
-            Mọi kết nối tốt đẹp
+            Kết nối
             <br />
-            bắt đầu từ một
-            <br />
-            <em>lời chào.</em>
+            <span className="story-accent">không giới hạn.</span>
           </h1>
           <p>
-            Một không gian để trò chuyện, chia sẻ và giữ liên lạc với những
-            người quan trọng.
+            Bắt đầu cuộc trò chuyện
+            <br />
+            theo cách của bạn.
           </p>
-          <div className="conversation" aria-hidden="true">
-            <div className="chat-line">
-              <span className="mini-avatar">L</span>
-              <div>
-                <small>Linh</small>
-                <div className="bubble">
-                  Chào bạn, rất vui được kết nối! <span>✦</span>
-                </div>
-              </div>
-            </div>
-            <div className="bubble reply">Mình cũng vậy! 👋</div>
-            <div className="conversation-note">
-              <span className="online-dot" /> Những cuộc trò chuyện bắt đầu ở
-              đây
-            </div>
+          <div className="auth-art-stage" aria-hidden="true">
+            <span className="auth-art-orbit" />
+            <span className="auth-illustration-frame">
+              <motion.img
+                className="auth-illustration"
+                src="/images/plum-coral-social.png"
+                alt=""
+                initial={
+                  reducedMotion ? false : { opacity: 0, y: 24, scale: 0.96 }
+                }
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.7, ease: [0.2, 0.8, 0.2, 1] }}
+              />
+            </span>
+            <span className="auth-art-caption">Gần nhau hơn, mỗi ngày.</span>
           </div>
         </div>
-        <div className="story-footer">
-          TRÒ CHUYỆN THẬT. KẾT NỐI THẬT.<span>↗</span>
-        </div>
+        <div className="story-footer" />
       </aside>
       <main>
         <div className="main-top">
-          <span>Tài khoản của bạn</span>
-          <span className="secure">◈ Kết nối an toàn</span>
+          <span>TRÒ CHUYỆN THẬT · GẦN NHAU HƠN</span>
         </div>
-        <section className="card" aria-busy={busy || booting}>
+        <motion.section
+          className="card"
+          aria-busy={busy || booting}
+          initial={reducedMotion ? false : { opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, delay: 0.12 }}
+        >
           {booting ? (
             <div className="loading" role="status">
               <span className="spinner" />
@@ -320,13 +341,24 @@ function App() {
             </div>
           ) : (
             <>
-              <span className="eyebrow dark">BẮT ĐẦU KẾT NỐI</span>
+              <div className="cyber-card-brand" aria-hidden="true">
+                <MessagesSquare />
+                <span>PingPong</span>
+              </div>
               <h2 ref={heading} tabIndex={-1}>
-                {mode === 'login' ? 'Chào mừng trở lại.' : 'Tạo tài khoản mới.'}
+                {mode === 'login' ? (
+                  <>
+                    Một lời chào.
+                    <br />
+                    <span className="title-coral">Ngàn kết nối.</span>
+                  </>
+                ) : (
+                  'Tạo tài khoản mới'
+                )}
               </h2>
               <p className="intro">
                 {mode === 'login'
-                  ? 'Đăng nhập để tiếp tục những cuộc trò chuyện.'
+                  ? 'Chia sẻ khoảnh khắc, giữ gần những người bạn yêu quý.'
                   : step === 1
                     ? 'Nhập email để nhận mã xác minh.'
                     : step === 2
@@ -388,23 +420,26 @@ function App() {
                   {(mode === 'login' || step === 1) && (
                     <label>
                       Email
-                      <input
-                        type="email"
-                        name="email"
-                        aria-invalid={!!fieldErrors.email}
-                        aria-describedby={
-                          fieldErrors.email ? 'email-error' : undefined
-                        }
-                        autoComplete="username"
-                        placeholder="ban@example.com"
-                        required
-                        maxLength={254}
-                        value={email}
-                        onChange={(e) => {
-                          setEmail(e.target.value);
-                          clearFieldError('email');
-                        }}
-                      />
+                      <span className="auth-input-wrap">
+                        <Mail size={20} aria-hidden="true" />
+                        <input
+                          type="email"
+                          name="email"
+                          aria-invalid={!!fieldErrors.email}
+                          aria-describedby={
+                            fieldErrors.email ? 'email-error' : undefined
+                          }
+                          autoComplete="username"
+                          placeholder="yourname@email.com"
+                          required
+                          maxLength={254}
+                          value={email}
+                          onChange={(e) => {
+                            setEmail(e.target.value);
+                            clearFieldError('email');
+                          }}
+                        />
+                      </span>
                       {fieldError('email')}
                     </label>
                   )}
@@ -441,6 +476,7 @@ function App() {
                     <>
                       <label htmlFor="password">Mật khẩu</label>
                       <div className="password">
+                        <LockKeyhole size={20} aria-hidden="true" />
                         <input
                           id="password"
                           name="password"
@@ -480,7 +516,11 @@ function App() {
                           aria-pressed={visible}
                           onClick={() => setVisible(!visible)}
                         >
-                          {visible ? 'Ẩn' : 'Hiện'}
+                          {visible ? (
+                            <EyeOff size={20} aria-hidden="true" />
+                          ) : (
+                            <Eye size={20} aria-hidden="true" />
+                          )}
                         </button>
                       </div>
                       {fieldError('password')}
@@ -517,6 +557,37 @@ function App() {
                       )}
                     </>
                   )}
+                  {mode === 'login' && (
+                    <div
+                      className="cyber-avatars"
+                      role="group"
+                      aria-label="Xem trước phong cách avatar"
+                    >
+                      <span className="cyber-avatar-label">
+                        Khám phá avatar của bạn <small>Chọn để xem trước</small>
+                      </span>
+                      <div className="cyber-avatar-options">
+                        {[
+                          ['nova', 'Nova'],
+                          ['orbit', 'Orbit'],
+                          ['zero', 'Zero'],
+                        ].map(([id, name]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            aria-label={`Xem avatar ${name}`}
+                            aria-pressed={avatarPreview === id}
+                            onClick={() => setAvatarPreview(id)}
+                          >
+                            <img src={`/images/avatar-${id}.png`} alt="" />
+                            {avatarPreview === id && (
+                              <Check size={13} aria-hidden="true" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <button
                     className={`primary${mode === 'register' && step === 2 ? ' verification-primary' : ''}`}
                     type="submit"
@@ -538,7 +609,7 @@ function App() {
                       {busy && !sendingCode ? (
                         <span className="spinner" />
                       ) : (
-                        '→'
+                        <ArrowRight size={21} aria-hidden="true" />
                       )}
                     </span>
                   </button>
@@ -572,24 +643,15 @@ function App() {
               </form>
               <p className="switch">
                 {mode === 'login'
-                  ? 'Bạn chưa có tài khoản?'
+                  ? 'Chưa có tài khoản?'
                   : 'Bạn đã có tài khoản?'}{' '}
                 <button disabled={busy} onClick={switchMode}>
-                  {mode === 'login' ? 'Đăng ký ngay' : 'Đăng nhập'}
+                  {mode === 'login' ? 'Đăng ký' : 'Đăng nhập'}
                 </button>
               </p>
-              {error && mode === 'login' && (
-                <button
-                  className="retry"
-                  disabled={busy}
-                  onClick={() => void restore()}
-                >
-                  Thử khôi phục phiên đăng nhập
-                </button>
-              )}
             </>
           )}
-        </section>
+        </motion.section>
         <footer className="main-footer">
           Một lời chào nhỏ. Một kết nối mới.
         </footer>
