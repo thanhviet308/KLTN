@@ -53,7 +53,7 @@ export interface Message {
   senderId: string;
   clientMessageId: string;
   sequence: string;
-  type: 'text' | 'image' | 'file' | 'voice' | 'location';
+  type: 'text' | 'image' | 'file' | 'voice' | 'location' | 'call';
   body: string | null;
   content?: {
     attachmentId?: string;
@@ -62,6 +62,10 @@ export interface Message {
     size?: number;
     latitude?: number;
     longitude?: number;
+    callId?: string;
+    callType?: 'audio' | 'video';
+    callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
+    durationSeconds?: number;
   } | null;
   createdAt: string;
   editedAt: string | null;

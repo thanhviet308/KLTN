@@ -38,6 +38,7 @@ async function request<T>(
   body?: unknown,
   bearer?: string,
   method?: string,
+  timeoutMs = 15000,
 ): Promise<T> {
   let response: Response;
   try {
@@ -50,7 +51,7 @@ async function request<T>(
         ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new ApiError(0, 'NETWORK_ERROR');
@@ -103,17 +104,18 @@ export async function authenticated<T>(
   path: string,
   body?: unknown,
   method?: string,
+  timeoutMs = 15000,
 ): Promise<T> {
   if (!token || Date.now() >= expiresAt - 30000) await refresh();
   const attemptedToken = token;
   try {
-    return await request<T>(path, body, attemptedToken, method);
+    return await request<T>(path, body, attemptedToken, method, timeoutMs);
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 401) throw error;
     // A parallel request may already have renewed the token while this one
     // was in flight. Retry with that token instead of rotating again.
     if (token === attemptedToken) await refresh();
-    return request<T>(path, body, token, method);
+    return request<T>(path, body, token, method, timeoutMs);
   }
 }
 
@@ -132,9 +134,26 @@ async function binaryRequest(path: string, file?: Blob): Promise<Response> {
     });
   try {
     const attemptedToken = await accessToken();
-    let response = await attempt(attemptedToken);
+    let response: Response;
+    let transientRetryUsed = false;
+    try {
+      response = await attempt(attemptedToken);
+    } catch {
+      // Uploads are idempotent by clientMessageId. A local development proxy
+      // can briefly retain a stale upstream socket after a reload/restart.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      transientRetryUsed = true;
+      response = await attempt(await accessToken());
+    }
     if (response.status === 401) {
       if (token === attemptedToken) await refresh();
+      response = await attempt(await accessToken());
+    }
+    if (response.status >= 500 && !transientRetryUsed) {
+      // Retry one transient server/proxy failure automatically. The upload URL
+      // retains the same clientMessageId, preventing a duplicate message when
+      // the first request reached the API but its response was interrupted.
+      await new Promise((resolve) => setTimeout(resolve, 250));
       response = await attempt(await accessToken());
     }
     if (!response.ok) {
@@ -194,6 +213,20 @@ export const verifyRegistrationCode = (challengeId: string, code: string) =>
     '/auth/register/verify-code',
     { challengeId, code },
   );
+
+export const requestPasswordReset = (email: string) =>
+  request<{
+    challengeId: string;
+    expiresAt: string;
+    resendAfterSeconds: number;
+  }>('/auth/password-reset/request-code', { email });
+
+export const resetPassword = (input: {
+  challengeId: string;
+  code: string;
+  newPassword: string;
+  confirmPassword: string;
+}) => request<void>('/auth/password-reset/confirm', input);
 export const login = async (email: string, password: string) =>
   remember(
     await request<Session>('/auth/login', {
@@ -232,6 +265,28 @@ export function errorMessage(error: unknown) {
         'Tệp không còn khả dụng hoặc bạn không có quyền tải.',
       AVATAR_INVALID: 'Chọn ảnh PNG, JPEG hoặc WebP tĩnh, tối đa 512 KB.',
       CURRENT_PASSWORD_INVALID: 'Mật khẩu hiện tại chưa đúng.',
+      EMAIL_ALREADY_REGISTERED:
+        'Email này đã có tài khoản. Hãy đăng nhập hoặc dùng Quên mật khẩu.',
+      AI_NOT_CONFIGURED: 'Trợ lý AI hiện chưa sẵn sàng. Vui lòng thử lại sau.',
+      AI_SOURCE_UNAVAILABLE:
+        'Một số tin đã bị thu hồi hoặc không còn quyền truy cập. Hãy chọn lại nội dung.',
+      AI_SOURCE_CHANGED:
+        'Tin nguồn đã thay đổi. Hãy kiểm tra và tạo lại kết quả.',
+      AI_INPUT_INVALID: 'Hãy chọn lại tin nhắn và các tùy chọn AI.',
+      AI_INPUT_EMPTY: 'Chưa có nội dung văn bản để xử lý.',
+      AI_INPUT_TOO_LARGE: 'Nội dung quá dài. Hãy chọn ít tin nhắn hơn.',
+      AI_BUSY: 'AI đang xử lý yêu cầu khác. Vui lòng thử lại sau.',
+      AI_QUOTA_EXCEEDED:
+        'Bạn đã dùng hết 20 lượt AI trong giờ này. Vui lòng thử lại sau.',
+      AI_PROVIDER_LIMIT:
+        'Dịch vụ AI đang đạt giới hạn sử dụng. Vui lòng thử lại sau.',
+      AI_UNAVAILABLE: 'Chưa thể kết nối dịch vụ AI. Vui lòng thử lại sau.',
+      AI_TIMEOUT: 'AI xử lý quá lâu. Hãy thử lại với ít tin nhắn hơn.',
+      AI_INVALID_OUTPUT: 'AI trả kết quả chưa hợp lệ. Vui lòng thử lại.',
+      AI_INCOMPLETE:
+        'AI chưa hoàn tất kết quả. Hãy chọn ít nội dung hơn và thử lại.',
+      AI_REFUSED:
+        'AI không thể xử lý nội dung này. Hãy thử chọn nội dung khác.',
       PASSWORD_UNCHANGED: 'Mật khẩu mới cần khác mật khẩu hiện tại.',
       PASSWORD_STATE_CONFLICT: 'Tài khoản vừa thay đổi. Vui lòng thử lại.',
       MESSAGE_SEND_FORBIDDEN:
@@ -283,6 +338,8 @@ export function errorMessage(error: unknown) {
     return 'Chưa gửi được email. Vui lòng chờ một phút rồi thử lại.';
   if (error.code === 'INVALID_VERIFICATION_CODE')
     return 'Mã không đúng, đã hết hạn hoặc đã dùng. Kiểm tra lại hoặc yêu cầu mã mới.';
+  if (error.code === 'INVALID_PASSWORD_RESET_CODE')
+    return 'Mã đặt lại mật khẩu không đúng, đã hết hạn hoặc đã dùng. Kiểm tra lại hoặc gửi mã mới.';
   if (error.code === 'EMAIL_VERIFICATION_REQUIRED')
     return 'Xác minh email đã hết hạn. Vui lòng bắt đầu lại.';
   if (error.code === 'PASSWORD_CONFIRMATION_MISMATCH')

@@ -15,6 +15,8 @@ export interface Environment {
   LIVEKIT_URL?: string;
   LIVEKIT_API_KEY?: string;
   LIVEKIT_API_SECRET?: string;
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL?: string;
 }
 
 export type HttpEnvironment = Pick<
@@ -148,6 +150,14 @@ export function validateEnvironment(
       typeof revision === 'string' && revision ? revision : undefined,
     SMTP_HOST:
       typeof input.SMTP_HOST === 'string' ? input.SMTP_HOST : undefined,
+    GEMINI_API_KEY:
+      typeof input.GEMINI_API_KEY === 'string'
+        ? input.GEMINI_API_KEY.trim() || undefined
+        : undefined,
+    GEMINI_MODEL:
+      typeof input.GEMINI_MODEL === 'string'
+        ? input.GEMINI_MODEL.trim() || undefined
+        : undefined,
     SMTP_PORT:
       typeof input.SMTP_PORT === 'string' ? input.SMTP_PORT : undefined,
     SMTP_USER:

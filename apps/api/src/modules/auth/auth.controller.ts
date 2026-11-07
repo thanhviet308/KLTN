@@ -21,8 +21,11 @@ import {
   RequestRegistrationCodeDto,
   VerifyRegistrationCodeDto,
   ChangePasswordDto,
+  RequestPasswordResetDto,
+  ResetPasswordDto,
 } from './auth.dto';
 import { RegistrationService } from './registration.service';
+import { PasswordResetService } from './password-reset.service';
 import { Public, CurrentUser } from './auth.decorators';
 import type { User } from '../database/entities/user.entity';
 import { AuthRateLimit, AuthRateLimitGuard } from './auth-rate-limit';
@@ -54,7 +57,34 @@ export class AuthController {
     @Inject(AuthRateLimit) private readonly limiter: AuthRateLimit,
     @Inject(RegistrationService)
     private readonly registration: RegistrationService,
+    @Inject(PasswordResetService)
+    private readonly passwordReset: PasswordResetService,
   ) {}
+
+  @Post('password-reset/request-code')
+  @Public()
+  @HttpCode(200)
+  requestPasswordReset(
+    @Body() input: RequestPasswordResetDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    this.client(request, response);
+    return this.passwordReset.requestCode(input.email);
+  }
+
+  @Post('password-reset/confirm')
+  @Public()
+  @HttpCode(204)
+  async resetPassword(
+    @Body() input: ResetPasswordDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const client = this.client(request, response);
+    await this.passwordReset.reset(input);
+    if (client === 'web') response.clearCookie(COOKIE, this.cookieOptions());
+  }
 
   private client(request: Request, response: Response): 'web' | 'android' {
     response.setHeader('Cache-Control', 'no-store');

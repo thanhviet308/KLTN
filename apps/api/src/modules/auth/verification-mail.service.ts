@@ -37,7 +37,32 @@ export class VerificationMailService {
     this.options();
   }
 
-  async sendCode(email: string, code: string): Promise<void> {
+  async sendCode(
+    email: string,
+    code: string,
+    purpose: 'registration' | 'password-reset' = 'registration',
+  ): Promise<void> {
+    const reset = purpose === 'password-reset';
+    await this.sendMessage(
+      email,
+      reset ? 'Mã đặt lại mật khẩu PingPong' : 'Mã xác minh đăng ký Halo',
+      `Mã ${reset ? 'đặt lại mật khẩu' : 'xác minh'} của bạn là: ${code}\nMã có hiệu lực trong 10 phút. Không chia sẻ mã này với người khác.\nNếu bạn không yêu cầu ${reset ? 'đặt lại mật khẩu' : 'đăng ký'}, hãy bỏ qua email này.`,
+    );
+  }
+
+  async sendPasswordResetNotice(email: string): Promise<void> {
+    await this.sendMessage(
+      email,
+      'Mật khẩu PingPong đã được đặt lại',
+      'Mật khẩu tài khoản của bạn vừa được đặt lại. Các phiên đăng nhập cũ đã được đăng xuất. Nếu không phải bạn thực hiện, hãy dùng Quên mật khẩu để khôi phục tài khoản ngay.',
+    );
+  }
+
+  private async sendMessage(
+    email: string,
+    subject: string,
+    text: string,
+  ): Promise<void> {
     const options = this.options();
     const transport = nodemailer.createTransport({
       host: options.host,
@@ -55,8 +80,8 @@ export class VerificationMailService {
       const result = await transport.sendMail({
         from: options.from,
         to: email,
-        subject: 'Mã xác minh đăng ký Halo',
-        text: `Mã xác minh của bạn là: ${code}\nMã có hiệu lực trong 10 phút. Không chia sẻ mã này với người khác.\nNếu bạn không yêu cầu đăng ký, hãy bỏ qua email này.`,
+        subject,
+        text,
       });
       if (!result.accepted?.length) throw new Error('Mail rejected');
     } catch {

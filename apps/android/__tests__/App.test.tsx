@@ -6,6 +6,11 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
 
+jest.mock('../src/features/calls/CallProvider', () => ({
+  CallProvider: ({ children }: { children: React.ReactNode }) => children,
+  useCalls: () => ({ start: jest.fn(), busy: false }),
+}));
+
 jest.mock('@react-native-documents/picker', () => ({
   errorCodes: { OPERATION_CANCELED: 'OPERATION_CANCELED' },
   isErrorWithCode: jest.fn(() => false),

@@ -10,6 +10,7 @@ import { Login } from './src/features/auth/LoginScreen';
 import { Chat } from './src/features/chat/ChatScreen';
 import { Home } from './src/features/home/HomeScreen';
 import { styles } from './src/styles';
+import { CallProvider } from './src/features/calls/CallProvider';
 
 function App() {
   return (
@@ -64,20 +65,24 @@ function Root() {
         <Centered label="Đang khôi phục phiên…" />
       ) : !user ? (
         <Login onLogin={setUser} />
-      ) : conversation ? (
-        <Chat
-          conversation={conversation}
-          user={user}
-          onBack={() => setConversation(undefined)}
-          onExpired={expire}
-        />
       ) : (
-        <Home
-          user={user}
-          onUser={acceptUser}
-          onOpen={setConversation}
-          onExpired={expire}
-        />
+        <CallProvider key={user.id} user={user} onExpired={expire}>
+          {conversation ? (
+            <Chat
+              conversation={conversation}
+              user={user}
+              onBack={() => setConversation(undefined)}
+              onExpired={expire}
+            />
+          ) : (
+            <Home
+              user={user}
+              onUser={acceptUser}
+              onOpen={setConversation}
+              onExpired={expire}
+            />
+          )}
+        </CallProvider>
       )}
     </View>
   );

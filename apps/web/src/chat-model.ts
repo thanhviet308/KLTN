@@ -33,6 +33,15 @@ export interface History {
   nextCursor: string | null;
   highWatermark: string;
 }
+export function newestMessagesFirst(messages: Message[]) {
+  return [...messages].sort((a, b) =>
+    BigInt(a.sequence) > BigInt(b.sequence)
+      ? -1
+      : BigInt(a.sequence) < BigInt(b.sequence)
+        ? 1
+        : 0,
+  );
+}
 export function mergeMessages(previous: Message[], incoming: Message[]) {
   const entries = new Map(previous.map((message) => [message.id, message]));
   for (const message of incoming) {

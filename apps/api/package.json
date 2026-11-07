@@ -12,6 +12,7 @@
     "db:generate": "npm run build && typeorm migration:generate -d dist/modules/database/data-source.js"
   },
   "dependencies": {
+    "@google/genai": "^2.32.0",
     "@img/sharp-wasm32": "0.35.5",
     "@nestjs/common": "11.2.6",
     "@nestjs/config": "4.0.4",

@@ -6,6 +6,14 @@ import { Avatar } from './Avatar';
 import { MediaTools, MessageMedia, type MediaDraft } from './ChatMedia';
 import { MessageActions } from './MessageActions';
 import { MessageReactions } from './MessageReactions';
+import { AiAssistant } from './AiAssistant';
+import {
+  sourceVersion,
+  unreadTextMessages,
+  UNREAD_SUMMARY_THRESHOLD,
+  type AiKind,
+} from './ai-model';
+import { Sparkles } from 'lucide-react';
 import {
   cachedHistory,
   loadRecentHistory,
@@ -42,6 +50,8 @@ export function Chat({
   active = true,
   onReadSequence,
   onMessagesChange,
+  initialLastReadSequence,
+  initialUnreadCount = 0,
 }: {
   conversationId: string;
   user: api.User;
@@ -51,10 +61,27 @@ export function Chat({
   active?: boolean;
   onReadSequence?: (sequence: string) => void;
   onMessagesChange?: (messages: Message[]) => void;
+  initialLastReadSequence?: string | null;
+  initialUnreadCount?: number;
 }) {
   const draftKey = `${user.id}:${conversationId}`;
   const [cached] = useState(() => cachedHistory(draftKey));
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
+  const [ai, setAi] = useState<{
+    kind: AiKind;
+    targetId?: string;
+    selectedIds?: string[];
+    quickStart?: boolean;
+  }>();
+  const unreadBoundary = useRef(initialLastReadSequence ?? '0');
+  const unreadCount = useRef(initialUnreadCount);
+  const [translations, setTranslations] = useState<
+    Record<string, { version: string; text: string; language: string }>
+  >({});
+  useEffect(() => {
+    setAi(undefined);
+    setTranslations({});
+  }, [conversationId]);
   useEffect(() => {
     onMessagesChange?.(messages);
   }, [messages, onMessagesChange]);
@@ -134,6 +161,8 @@ export function Chat({
   }, [messages, older, receipts, loading, draftKey]);
   const alive = useRef(true);
   const nearBottom = useRef(true);
+  const initialScrollPending = useRef(true);
+  const manualScrollUntil = useRef(0);
   const acked = useRef(new Set<string>());
   const ackPending = useRef(new Set<string>());
   const sending = useRef(new Set<string>());
@@ -462,22 +491,46 @@ export function Chat({
     };
   }, [conversationId]);
   useLayoutEffect(() => {
-    if (active) nearBottom.current = true;
+    if (active) {
+      nearBottom.current = true;
+      initialScrollPending.current = true;
+      manualScrollUntil.current = 0;
+    }
   }, [active, conversationId]);
   useLayoutEffect(() => {
     const container = list.current;
     if (!active || !container) return;
     const followLatest = () => {
-      if (nearBottom.current && container.clientHeight > 0)
+      if (
+        (nearBottom.current || initialScrollPending.current) &&
+        container.clientHeight > 0
+      )
         container.scrollTop = container.scrollHeight;
     };
     followLatest();
+    let firstFrame = 0;
+    let secondFrame = 0;
+    if (!loading && initialScrollPending.current) {
+      // Let the loaded history and media placeholders finish layout before
+      // treating scroll events as deliberate reader navigation.
+      firstFrame = requestAnimationFrame(() => {
+        followLatest();
+        secondFrame = requestAnimationFrame(() => {
+          followLatest();
+          initialScrollPending.current = false;
+        });
+      });
+    }
     // Images and composer/layout changes can resize after messages render.
     // Keep following the bottom only while the reader has not scrolled away.
     const observer = new ResizeObserver(followLatest);
     observer.observe(container);
     for (const child of container.children) observer.observe(child);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+      observer.disconnect();
+    };
   }, [active, conversationId, messages, pending, loading]);
   useEffect(() => {
     const container = list.current;
@@ -649,8 +702,55 @@ export function Chat({
     ? undefined
     : [...messages].reverse().find((message) => message.senderId === user.id)
         ?.id;
+  const unreadTexts = unreadTextMessages(
+    messages,
+    user.id,
+    unreadBoundary.current,
+  );
+  const firstUnreadId = messages.find(
+    (message) =>
+      message.senderId !== user.id &&
+      BigInt(message.sequence) > BigInt(unreadBoundary.current),
+  )?.id;
+  const canSummarizeUnread = unreadTexts.length >= UNREAD_SUMMARY_THRESHOLD;
   return (
     <div className="chat-panel">
+      {ai && active && (
+        <AiAssistant
+          key={`${conversationId}:${ai.kind}:${ai.targetId ?? ''}`}
+          conversationId={conversationId}
+          messages={messages}
+          kind={ai.kind}
+          targetId={ai.targetId}
+          initialSelectedIds={ai.selectedIds}
+          quickStart={ai.quickStart}
+          names={names}
+          onClose={() => setAi(undefined)}
+          loadingOlder={loadingOlder}
+          onLoadOlder={
+            older
+              ? () => {
+                  void loadOlder();
+                }
+              : undefined
+          }
+          onTranslation={(message, text, language) =>
+            setTranslations((previous) => ({
+              ...previous,
+              [message.id]: { text, language, version: sourceVersion(message) },
+            }))
+          }
+          onDraft={(text) => {
+            setBody((previous) =>
+              previous.trim() ? `${previous}\n${text}` : text,
+            );
+            const target = messages.find((item) => item.id === ai.targetId);
+            if (target) setReplyTo(target);
+            setAi(undefined);
+            setTimeout(() => composer.current?.focus(), 0);
+          }}
+        />
+      )}
       {!connected && connectionDelayed && !unavailable && (
         <p className="connection-note" role="status">
           {connectionCode === 'ORIGIN_FORBIDDEN'
@@ -666,9 +766,28 @@ export function Chat({
       <div
         className="message-timeline"
         ref={list}
+        onWheel={() => {
+          manualScrollUntil.current = Date.now() + 1000;
+        }}
+        onTouchMove={() => {
+          manualScrollUntil.current = Date.now() + 1000;
+        }}
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget)
+            manualScrollUntil.current = Date.now() + 2000;
+        }}
+        onPointerMove={(event) => {
+          if (event.buttons) manualScrollUntil.current = Date.now() + 2000;
+        }}
         onScroll={() => {
           const node = list.current;
-          if (active && node && node.clientHeight > 0)
+          if (
+            active &&
+            !initialScrollPending.current &&
+            Date.now() <= manualScrollUntil.current &&
+            node &&
+            node.clientHeight > 0
+          )
             nearBottom.current =
               node.scrollHeight - node.scrollTop - node.clientHeight < 80;
         }}
@@ -717,9 +836,10 @@ export function Chat({
           );
           const readers = values.filter((item) => item.readAt);
           const delivered = values.filter((item) => item.deliveredAt).length;
+          const isFirstUnread = message.id === firstUnreadId;
           return (
             <Fragment key={message.id}>
-              {showTime && (
+              {showTime && !isFirstUnread && (
                 <div className="chat-time-divider">
                   <time dateTime={message.createdAt}>
                     {new Intl.DateTimeFormat('vi-VN', {
@@ -728,6 +848,30 @@ export function Chat({
                       hourCycle: 'h23',
                     }).format(new Date(message.createdAt))}
                   </time>
+                </div>
+              )}
+              {isFirstUnread && unreadCount.current > 0 && (
+                <div
+                  className="unread-divider"
+                  role="separator"
+                  aria-label={`${unreadCount.current} tin nhắn chưa đọc`}
+                >
+                  <span>{unreadCount.current} tin nhắn chưa đọc</span>
+                  {canSummarizeUnread && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAi({
+                          kind: 'summary',
+                          selectedIds: unreadTexts.map((item) => item.id),
+                          quickStart: true,
+                        })
+                      }
+                    >
+                      <Sparkles size={15} aria-hidden="true" />
+                      Tóm tắt bằng AI
+                    </button>
+                  )}
                 </div>
               )}
               <div
@@ -745,6 +889,7 @@ export function Chat({
                         composer.current?.focus();
                       }}
                       onReact={() => setReactionTarget(message.id)}
+                      onAi={(kind) => setAi({ kind, targetId: message.id })}
                     />
                     <MessageReactions
                       message={message}
@@ -785,6 +930,29 @@ export function Chat({
                     message.body
                   )}
                 </div>
+                {!message.deletedAt &&
+                  translations[message.id]?.version ===
+                    sourceVersion(message) && (
+                    <div className="message-translation">
+                      <span>
+                        Bản dịch ·{' '}
+                        {translations[message.id].language.toUpperCase()}
+                      </span>
+                      <p>{translations[message.id].text}</p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTranslations((previous) => {
+                            const next = { ...previous };
+                            delete next[message.id];
+                            return next;
+                          })
+                        }
+                      >
+                        Ẩn bản dịch
+                      </button>
+                    </div>
+                  )}
                 {message.type !== 'call' &&
                   lastSent &&
                   !message.deletedAt &&

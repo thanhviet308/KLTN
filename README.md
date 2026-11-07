@@ -29,6 +29,12 @@ Local đã được tạo lại tại `127.0.0.1:5432`, database `realtime_chat`
 
 Đăng ký Web có ba bước: email → mã xác minh → tên/mật khẩu/xác nhận mật khẩu. Cấu hình SMTP và hợp đồng API mới xem [doc 10](docs/10-dang-ky-xac-minh-email.md).
 
+Web hỗ trợ quên mật khẩu qua mã email, đặt mật khẩu mới và thu hồi các phiên cũ.
+Cần chạy migration `PasswordReset1793577600000`; xem [hướng dẫn và kiểm thử](apps/api/tests/password-reset.md).
+
+Web có trợ lý AI tóm tắt hội thoại, gợi ý trả lời và dịch tin nhắn. Cấu hình
+`GEMINI_API_KEY`, `GEMINI_MODEL` trên backend; xem [hướng dẫn AI](apps/api/tests/ai.md).
+
 TypeORM quản lý entity, relation, repository và connection pool. `pg` là driver PostgreSQL mà TypeORM sử dụng. Luôn dùng `synchronize: false`, `dropSchema: false`, `migrationsRun: false`; thay đổi schema qua migration được review, chạy riêng trước API theo [hướng dẫn TypeORM](https://typeorm.io/docs/migrations/why/).
 
 Xem [thiết kế database và quy trình migration](docs/08-thiet-ke-database-typeorm.md) cho quan hệ, ràng buộc, quyền truy cập và các giới hạn hiện tại.
@@ -85,7 +91,7 @@ Hệ thống hướng đến nhu cầu trao đổi thông tin cá nhân, học t
 | Cơ sở dữ liệu                     | PostgreSQL                  |
 | Bộ nhớ đệm và trạng thái tạm thời | Redis                       |
 | Lưu trữ hình ảnh và tệp tin       | AWS S3                      |
-| AI hội thoại                      | OpenAI API                  |
+| AI hội thoại                      | Google Gemini API           |
 | Nhận dạng giọng nói               | Google Cloud Speech-to-Text |
 
 ## Thông tin đồ án

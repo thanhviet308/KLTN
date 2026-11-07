@@ -11,6 +11,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { RegistrationVerification } from '../database/entities/registration-verification.entity';
+import { User } from '../database/entities/user.entity';
 import { VerificationMailService } from './verification-mail.service';
 import { authError } from './auth-error';
 
@@ -36,6 +37,12 @@ export class RegistrationService {
   }
 
   async requestCode(email: string) {
+    if (await this.db.getRepository(User).exists({ where: { email } }))
+      throw authError(
+        409,
+        'EMAIL_ALREADY_REGISTERED',
+        'Email is already registered',
+      );
     this.mail.assertConfigured();
     const challengeId = randomUUID();
     const code = randomInt(0, 1000000).toString().padStart(6, '0');

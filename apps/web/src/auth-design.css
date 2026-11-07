@@ -259,6 +259,27 @@
   padding: 0;
   color: #916181;
 }
+.page .forgot-password-link {
+  display: block;
+  margin: 8px 0 0 auto;
+  min-height: 36px;
+  padding: 6px 0 6px 12px;
+  border: 0;
+  background: transparent;
+  color: #70174b;
+  font-size: 14px;
+  font-weight: 600;
+}
+.page .recovery-link {
+  display: block;
+  margin: 12px auto 0;
+  min-height: 36px;
+}
+.page .password-recovery .switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .page .primary {
   min-height: 55px;
   justify-content: center;

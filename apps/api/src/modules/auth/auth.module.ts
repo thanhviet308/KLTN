@@ -11,6 +11,7 @@ import { PasswordService } from './password.service';
 import { UsersModule } from '../users/users.module';
 import { RegistrationService } from './registration.service';
 import { VerificationMailService } from './verification-mail.service';
+import { PasswordResetService } from './password-reset.service';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { VerificationMailService } from './verification-mail.service';
   ],
   controllers: [AuthController],
   providers: [
+    PasswordResetService,
     RegistrationService,
     VerificationMailService,
     AuthService,

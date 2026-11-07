@@ -125,3 +125,36 @@ test('tabs serialize cookie rotation and callers in a tab share one refresh', as
     else delete globalThis.navigator;
   }
 });
+
+test('a transient first upload failure retries once with the same message id', async () => {
+  const originalFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/auth/login'))
+      return Response.json({
+        accessToken: 'token',
+        expiresIn: 900,
+        user: { id: 'user-1' },
+      });
+    urls.push(url);
+    return urls.length === 1
+      ? Response.json({ code: 'INTERNAL_SERVER_ERROR' }, { status: 500 })
+      : Response.json({ message: { id: 'message-1' } });
+  };
+  try {
+    const api = await client('upload-retry');
+    await api.login('test@example.com', 'unused');
+    const result = await api.uploadChatFile(
+      'conversation-1',
+      'client-message-1',
+      new Blob(['image']),
+      'image',
+    );
+    assert.equal(result.message.id, 'message-1');
+    assert.equal(urls.length, 2);
+    assert.equal(urls[0], urls[1]);
+    assert.match(urls[0], /clientMessageId=client-message-1/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

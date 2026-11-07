@@ -34,6 +34,7 @@ import {
 import { styles } from '../../styles';
 import { ConversationInfo } from './ConversationInfo';
 import { MessageMedia } from './MessageMedia';
+import { useCalls } from '../calls/CallProvider';
 
 async function requestMicrophonePermission() {
   if (Platform.OS !== 'android') return true;
@@ -88,6 +89,7 @@ export function Chat({
   onBack: () => void;
   onExpired: () => void;
 }) {
+  const calls = useCalls();
   const [messages, setMessages] = useState<api.Message[]>([]);
   const [body, setBody] = useState('');
   const [older, setOlder] = useState<string | null>(null);
@@ -99,6 +101,17 @@ export function Chat({
   const [recording, setRecording] = useState(false);
   const [recordingMs, setRecordingMs] = useState(0);
   const [playingMessage, setPlayingMessage] = useState<string>();
+  useEffect(() => {
+    if (!calls.busy) return;
+    setRecording(false);
+    setRecordingMs(0);
+    setPlayingMessage(undefined);
+    Sound.removeRecordBackListener();
+    Sound.removePlayBackListener();
+    Sound.removePlaybackEndListener();
+    void Sound.stopRecorder().catch(() => undefined);
+    void Sound.stopPlayer().catch(() => undefined);
+  }, [calls.busy]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
   const [replyTo, setReplyTo] = useState<api.Message>();
@@ -685,7 +698,7 @@ export function Chat({
   }
 
   function showActions(message: api.Message) {
-    if (message.deletedAt) return;
+    if (message.deletedAt || message.type === 'call') return;
     const mine = message.senderId === user.id;
     Alert.alert('Thao tác tin nhắn', messageLabel(message).slice(0, 120), [
       mine && message.type === 'text'
@@ -815,6 +828,28 @@ export function Chat({
             </Text>
           </View>
         </View>
+        {conversation.type === 'direct' &&
+          (['audio', 'video'] as const).map(type => (
+            <Pressable
+              key={type}
+              accessibilityRole="button"
+              accessibilityLabel={type === 'audio' ? 'Gọi thoại' : 'Gọi video'}
+              disabled={calls.busy || recording}
+              onPress={() => calls.start(conversation, type)}
+              style={[
+                styles.infoButton,
+                {
+                  minWidth: 44,
+                  minHeight: 44,
+                  opacity: calls.busy || recording ? 0.5 : 1,
+                },
+              ]}
+            >
+              <Text style={[styles.infoButtonText, { fontSize: 12 }]}>
+                {type === 'audio' ? 'Gọi' : 'Video'}
+              </Text>
+            </Pressable>
+          ))}
         <Pressable
           accessibilityLabel="Thông tin cuộc trò chuyện"
           accessibilityRole="button"

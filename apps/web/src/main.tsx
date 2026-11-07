@@ -12,15 +12,18 @@ import {
 import { motion, useReducedMotion } from 'motion/react';
 import * as api from './api';
 import { Home } from './Home';
+import { ForgotPassword } from './ForgotPassword';
 import './style.css';
 import './workspace.css';
 import './auth-design.css';
 import './workspace-sand.css';
+import './ai.css';
 
 function App() {
   const reducedMotion = useReducedMotion();
   const [avatarPreview, setAvatarPreview] = useState('nova');
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [forgotPassword, setForgotPassword] = useState(false);
   const [user, setUser] = useState<api.User>();
   const [booting, setBooting] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -75,7 +78,6 @@ function App() {
 
   async function sendCode() {
     setCodeError('');
-    setStep(2);
     setSendingCode(true);
     setChallengeId('');
     setCode('');
@@ -84,10 +86,16 @@ function App() {
       setChallengeId(result.challengeId);
       setResendAt(Date.now() + result.resendAfterSeconds * 1000);
       setNow(Date.now());
+      setStep(2);
     } catch (e) {
       // Delivery failures can still consume the server's resend cooldown.
-      setResendAt(Date.now() + 60000);
-      setNow(Date.now());
+      if (
+        !(e instanceof api.ApiError) ||
+        e.code !== 'EMAIL_ALREADY_REGISTERED'
+      ) {
+        setResendAt(Date.now() + 60000);
+        setNow(Date.now());
+      }
       throw e;
     } finally {
       setSendingCode(false);
@@ -250,7 +258,21 @@ function App() {
       setVisible(false);
       heading.current?.focus();
     } catch (e) {
-      if (e instanceof api.ApiError && e.code === 'INVALID_VERIFICATION_CODE') {
+      if (e instanceof api.ApiError && e.code === 'EMAIL_ALREADY_REGISTERED') {
+        setStep(1);
+        setFieldErrors({ email: api.errorMessage(e) });
+        setError('');
+        setTimeout(
+          () =>
+            document
+              .querySelector<HTMLInputElement>('input[name="email"]')
+              ?.focus(),
+          0,
+        );
+      } else if (
+        e instanceof api.ApiError &&
+        e.code === 'INVALID_VERIFICATION_CODE'
+      ) {
         setCodeError(
           'Mã xác minh chưa đúng hoặc đã hết hạn. Kiểm tra email hoặc gửi lại mã.',
         );
@@ -340,6 +362,26 @@ function App() {
               <span className="spinner" />
               Đang khôi phục phiên đăng nhập…
             </div>
+          ) : forgotPassword ? (
+            <ForgotPassword
+              initialEmail={email}
+              onBack={() => {
+                setForgotPassword(false);
+                setTimeout(() => heading.current?.focus(), 0);
+              }}
+              onComplete={(recoveredEmail) => {
+                setEmail(recoveredEmail);
+                setPassword('');
+                setVisible(false);
+                setForgotPassword(false);
+                setMode('login');
+                setError('');
+                setNotice(
+                  'Đặt lại mật khẩu thành công. Hãy đăng nhập bằng mật khẩu mới.',
+                );
+                setTimeout(() => heading.current?.focus(), 0);
+              }}
+            />
           ) : (
             <>
               <div className="cyber-card-brand" aria-hidden="true">
@@ -557,6 +599,22 @@ function App() {
                         </label>
                       )}
                     </>
+                  )}
+                  {mode === 'login' && (
+                    <button
+                      className="forgot-password-link"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setError('');
+                        setNotice('');
+                        setPassword('');
+                        setVisible(false);
+                        setForgotPassword(true);
+                      }}
+                    >
+                      Quên mật khẩu?
+                    </button>
                   )}
                   {mode === 'login' && (
                     <div

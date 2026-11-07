@@ -48,6 +48,33 @@ export function MessageMedia({
   }, [loading, localPath, message.deletedAt, message.type, onLoad]);
 
   if (message.deletedAt || message.type === 'text') return null;
+  if (message.type === 'call') {
+    const seconds = message.content?.durationSeconds ?? 0;
+    const status = message.content?.callStatus;
+    const label =
+      status === 'missed'
+        ? 'Cuộc gọi nhỡ'
+        : status === 'rejected'
+          ? 'Cuộc gọi bị từ chối'
+          : status === 'cancelled'
+            ? 'Cuộc gọi đã hủy'
+            : 'Cuộc gọi đã kết thúc';
+    return (
+      <View style={[styles.mediaCard, mine && styles.mediaCardMine]}>
+        <View style={styles.mediaCardText}>
+          <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
+            {label}
+          </Text>
+          <Text style={[styles.mediaCaption, mine && styles.mediaCaptionMine]}>
+            {message.content?.callType === 'video' ? 'Video' : 'Thoại'}
+            {seconds > 0
+              ? ` · ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`
+              : ''}
+          </Text>
+        </View>
+      </View>
+    );
+  }
   if (message.type === 'location') {
     const latitude = message.content?.latitude;
     const longitude = message.content?.longitude;

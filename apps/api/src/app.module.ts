@@ -11,6 +11,7 @@ import { ConversationsModule } from './modules/conversations/conversations.modul
 import { MessagesModule } from './modules/messages/messages.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { CallsModule } from './modules/calls/calls.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { CallsModule } from './modules/calls/calls.module';
     MessagesModule,
     RealtimeModule,
     CallsModule,
+    AiModule,
   ],
 })
 export class AppModule {}

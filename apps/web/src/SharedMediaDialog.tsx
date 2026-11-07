@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as api from './api';
-import type { History, Message } from './chat-model';
+import { newestMessagesFirst, type History, type Message } from './chat-model';
 import { MessageMedia } from './ChatMedia';
 import { SharedFileRow } from './SharedFileRow';
 
@@ -47,8 +47,8 @@ export function SharedMediaDialog({
       alive.current = false;
     };
   }, []);
-  const matching = messages.filter(
-    (message) => message.type === type && !message.deletedAt,
+  const matching = newestMessagesFirst(
+    messages.filter((message) => message.type === type && !message.deletedAt),
   );
   return (
     <dialog

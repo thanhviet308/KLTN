@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeMessages } from '../src/chat-model.ts';
+import { mergeMessages, newestMessagesFirst } from '../src/chat-model.ts';
 
 const original = {
   id: 'message-1',
@@ -51,4 +51,22 @@ test('new edits and deletions replace earlier content without duplicating messag
 test('message order preserves sequence precision beyond JavaScript safe integers', () => {
   const later = { ...original, id: 'message-2', sequence: '9007199254740994' };
   assert.deepEqual(mergeMessages([later], [original]), [original, later]);
+});
+
+test('shared media lists put the newest message first', () => {
+  const newest = {
+    ...original,
+    id: 'message-3',
+    sequence: '9007199254740995',
+  };
+  const middle = {
+    ...original,
+    id: 'message-2',
+    sequence: '9007199254740994',
+  };
+  assert.deepEqual(newestMessagesFirst([middle, newest, original]), [
+    newest,
+    middle,
+    original,
+  ]);
 });

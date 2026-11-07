@@ -93,3 +93,15 @@ export class VerifyRegistrationCodeDto {
   @Matches(/^\d{6}$/)
   code!: string;
 }
+
+export class RequestPasswordResetDto extends RequestRegistrationCodeDto {}
+
+export class ResetPasswordDto extends VerifyRegistrationCodeDto {
+  @IsString()
+  @Length(8, 128)
+  newPassword!: string;
+
+  @IsString()
+  @Length(8, 128)
+  confirmPassword!: string;
+}

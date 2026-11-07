@@ -6,7 +6,12 @@ import { Avatar } from './Avatar';
 import { UiIcon } from './UiIcon';
 import { presenceBadge, presenceLabel, type Presence } from './usePresence';
 import { cachedHistory, loadRecentHistory } from './chat-history-cache';
-import { messageSummary, type History, type Message } from './chat-model';
+import {
+  messageSummary,
+  newestMessagesFirst,
+  type History,
+  type Message,
+} from './chat-model';
 import { CallExperience, type StartCall } from './CallExperience';
 import { playMessageSound } from './notification-sounds';
 import { MessageMedia } from './ChatMedia';
@@ -1022,6 +1027,8 @@ export function Conversations({
             user={user}
             peers={members.map((member) => member.user)}
             active={active}
+            initialLastReadSequence={selected.membership.lastReadSequence}
+            initialUnreadCount={selected.unreadCount ?? 0}
             onReadSequence={(sequence) =>
               setItems((previous) =>
                 previous.map((item) =>
@@ -1417,14 +1424,15 @@ export function Conversations({
               </button>
             </div>
             <div className="summary-media-grid">
-              {sharedMessages
-                .filter(
+              {newestMessagesFirst(
+                sharedMessages.filter(
                   (message) =>
                     message.conversationId === selected.id &&
                     message.type === 'image' &&
                     !message.deletedAt,
-                )
-                .slice(-6)
+                ),
+              )
+                .slice(0, 6)
                 .map((message) => (
                   <MessageMedia key={message.id} message={message} />
                 ))}
@@ -1450,14 +1458,15 @@ export function Conversations({
                 Xem tất cả
               </button>
             </div>
-            {sharedMessages
-              .filter(
+            {newestMessagesFirst(
+              sharedMessages.filter(
                 (message) =>
                   message.conversationId === selected.id &&
                   message.type === 'file' &&
                   !message.deletedAt,
-              )
-              .slice(-4)
+              ),
+            )
+              .slice(0, 4)
               .map((message) => (
                 <SharedFileRow key={message.id} message={message} />
               ))}

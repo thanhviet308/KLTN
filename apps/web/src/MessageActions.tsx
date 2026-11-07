@@ -9,12 +9,14 @@ export function MessageActions({
   onUpdate,
   onReply,
   onReact,
+  onAi,
 }: {
   message: Message;
   mine: boolean;
   onUpdate: (message: Message) => void;
   onReply: (message: Message) => void;
   onReact: () => void;
+  onAi?: (kind: 'replies' | 'translate') => void;
 }) {
   const isText = !message.type || message.type === 'text';
   const [mode, setMode] = useState<'forward' | 'edit' | 'recall'>();
@@ -47,7 +49,7 @@ export function MessageActions({
       return;
     }
     const bounds = menuButton.current!.getBoundingClientRect();
-    const height = mine && isText ? 136 : 56;
+    const height = (mine && isText ? 136 : 56) + (isText && onAi ? 88 : 0);
     setMenu({
       left: Math.max(8, Math.min(bounds.right - 180, window.innerWidth - 188)),
       top:
@@ -260,6 +262,30 @@ export function MessageActions({
               }
             }}
           >
+            {isText && onAi && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(undefined);
+                    onAi('replies');
+                  }}
+                >
+                  Gợi ý trả lời với AI
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(undefined);
+                    onAi('translate');
+                  }}
+                >
+                  Dịch tin nhắn
+                </button>
+              </>
+            )}
             {mine && (
               <button
                 type="button"
