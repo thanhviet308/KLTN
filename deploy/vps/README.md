@@ -182,3 +182,23 @@ Kiểm thử migration và API startup với PostgreSQL staging độc lập dù
 `compose.sharp-staging.yml` và workflow thủ công `test-sharp-v1.yml`.
 Không dùng env hoặc volume production cho staging. `api-runtime-health.cjs`
 chỉ chạy khi NODE_ENV=test và database là staging-db/pingpong_staging.
+
+### Cập nhật xử lý HTTP 429
+
+Frontend điều tiết request chung (tối đa 4 lượt bắt đầu/giây/tab), ưu tiên
+thao tác người dùng và ảnh trước reactions/receipts. Ảnh tải cùng lúc dùng
+chung request và được lưu trong bộ nhớ phiên tối đa 50 MiB; đăng xuất hoặc
+đổi tài khoản sẽ xóa cache. Nhiều tab hoặc người dùng chung IP vẫn có thể
+chạm giới hạn của Nginx, khi đó client chờ theo `Retry-After`.
+
+`deploy.sh` không tự cài lại cấu hình Nginx trên máy chủ. Khi nâng cấp một VPS
+đã cấu hình HTTPS bằng Certbot, đối chiếu `nginx.conf` và ghép thay đổi vào
+cấu hình đang dùng: map `pingpong_request_key`, map `pingpong_cors_origin`,
+`error_page 429` và location `@rate_limited`. Các map/zone nằm trong khối
+`http`; error handler phải có trong server HTTPS phục vụ API. Giữ nguyên
+chứng chỉ và các thiết lập TLS đang có. Danh sách origin phải khớp `WEB_ORIGIN`.
+Không ghi đè toàn bộ site HTTPS bằng file mẫu HTTP trong repository.
+
+Kiểm tra rồi reload: `sudo nginx -t && sudo systemctl reload nginx`.
+CI kiểm tra cú pháp/cơ chế giới hạn, CORS cho 429 và miễn giới hạn preflight
+bằng `tests/nginx-switch.integration.sh` trong container dùng riêng cho test.

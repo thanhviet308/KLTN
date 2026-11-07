@@ -22,12 +22,14 @@ export function MessageReactions({
   open,
   onClose,
   active,
+  realtimeConnected,
 }: {
   message: Message;
   revision: number;
   open: boolean;
   onClose: () => void;
   active: boolean;
+  realtimeConnected: boolean;
 }) {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
@@ -36,6 +38,20 @@ export function MessageReactions({
   const mounted = useRef(true);
   const dialog = useRef<HTMLDivElement>(null);
   const path = `/conversations/${message.conversationId}/messages/${message.id}`;
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!active) return;
+    const element = document.querySelector(
+      `[data-message-id="${CSS.escape(message.id)}"]`,
+    );
+    if (!element) return;
+    const observer = new IntersectionObserver(
+      (entries) => setVisible(entries.some((entry) => entry.isIntersecting)),
+      { root: element.closest('.message-timeline'), rootMargin: '200px' },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active, message.id]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -62,15 +78,18 @@ export function MessageReactions({
       generation.current++;
       return;
     }
+    if (!visible && !open) return;
     void load();
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') void load();
-    }, 30000);
+    const timer = realtimeConnected
+      ? undefined
+      : setInterval(() => {
+          if (document.visibilityState === 'visible') void load();
+        }, 30000);
     return () => {
       clearInterval(timer);
       generation.current++;
     };
-  }, [revision, active, message.deletedAt, open]);
+  }, [revision, active, message.deletedAt, open, realtimeConnected, visible]);
   useEffect(() => {
     if (open) {
       setError('');

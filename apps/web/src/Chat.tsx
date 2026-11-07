@@ -165,6 +165,8 @@ export function Chat({
   const manualScrollUntil = useRef(0);
   const acked = useRef(new Set<string>());
   const ackPending = useRef(new Set<string>());
+  // After a 429, pause receipts instead of retrying on every render.
+  const ackBlockedUntil = useRef(0);
   const sending = useRef(new Set<string>());
   const typingAt = useRef(0);
   const latestCallback = useRef(onLatestMessage);
@@ -235,8 +237,11 @@ export function Chat({
       }));
   }
   async function acknowledge(message: Message, read: boolean) {
+    if (BigInt(message.sequence) <= BigInt(initialLastReadSequence ?? '0'))
+      return;
     const key = `${message.id}:${read ? 'read' : 'delivered'}`;
     if (
+      Date.now() < ackBlockedUntil.current ||
       acked.current.has(key) ||
       ackPending.current.has(key) ||
       !!message.deletedAt ||
@@ -255,6 +260,10 @@ export function Chat({
       if (read && alive.current) readCallback.current?.(message.sequence);
     } catch (e) {
       if (e instanceof api.ApiError && e.code === 'MESSAGE_NOT_FOUND') return;
+      if (e instanceof api.ApiError && e.status === 429) {
+        ackBlockedUntil.current = Date.now() + 15000;
+        return;
+      }
       if (e instanceof api.ApiError && (e.status === 401 || e.status === 404))
         fail(e);
     } finally {
@@ -535,7 +544,6 @@ export function Chat({
   useEffect(() => {
     const container = list.current;
     if (!container) return;
-    for (const message of messages) void acknowledge(message, false);
     function markVisible() {
       if (
         !active ||
@@ -544,6 +552,7 @@ export function Chat({
       )
         return;
       const bounds = container!.getBoundingClientRect();
+      const visible: Message[] = [];
       for (const element of container!.querySelectorAll<HTMLElement>(
         '[data-message-id]',
       )) {
@@ -552,15 +561,29 @@ export function Chat({
           const message = messages.find(
             (item) => item.id === element.dataset.messageId,
           );
-          if (message) void acknowledge(message, true);
+          if (message) visible.push(message);
         }
       }
+      for (const message of visible) void acknowledge(message, true);
     }
     markVisible();
+    // A read receipt already includes delivery; do not queue both on open.
+    // Each receipt is per message on the server, so pace rather than drop them.
+    function markDelivered() {
+      for (const message of messages)
+        if (!ackPending.current.has(`${message.id}:read`))
+          void acknowledge(message, false);
+    }
+    markDelivered();
+    const retry = setInterval(() => {
+      markVisible();
+      markDelivered();
+    }, 15000);
     container.addEventListener('scroll', markVisible);
     window.addEventListener('focus', markVisible);
     document.addEventListener('visibilitychange', markVisible);
     return () => {
+      clearInterval(retry);
       container.removeEventListener('scroll', markVisible);
       window.removeEventListener('focus', markVisible);
       document.removeEventListener('visibilitychange', markVisible);
@@ -897,6 +920,7 @@ export function Chat({
                       open={reactionTarget === message.id}
                       onClose={() => setReactionTarget(undefined)}
                       active={active}
+                      realtimeConnected={connected}
                     />
                   </>
                 )}

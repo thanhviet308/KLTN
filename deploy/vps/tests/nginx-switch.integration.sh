@@ -52,3 +52,22 @@ check_route green
 check_route blue
 if "${helper[@]}" 9999; then echo 'Unexpected port accepted' >&2; exit 1; fi
 echo 'Actual Nginx: Blue -> Green -> Blue and failed-reload restoration OK'
+
+# A browser must be able to distinguish throttling from a network/CORS error.
+rate_status=200
+for attempt in $(seq 1 100); do
+  rate_status=$(curl --silent --show-error -o /tmp/rate-body -D /tmp/rate-headers \
+    -w '%{http_code}' -H 'Host: pingpongapi.id.vn' \
+    -H 'Origin: https://www.pingpong.id.vn' \
+    http://127.0.0.1/api/v1/health/ready)
+  [[ "$rate_status" != 429 ]] || break
+done
+[[ "$rate_status" == 429 ]] || { echo 'Rate limit was not exercised' >&2; exit 1; }
+grep -qi '^Access-Control-Allow-Origin: https://www.pingpong.id.vn' /tmp/rate-headers
+grep -qi '^Access-Control-Allow-Credentials: true' /tmp/rate-headers
+grep -qi '^Retry-After: 5' /tmp/rate-headers
+grep -q 'RATE_LIMITED' /tmp/rate-body
+# Preflights must not share the exhausted actual-request bucket.
+test "$(curl --silent --show-error -o /dev/null -w '%{http_code}' -X OPTIONS \
+  -H 'Host: pingpongapi.id.vn' http://127.0.0.1/api/v1/health/ready)" = 200
+echo 'Nginx rate-limit CORS, retry headers and preflight exemption OK'

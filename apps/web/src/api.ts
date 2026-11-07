@@ -32,6 +32,76 @@ export class ApiError extends Error {
 let token: string | undefined;
 let expiresAt = 0;
 let pendingRefresh: Promise<Session> | undefined;
+let sessionGeneration = 0;
+let sessionUserId: string | undefined;
+let nextRequestAt = 0;
+let requestTimer: ReturnType<typeof setTimeout> | undefined;
+const requestQueue: {
+  priority: number;
+  run: () => void;
+}[] = [];
+
+// Pace starts across JSON, receipts, reactions and files together. Foreground
+// actions can pass queued background work, so sending never waits behind history.
+function drainRequests() {
+  if (requestTimer || !requestQueue.length) return;
+  const delay = Math.max(0, nextRequestAt - Date.now());
+  requestTimer = setTimeout(() => {
+    requestTimer = undefined;
+    const priority = Math.min(...requestQueue.map((item) => item.priority));
+    const index = requestQueue.findIndex((item) => item.priority === priority);
+    const [item] = requestQueue.splice(index, 1);
+    nextRequestAt = Date.now() + 250;
+    item.run();
+    drainRequests();
+  }, delay);
+}
+function scheduledRequest(path: string, run: () => Promise<Response>) {
+  const generation = sessionGeneration;
+  return new Promise<Response>((resolve, reject) => {
+    requestQueue.push({
+      priority: /\/(?:reactions|receipts|read|delivered)(?:\?|$)/.test(path)
+        ? 2
+        : /\/messages\?|\/file$/.test(path)
+          ? 1
+          : 0,
+      run: () => {
+        if (generation !== sessionGeneration) {
+          reject(new ApiError(0, 'SESSION_CHANGED'));
+          return;
+        }
+        run().then((response) => {
+          if (response.status === 429) {
+            const seconds = Number(response.headers.get('Retry-After'));
+            const retryAt = Date.parse(
+              response.headers.get('Retry-After') ?? '',
+            );
+            const delay =
+              Number.isFinite(seconds) && seconds > 0
+                ? seconds * 1000
+                : Number.isFinite(retryAt)
+                  ? retryAt - Date.now()
+                  : 5000;
+            nextRequestAt = Math.max(
+              nextRequestAt,
+              Date.now() + Math.max(1000, delay),
+            );
+            if (requestTimer) clearTimeout(requestTimer);
+            requestTimer = undefined;
+            drainRequests();
+          }
+          resolve(response);
+        }, reject);
+      },
+    });
+    drainRequests();
+  });
+}
+
+const fileCache = new Map<string, Blob>();
+const pendingFiles = new Map<string, Promise<Blob>>();
+let fileCacheBytes = 0;
+const FILE_CACHE_LIMIT = 50 * 1024 * 1024;
 
 async function request<T>(
   path: string,
@@ -42,28 +112,35 @@ async function request<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_ORIGIN}/api/v1${path}`, {
-      method: method ?? (body === undefined ? 'GET' : 'POST'),
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Auth-Client': 'web',
-        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    response = await scheduledRequest(path, () =>
+      fetch(`${API_ORIGIN}/api/v1${path}`, {
+        method: method ?? (body === undefined ? 'GET' : 'POST'),
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Client': 'web',
+          ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+    );
   } catch {
     throw new ApiError(0, 'NETWORK_ERROR');
   }
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, error.code ?? 'UNKNOWN');
+    throw new ApiError(
+      response.status,
+      error.code ?? (response.status === 429 ? 'RATE_LIMITED' : 'UNKNOWN'),
+    );
   }
   return response.status === 204 ? (undefined as T) : response.json();
 }
 
 function remember(session: Session) {
+  if (sessionUserId && sessionUserId !== session.user.id) clearSession();
+  sessionUserId = session.user.id;
   token = session.accessToken;
   expiresAt = Date.now() + session.expiresIn * 1000;
   return session;
@@ -121,17 +198,19 @@ export async function authenticated<T>(
 
 async function binaryRequest(path: string, file?: Blob): Promise<Response> {
   const attempt = (bearer: string) =>
-    fetch(`${API_ORIGIN}/api/v1${path}`, {
-      method: file ? 'POST' : 'GET',
-      credentials: 'include',
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        'X-Auth-Client': 'web',
-        ...(file ? { 'Content-Type': 'application/octet-stream' } : {}),
-      },
-      body: file,
-      signal: AbortSignal.timeout(60000),
-    });
+    scheduledRequest(path, () =>
+      fetch(`${API_ORIGIN}/api/v1${path}`, {
+        method: file ? 'POST' : 'GET',
+        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${bearer}`,
+          'X-Auth-Client': 'web',
+          ...(file ? { 'Content-Type': 'application/octet-stream' } : {}),
+        },
+        body: file,
+        signal: AbortSignal.timeout(60000),
+      }),
+    );
   try {
     const attemptedToken = await accessToken();
     let response: Response;
@@ -158,7 +237,10 @@ async function binaryRequest(path: string, file?: Blob): Promise<Response> {
     }
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new ApiError(response.status, error.code ?? 'UNKNOWN');
+      throw new ApiError(
+        response.status,
+        error.code ?? (response.status === 429 ? 'RATE_LIMITED' : 'UNKNOWN'),
+      );
     }
     return response;
   } catch (error) {
@@ -188,11 +270,42 @@ export async function uploadChatFile<T>(
 }
 
 export async function chatFile(conversationId: string, messageId: string) {
-  return (
-    await binaryRequest(
-      `/conversations/${conversationId}/messages/${messageId}/file`,
-    )
-  ).blob();
+  const key = `${conversationId}:${messageId}`;
+  const cached = fileCache.get(key);
+  if (cached) {
+    fileCache.delete(key);
+    fileCache.set(key, cached);
+    return cached;
+  }
+  const pending = pendingFiles.get(key);
+  if (pending) return pending;
+  const generation = sessionGeneration;
+  const request = binaryRequest(
+    `/conversations/${conversationId}/messages/${messageId}/file`,
+  )
+    .then((response) => response.blob())
+    .then((blob) => {
+      if (generation !== sessionGeneration)
+        throw new ApiError(0, 'SESSION_CHANGED');
+      if (blob.size <= FILE_CACHE_LIMIT) {
+        while (
+          fileCacheBytes + blob.size > FILE_CACHE_LIMIT &&
+          fileCache.size
+        ) {
+          const oldest = fileCache.keys().next().value!;
+          fileCacheBytes -= fileCache.get(oldest)!.size;
+          fileCache.delete(oldest);
+        }
+        fileCache.set(key, blob);
+        fileCacheBytes += blob.size;
+      }
+      return blob;
+    })
+    .finally(() => {
+      if (pendingFiles.get(key) === request) pendingFiles.delete(key);
+    });
+  pendingFiles.set(key, request);
+  return request;
 }
 
 export const register = (body: {
@@ -244,6 +357,11 @@ export async function logout() {
   clearSession();
 }
 export function clearSession() {
+  sessionGeneration++;
+  sessionUserId = undefined;
+  fileCache.clear();
+  pendingFiles.clear();
+  fileCacheBytes = 0;
   clearHistoryCache();
   token = undefined;
   expiresAt = 0;

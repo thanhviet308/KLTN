@@ -79,6 +79,144 @@ async function client(key) {
   );
 }
 
+test('chat files share one download, survive reopen, and clear on account switch', async () => {
+  const originalFetch = globalThis.fetch;
+  let downloads = 0;
+  let userId = 'first';
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/auth/login'))
+      return Response.json({
+        accessToken: userId,
+        expiresIn: 900,
+        user: { id: userId },
+      });
+    downloads++;
+    return new Response(`private image for ${userId}`);
+  };
+  try {
+    const api = await client('file-cache');
+    await api.login('first@example.com', 'unused');
+    const [chat, sidebar] = await Promise.all([
+      api.chatFile('conversation', 'image'),
+      api.chatFile('conversation', 'image'),
+    ]);
+    assert.equal(chat, sidebar);
+    assert.equal(await api.chatFile('conversation', 'image'), chat);
+    assert.equal(downloads, 1);
+    userId = 'second';
+    await api.login('second@example.com', 'unused');
+    assert.equal(
+      await (await api.chatFile('conversation', 'image')).text(),
+      'private image for second',
+    );
+    assert.equal(downloads, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('background requests are paced and foreground actions pass the backlog', async () => {
+  const originalFetch = globalThis.fetch;
+  const starts = [];
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/auth/login'))
+      return Response.json({
+        accessToken: 'token',
+        expiresIn: 900,
+        user: { id: 'first' },
+      });
+    starts.push({ url, at: Date.now() });
+    return Response.json({ ok: true });
+  };
+  try {
+    const api = await client('request-pacing');
+    await api.login('test@example.com', 'unused');
+    await Promise.all([
+      api.authenticated('/conversations/c/messages/m/reactions'),
+      api.authenticated('/conversations/c/messages/m/receipts'),
+      api.authenticated('/conversations/c/messages', { body: 'hello' }),
+    ]);
+    assert.ok(starts[0].url.endsWith('/messages'));
+    for (let i = 1; i < starts.length; i++)
+      assert.ok(starts[i].at - starts[i - 1].at >= 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a proxy 429 pauses queued requests and is not reported as a network failure', async () => {
+  const originalFetch = globalThis.fetch;
+  let limitedAt;
+  let nextAt;
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/auth/login'))
+      return Response.json({
+        accessToken: 'token',
+        expiresIn: 900,
+        user: { id: 'first' },
+      });
+    if (url.endsWith('/limited')) {
+      limitedAt = Date.now();
+      return new Response('Too many requests', {
+        status: 429,
+        headers: { 'Retry-After': '1' },
+      });
+    }
+    nextAt = Date.now();
+    return Response.json({ ok: true });
+  };
+  try {
+    const api = await client('rate-limit');
+    await api.login('test@example.com', 'unused');
+    await Promise.all([
+      assert.rejects(
+        api.authenticated('/limited'),
+        (error) => error.status === 429 && error.code === 'RATE_LIMITED',
+      ),
+      api.authenticated('/next'),
+    ]);
+    assert.ok(nextAt - limitedAt >= 900);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a file response from a cleared session cannot repopulate the cache', async () => {
+  const originalFetch = globalThis.fetch;
+  let finishDownload;
+  let started;
+  const downloading = new Promise((resolve) => {
+    started = resolve;
+  });
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/auth/login'))
+      return Response.json({
+        accessToken: 'token',
+        expiresIn: 900,
+        user: { id: 'first' },
+      });
+    started();
+    return new Promise((resolve) => {
+      finishDownload = resolve;
+    });
+  };
+  try {
+    const api = await client('cleared-file-session');
+    await api.login('test@example.com', 'unused');
+    const result = api.chatFile('conversation', 'image');
+    const rejected = assert.rejects(
+      result,
+      (error) => error.code === 'SESSION_CHANGED',
+    );
+    await downloading;
+    api.clearSession();
+    finishDownload(new Response('private image'));
+    await rejected;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('tabs serialize cookie rotation and callers in a tab share one refresh', async () => {
   const originalFetch = globalThis.fetch;
   const originalNavigator = Object.getOwnPropertyDescriptor(
