@@ -121,7 +121,21 @@ proxy_health() {
   revision_health "$health_url" "$expected_commit" 'Proxy readiness'
 }
 printf '\nActive: %s. Building candidate: %s\n' "$active" "$candidate"
-"${compose[@]}" build "$candidate"
+# Prefer the image CI already built and pushed; fall back to a local build so a
+# registry outage or private package never blocks a deploy.
+build_locally=true
+if [[ -n "${DEPLOY_IMAGE_REPO:-}" ]]; then
+  [[ "$DEPLOY_IMAGE_REPO" =~ ^ghcr\.io/[a-z0-9._-]+/[a-z0-9._/-]+$ ]] || { echo 'Invalid DEPLOY_IMAGE_REPO' >&2; exit 1; }
+  registry_image="$DEPLOY_IMAGE_REPO:release-$expected_commit"
+  if docker pull --quiet "$registry_image" > /dev/null; then
+    docker tag "$registry_image" "$BACKEND_IMAGE"
+    build_locally=false
+    echo "Using prebuilt image $registry_image"
+  else
+    echo "Could not pull $registry_image; building locally" >&2
+  fi
+fi
+[[ "$build_locally" == false ]] || "${compose[@]}" build "$candidate"
 # Pin the artifact used by all following candidate and migration commands.
 BACKEND_IMAGE=$(docker image inspect --format '{{.Id}}' "$BACKEND_IMAGE")
 export BACKEND_IMAGE
@@ -135,7 +149,7 @@ for script in api-runtime-dependencies.cjs sharp-runtime-smoke.cjs; do
 done
 # Only migrations explicitly reviewed as backwards-compatible may run while
 # Blue is serving traffic. Future pending migrations fail closed until added.
-reviewed_migrations=(CallMessages1791763200000)
+reviewed_migrations=(CallMessages1791763200000 PasswordReset1793577600000)
 migration_args=()
 for migration in "${reviewed_migrations[@]}"; do
   migration_args+=("--allow=$migration")
@@ -161,4 +175,11 @@ for check in 1 2 3; do
   proxy_health
   [[ "$check" == 3 ]] || sleep 2
 done
+# Best-effort cleanup; never fail a successful deploy. Docker refuses to remove
+# images still used by any container, so active and standby images stay safe.
+for repo in pingpong-api ${DEPLOY_IMAGE_REPO:+"$DEPLOY_IMAGE_REPO"}; do
+  docker image ls "$repo" --format '{{.Tag}}' | grep -E '^release-[0-9a-f]{40}$' \
+    | tail -n +4 | while read -r tag; do docker image rm "$repo:$tag" > /dev/null 2>&1 || true; done || true
+done
+docker builder prune --force --filter until=168h > /dev/null 2>&1 || true
 printf '\nBlue-green deployment completed: %s on %s; %s retained as cold standby\n' "$expected_commit" "$candidate" "$active"

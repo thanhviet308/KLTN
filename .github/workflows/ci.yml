@@ -1,8 +1,20 @@
 name: Backend checks
 
 on:
-  push:
   pull_request:
+  # Pushes to main touching deploy paths are checked by the deploy workflow,
+  # which reuses this workflow; any other push still runs it here.
+  push:
+    paths-ignore:
+      - 'apps/api/**'
+      - 'deploy/vps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.dockerignore'
+      - 'eslint.config.mjs'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_call:
 
 permissions:
   contents: read
@@ -10,12 +22,28 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.13.0'
+          node-version: '24.21.0'
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Verify every new migration is reviewed
+        run: bash deploy/vps/tests/migration-review.sh
+      - name: Validate Blue-Green script syntax
+        run: bash -n deploy/vps/deploy.sh && bash -n deploy/vps/switch-upstream.sh && bash -n deploy/vps/rollback.sh
+      - name: Verify fail-closed migration, health and traffic switching
+        run: bash deploy/vps/tests/deploy-failure.sh
+      - name: Verify actual Nginx switching and failed-reload recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'FROM nginx:stable-alpine\nRUN apk add --no-cache bash flock curl\n' | docker build -t pingpong-nginx-test:validation -
+          docker run --rm --network none \
+            --mount "type=bind,source=$PWD/deploy/vps,target=/fixtures,readonly" \
+            --entrypoint bash pingpong-nginx-test:validation /fixtures/tests/nginx-switch.integration.sh

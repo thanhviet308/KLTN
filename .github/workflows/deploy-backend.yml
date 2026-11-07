@@ -24,36 +24,42 @@ concurrency:
 jobs:
   checks:
     if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      repo: ${{ steps.meta.outputs.repo }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - id: meta
+        run: echo "repo=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/pingpong-api" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
-          node-version: '24.13.0'
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck --workspace=@chat/api
-      - run: npm run build --workspace=@chat/api
-      - run: npm test
-      - name: Validate Blue-Green script syntax
-        run: bash -n deploy/vps/deploy.sh && bash -n deploy/vps/switch-upstream.sh && bash -n deploy/vps/rollback.sh
-      - name: Verify fail-closed migration, health and traffic switching
-        run: bash deploy/vps/tests/deploy-failure.sh
-      - name: Verify actual Nginx switching and failed-reload recovery
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf 'FROM nginx:stable-alpine\nRUN apk add --no-cache bash flock curl\n' | docker build -t pingpong-nginx-test:validation -
-          docker run --rm --network none \
-            --mount "type=bind,source=$PWD/deploy/vps,target=/fixtures,readonly" \
-            --entrypoint bash pingpong-nginx-test:validation /fixtures/tests/nginx-switch.integration.sh
-
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile.x86-64-v1
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.repo }}:release-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
   deploy:
-    needs: checks
+    needs: [checks, image]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: production
@@ -70,6 +76,7 @@ jobs:
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
           VPS_PORT: ${{ vars.VPS_PORT || '22' }}
           VPS_DEPLOY_PATH: ${{ vars.VPS_DEPLOY_PATH }}
+          DEPLOY_IMAGE_REPO: ${{ needs.image.outputs.repo }}
           DEPLOY_HEALTH_URL: ${{ vars.VPS_HEALTH_URL || 'https://pingpongapi.id.vn/api/v1/health/ready' }}
         run: |
           set -euo pipefail
@@ -88,7 +95,7 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > "$ssh_dir/key"
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
           # Read the entire script before running commands that may consume stdin.
-          printf -v remote_command 'cd -- %q && export DEPLOY_HEALTH_URL=%q && deploy_script=$(cat) && bash -c "$deploy_script" -- %q' "$VPS_DEPLOY_PATH" "$DEPLOY_HEALTH_URL" "$GITHUB_SHA"
+          printf -v remote_command 'cd -- %q && export DEPLOY_HEALTH_URL=%q DEPLOY_IMAGE_REPO=%q && deploy_script=$(cat) && bash -c "$deploy_script" -- %q' "$VPS_DEPLOY_PATH" "$DEPLOY_HEALTH_URL" "$DEPLOY_IMAGE_REPO" "$GITHUB_SHA"
           ssh -i "$ssh_dir/key" -p "$VPS_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
