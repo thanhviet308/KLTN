@@ -48,6 +48,11 @@ test('legacy plaintext remains readable during migration', () => {
   assert.equal(encryptMessageText(null), null);
 });
 
+test('nullable TypeORM columns preserve undefined without invoking crypto', () => {
+  assert.equal(encryptMessageText(undefined), undefined);
+  assert.equal(decryptMessageText(undefined), undefined);
+});
+
 test('plaintext resembling an envelope is still encrypted', () => {
   const plaintext = 'enc:v1:nội dung người dùng';
   assert.equal(decryptMessageText(encryptMessageText(plaintext)), plaintext);

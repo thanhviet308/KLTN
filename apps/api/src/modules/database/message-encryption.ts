@@ -37,8 +37,16 @@ export function isEncryptedMessageText(value: string): boolean {
   return value.startsWith(PREFIX);
 }
 
-export function encryptMessageText(value: string | null): string | null {
-  if (value === null) return value;
+export function encryptMessageText(value: string): string;
+export function encryptMessageText(value: null): null;
+export function encryptMessageText(value: undefined): undefined;
+export function encryptMessageText(
+  value: string | null | undefined,
+): string | null | undefined;
+export function encryptMessageText(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value == null) return value;
   const ring = keyring();
   // Unit tests that construct repositories without application configuration
   // remain plaintext. Development and production always require a real key.
@@ -64,8 +72,16 @@ export function encryptMessageText(value: string | null): string | null {
   ].join(':');
 }
 
-export function decryptMessageText(value: string | null): string | null {
-  if (value === null || !isEncryptedMessageText(value)) return value;
+export function decryptMessageText(value: string): string;
+export function decryptMessageText(value: null): null;
+export function decryptMessageText(value: undefined): undefined;
+export function decryptMessageText(
+  value: string | null | undefined,
+): string | null | undefined;
+export function decryptMessageText(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value == null || !isEncryptedMessageText(value)) return value;
   const parts = value.split(':');
   if (parts.length !== 6 || parts[0] !== 'enc' || parts[1] !== 'v1')
     throw new Error('Encrypted message has an invalid envelope');
