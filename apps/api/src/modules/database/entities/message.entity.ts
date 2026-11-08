@@ -12,6 +12,7 @@ import {
 import type { Relation } from 'typeorm';
 import { Conversation } from './conversation.entity';
 import { ConversationMember } from './conversation-member.entity';
+import { messageTextTransformer } from '../message-encryption';
 
 @Entity('messages')
 @Check('messages_sequence_valid', 'sequence > 0')
@@ -21,13 +22,13 @@ import { ConversationMember } from './conversation-member.entity';
 )
 @Check(
   'messages_body_valid',
-  "(type = 'text' AND body IS NOT NULL AND length(btrim(body)) > 0 AND char_length(body) <= 10000) OR (type IN ('image', 'file', 'voice', 'location', 'call') AND (body IS NULL OR char_length(body) <= 10000))",
+  "(type = 'text' AND body IS NOT NULL) OR type IN ('image', 'file', 'voice', 'location', 'call')",
 )
 @Check('messages_edit_time', 'edited_at IS NULL OR edited_at >= created_at')
 @Check('messages_delete_time', 'deleted_at IS NULL OR deleted_at >= created_at')
 @Check(
   'messages_edited_body_valid',
-  "edited_body IS NULL OR (type = 'text' AND length(btrim(edited_body)) > 0 AND char_length(edited_body) <= 10000)",
+  "edited_body IS NULL OR type = 'text'",
 )
 @Check(
   'messages_edited_body_state',
@@ -71,9 +72,15 @@ export class Message {
     callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
     durationSeconds?: number;
   } | null;
-  @Column({ type: 'text', nullable: true }) body!: string | null;
-  @Column({ name: 'edited_body', type: 'text', nullable: true }) editedBody!:
-    string | null;
+  @Column({ type: 'text', nullable: true, transformer: messageTextTransformer })
+  body!: string | null;
+  @Column({
+    name: 'edited_body',
+    type: 'text',
+    nullable: true,
+    transformer: messageTextTransformer,
+  })
+  editedBody!: string | null;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
   @Column({ name: 'edited_at', type: 'timestamptz', nullable: true })

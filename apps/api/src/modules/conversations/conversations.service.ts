@@ -8,6 +8,7 @@ import { ConversationMemberPeriod } from '../database/entities/conversation-memb
 import { Friendship } from '../database/entities/friendship.entity';
 import { User } from '../database/entities/user.entity';
 import type { Message } from '../database/entities/message.entity';
+import { decryptMessageText } from '../database/message-encryption';
 import { pageResult } from '../../common/page.dto';
 import type { PageDto } from '../../common/page.dto';
 import { publicUserView } from '../users/user-view';
@@ -345,7 +346,7 @@ export class ConversationsService {
       CROSS JOIN LATERAL (
         SELECT m.conversation_id AS "conversationId", m.id,
           m.sender_id AS "senderId", m.sequence::text AS sequence, m.type, m.content,
-          CASE WHEN m.deleted_at IS NULL THEN left(COALESCE(m.edited_body, m.body), 200)
+          CASE WHEN m.deleted_at IS NULL THEN COALESCE(m.edited_body, m.body)
             ELSE NULL END AS body,
           m.created_at AS "createdAt", m.deleted_at AS "deletedAt"
         FROM messages m
@@ -364,10 +365,10 @@ export class ConversationsService {
         )
       : [];
     const previewById = new Map(
-      previews.map(({ conversationId, ...preview }) => [
-        conversationId,
-        preview,
-      ]),
+      previews.map(({ conversationId, ...preview }) => {
+        const body = decryptMessageText(preview.body);
+        return [conversationId, { ...preview, body: body?.slice(0, 200) ?? null }];
+      }),
     );
     const peerIds = [
       ...new Set(

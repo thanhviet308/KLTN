@@ -6,6 +6,7 @@ export interface Environment {
   TRUST_PROXY?: boolean;
   DATABASE_URL: string;
   JWT_ACCESS_SECRET: string;
+  MESSAGE_ENCRYPTION_KEYS?: string;
   DEPLOYMENT_REVISION?: string;
   SMTP_HOST?: string;
   SMTP_PORT?: string;
@@ -85,6 +86,19 @@ export function validateEnvironment(
     );
   }
 
+  const messageEncryptionKeys = input.MESSAGE_ENCRYPTION_KEYS;
+  if (
+    mode !== 'test' &&
+    (typeof messageEncryptionKeys !== 'string' ||
+      !/^\d+:[a-f0-9]{64}(,\d+:[a-f0-9]{64})*$/.test(
+        messageEncryptionKeys,
+      ))
+  ) {
+    throw new Error(
+      'MESSAGE_ENCRYPTION_KEYS must contain versioned 32-byte hex keys, for example 1:<64 lowercase hex characters>',
+    );
+  }
+
   const revision = input.DEPLOYMENT_REVISION;
   if (
     revision !== undefined &&
@@ -146,6 +160,10 @@ export function validateEnvironment(
     TRUST_PROXY: trustProxy === 'true' || trustProxy === true,
     DATABASE_URL: databaseUrl,
     JWT_ACCESS_SECRET: jwtSecret,
+    MESSAGE_ENCRYPTION_KEYS:
+      typeof messageEncryptionKeys === 'string'
+        ? messageEncryptionKeys
+        : undefined,
     DEPLOYMENT_REVISION:
       typeof revision === 'string' && revision ? revision : undefined,
     SMTP_HOST:

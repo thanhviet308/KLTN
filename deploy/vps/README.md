@@ -26,6 +26,17 @@ openssl rand -hex 32
 Tạo ba secret riêng: mật khẩu admin database, mật khẩu ứng dụng và JWT.
 Điền `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` trong `postgres.env`; mật khẩu ứng dụng
 phải khớp cả `DATABASE_URL` và `DATABASE_DIRECT_URL` trong `.env`.
+
+Sinh khóa mã hóa tin nhắn và thêm vào `.env` trước khi chạy migration:
+
+```bash
+printf 'MESSAGE_ENCRYPTION_KEYS=1:%s\n' "$(openssl rand -hex 32)"
+```
+
+Không lưu khóa này trong PostgreSQL hoặc Git. Sau khi migration và API mới đã
+được chuyển traffic thành công, mã hóa dữ liệu cũ bằng
+`docker compose run --rm api npm run messages:encrypt-existing --workspace=@chat/api`.
+Giữ nguyên các khóa version cũ khi thêm version mới để lịch sử vẫn giải mã được.
 Điền `JWT_ACCESS_SECRET`, SMTP và `WEB_ORIGIN` là URL frontend HTTPS thực tế.
 Không commit hai file secret. PostgreSQL cấp ứng dụng quyền sở hữu database để chạy
 migration, nhưng tài khoản ứng dụng không có quyền superuser hoặc tạo role/database.
