@@ -1,5 +1,8 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
-import { decryptMessageText, isEncryptedMessageText } from '../message-encryption';
+import {
+  decryptMessageText,
+  isEncryptedMessageText,
+} from '../message-encryption';
 
 type StoredMessage = {
   id: string;

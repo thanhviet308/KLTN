@@ -1,4 +1,4 @@
-import type { Message } from './chat-model';
+import type { Message } from '../../lib/chat-model';
 
 export type AiKind = 'summary' | 'replies' | 'translate';
 export const UNREAD_SUMMARY_THRESHOLD = 5;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import * as api from './api';
-import type { Message } from './chat-model';
+import * as api from '../../lib/api';
+import type { Message } from '../../lib/chat-model';
 
 export function SharedFileRow({ message }: { message: Message }) {
   const [busy, setBusy] = useState(false);

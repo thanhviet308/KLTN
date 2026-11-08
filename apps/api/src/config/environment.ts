@@ -90,9 +90,7 @@ export function validateEnvironment(
   if (
     mode !== 'test' &&
     (typeof messageEncryptionKeys !== 'string' ||
-      !/^\d+:[a-f0-9]{64}(,\d+:[a-f0-9]{64})*$/.test(
-        messageEncryptionKeys,
-      ))
+      !/^\d+:[a-f0-9]{64}(,\d+:[a-f0-9]{64})*$/.test(messageEncryptionKeys))
   ) {
     throw new Error(
       'MESSAGE_ENCRYPTION_KEYS must contain versioned 32-byte hex keys, for example 1:<64 lowercase hex characters>',

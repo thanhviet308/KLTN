@@ -54,7 +54,7 @@ test('an old 401 retries with an already renewed token without rotating again', 
 
 async function client(key) {
   const source = (
-    await readFile(new URL('../src/api.ts', import.meta.url), 'utf8')
+    await readFile(new URL('../src/lib/api.ts', import.meta.url), 'utf8')
   )
     .replace(
       "import { clearHistoryCache } from './chat-history-cache';",

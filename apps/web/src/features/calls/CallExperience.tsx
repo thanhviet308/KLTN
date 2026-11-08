@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalTrack, RemoteTrack, Room } from 'livekit-client';
 import { io, type Socket } from 'socket.io-client';
-import * as api from './api';
-import { UiIcon } from './UiIcon';
-import { startIncomingCallRingtone } from './notification-sounds';
+import * as api from '../../lib/api';
+import { UiIcon } from '../../components/UiIcon';
+import { startIncomingCallRingtone } from '../../lib/notification-sounds';
 
 type CallStatus =
   'ringing' | 'active' | 'ended' | 'rejected' | 'missed' | 'cancelled';

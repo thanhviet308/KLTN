@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 async function sounds() {
   const source = await readFile(
-    new URL('../src/notification-sounds.ts', import.meta.url),
+    new URL('../src/lib/notification-sounds.ts', import.meta.url),
     'utf8',
   );
   const compiled = ts.transpileModule(source, {

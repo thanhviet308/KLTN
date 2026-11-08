@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import * as api from './api';
-import { newestMessagesFirst, type History, type Message } from './chat-model';
-import { MessageMedia } from './ChatMedia';
+import * as api from '../../lib/api';
+import {
+  newestMessagesFirst,
+  type History,
+  type Message,
+} from '../../lib/chat-model';
+import { MessageMedia } from '../chat/ChatMedia';
 import { SharedFileRow } from './SharedFileRow';
 
 export function SharedMediaDialog({

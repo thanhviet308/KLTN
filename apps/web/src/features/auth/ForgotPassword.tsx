@@ -7,7 +7,7 @@ import {
   LockKeyhole,
   Mail,
 } from 'lucide-react';
-import * as api from './api';
+import * as api from '../../lib/api';
 
 export function ForgotPassword({
   initialEmail,

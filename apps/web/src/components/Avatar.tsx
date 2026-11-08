@@ -1,4 +1,4 @@
-import { API_ORIGIN } from './api';
+import { API_ORIGIN } from '../lib/api';
 export function Avatar({
   peer,
 }: {

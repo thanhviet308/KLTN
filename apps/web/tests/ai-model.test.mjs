@@ -8,7 +8,7 @@ import {
   textMessages,
   unreadTextMessages,
   UNREAD_SUMMARY_THRESHOLD,
-} from '../src/ai-model.ts';
+} from '../src/features/ai/ai-model.ts';
 
 const messages = Array.from({ length: 30 }, (_, index) => ({
   id: `message-${index}`,

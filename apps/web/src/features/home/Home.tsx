@@ -1,25 +1,17 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import * as api from './api';
-import { Conversations } from './Conversations';
-import { Avatar } from './Avatar';
-import { UiIcon } from './UiIcon';
-import { presenceLabel, usePresence } from './usePresence';
-import { installAudioUnlock } from './notification-sounds';
+import * as api from '../../lib/api';
+import { Conversations } from '../conversations/Conversations';
+import { Avatar } from '../../components/Avatar';
+import { UiIcon } from '../../components/UiIcon';
+import { presenceLabel, usePresence } from '../../hooks/usePresence';
+import { installAudioUnlock } from '../../lib/notification-sounds';
+import type { Peer, Page } from '../../lib/types';
 
 type Tab =
   'conversations' | 'friends' | 'incoming' | 'outgoing' | 'search' | 'profile';
-interface Peer {
-  avatarUrl?: string | null;
-  id: string;
-  displayName: string;
-}
 interface Row {
   id: string;
   user: Peer;
-}
-interface Page<T> {
-  items: T[];
-  nextCursor: string | null;
 }
 const tabs: [Tab, string][] = [
   ['conversations', 'Đoạn chat'],

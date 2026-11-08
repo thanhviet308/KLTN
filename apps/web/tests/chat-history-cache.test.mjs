@@ -4,7 +4,7 @@ import {
   cachedHistory,
   clearHistoryCache,
   loadRecentHistory,
-} from '../src/chat-history-cache.ts';
+} from '../src/lib/chat-history-cache.ts';
 
 test('preloading and opening a chat share the same in-flight history request', async () => {
   clearHistoryCache();

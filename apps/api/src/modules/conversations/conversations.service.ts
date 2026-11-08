@@ -367,7 +367,10 @@ export class ConversationsService {
     const previewById = new Map(
       previews.map(({ conversationId, ...preview }) => {
         const body = decryptMessageText(preview.body);
-        return [conversationId, { ...preview, body: body?.slice(0, 200) ?? null }];
+        return [
+          conversationId,
+          { ...preview, body: body?.slice(0, 200) ?? null },
+        ];
       }),
     );
     const peerIds = [

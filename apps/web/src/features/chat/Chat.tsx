@@ -1,32 +1,41 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import * as api from './api';
-import { UiIcon } from './UiIcon';
-import { Avatar } from './Avatar';
-import { MediaTools, MessageMedia, type MediaDraft } from './ChatMedia';
-import { MessageActions } from './MessageActions';
-import { MessageReactions } from './MessageReactions';
-import { AiAssistant } from './AiAssistant';
+import * as api from '../../lib/api';
+import { UiIcon } from '../../components/UiIcon';
+import { MediaTools, type MediaDraft } from './ChatMedia';
+import { MessageBubble, type Translation } from './MessageBubble';
+import { EmojiPicker } from './EmojiPicker';
+import { PendingMessage } from './PendingMessage';
+import { ReceiptPanel } from './ReceiptPanel';
+import { ReplyPreview } from './ReplyPreview';
+import { TimeDivider, UnreadDivider } from './MessageDividers';
+import { TypingNote } from './TypingNote';
+import {
+  useAutoResizeTextarea,
+  useConnectionDelayed,
+  useDismissOnOutside,
+} from './useComposerHelpers';
+import { useTimelineScroll } from './useTimelineScroll';
+import { AiAssistant } from '../ai/AiAssistant';
 import {
   sourceVersion,
   unreadTextMessages,
   UNREAD_SUMMARY_THRESHOLD,
   type AiKind,
-} from './ai-model';
-import { Sparkles } from 'lucide-react';
+} from '../ai/ai-model';
 import {
   cachedHistory,
   loadRecentHistory,
   rememberHistory,
-} from './chat-history-cache';
+} from '../../lib/chat-history-cache';
 import {
   mergeMessages,
-  messageSummary,
   mergeReceipt,
   type Message,
   type Receipt,
   type History,
-} from './chat-model';
+} from '../../lib/chat-model';
+import type { Peer } from '../../lib/types';
 
 interface Draft {
   clientMessageId: string;
@@ -34,11 +43,6 @@ interface Draft {
   media?: MediaDraft;
   status: 'sending' | 'failed';
   error?: string;
-}
-interface Peer {
-  avatarUrl?: string | null;
-  id: string;
-  displayName: string;
 }
 const drafts = new Map<string, { body: string; pending: Draft[] }>();
 export function Chat({
@@ -75,9 +79,9 @@ export function Chat({
   }>();
   const unreadBoundary = useRef(initialLastReadSequence ?? '0');
   const unreadCount = useRef(initialUnreadCount);
-  const [translations, setTranslations] = useState<
-    Record<string, { version: string; text: string; language: string }>
-  >({});
+  const [translations, setTranslations] = useState<Record<string, Translation>>(
+    {},
+  );
   useEffect(() => {
     setAi(undefined);
     setTranslations({});
@@ -94,37 +98,17 @@ export function Chat({
   );
   const [body, setBody] = useState(() => drafts.get(draftKey)?.body ?? '');
   const [emojiOpen, setEmojiOpen] = useState(false);
-  useEffect(() => {
-    if (!emojiOpen) return;
-    const dismiss = (event: PointerEvent) => {
-      if (
-        !(event.target instanceof Element) ||
-        !event.target.closest('.composer-emoji, .composer-emoji-picker')
-      )
-        setEmojiOpen(false);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setEmojiOpen(false);
-    };
-    document.addEventListener('pointerdown', dismiss);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [emojiOpen]);
+  useDismissOnOutside(
+    emojiOpen,
+    () => setEmojiOpen(false),
+    '.composer-emoji, .composer-emoji-picker',
+  );
   const [replyTo, setReplyTo] = useState<Message>();
   const [reactionTarget, setReactionTarget] = useState<string>();
   const [reactionVersions, setReactionVersions] = useState<
     Record<string, number>
   >({});
-  const composer = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    const input = composer.current;
-    if (!input) return;
-    input.style.height = '38px';
-    input.style.height = `${Math.min(140, Math.max(38, input.scrollHeight))}px`;
-  }, [body]);
+  const composer = useAutoResizeTextarea(body);
   useEffect(() => {
     drafts.set(draftKey, { body, pending });
   }, [body, pending, draftKey]);
@@ -133,14 +117,8 @@ export function Chat({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
-  const [connectionDelayed, setConnectionDelayed] = useState(false);
   const [connectionCode, setConnectionCode] = useState('');
-  useEffect(() => {
-    setConnectionDelayed(false);
-    if (connected) return;
-    const timer = setTimeout(() => setConnectionDelayed(true), 8000);
-    return () => clearTimeout(timer);
-  }, [connected]);
+  const connectionDelayed = useConnectionDelayed(connected);
   const [unavailable, setUnavailable] = useState(false);
   const [typing, setTyping] = useState<Record<string, number>>({});
   const [receipts, setReceipts] = useState<
@@ -148,7 +126,6 @@ export function Chat({
   >(cached?.receipts ?? {});
   const [receiptMessage, setReceiptMessage] = useState<string>();
   const [receiptLoading, setReceiptLoading] = useState(false);
-  const list = useRef<HTMLDivElement>(null);
   const socket = useRef<Socket | undefined>(undefined);
   const latest = useRef(cached?.messages.at(-1)?.sequence ?? '0');
   const messageCache = useRef<Message[]>(cached?.messages ?? []);
@@ -160,9 +137,6 @@ export function Chat({
     if (!loading) rememberHistory(draftKey, { messages, older, receipts });
   }, [messages, older, receipts, loading, draftKey]);
   const alive = useRef(true);
-  const nearBottom = useRef(true);
-  const initialScrollPending = useRef(true);
-  const manualScrollUntil = useRef(0);
   const acked = useRef(new Set<string>());
   const ackPending = useRef(new Set<string>());
   // After a 429, pause receipts instead of retrying on every render.
@@ -499,48 +473,16 @@ export function Chat({
       document.removeEventListener('visibilitychange', onFocus);
     };
   }, [conversationId]);
-  useLayoutEffect(() => {
-    if (active) {
-      nearBottom.current = true;
-      initialScrollPending.current = true;
-      manualScrollUntil.current = 0;
-    }
-  }, [active, conversationId]);
-  useLayoutEffect(() => {
-    const container = list.current;
-    if (!active || !container) return;
-    const followLatest = () => {
-      if (
-        (nearBottom.current || initialScrollPending.current) &&
-        container.clientHeight > 0
-      )
-        container.scrollTop = container.scrollHeight;
-    };
-    followLatest();
-    let firstFrame = 0;
-    let secondFrame = 0;
-    if (!loading && initialScrollPending.current) {
-      // Let the loaded history and media placeholders finish layout before
-      // treating scroll events as deliberate reader navigation.
-      firstFrame = requestAnimationFrame(() => {
-        followLatest();
-        secondFrame = requestAnimationFrame(() => {
-          followLatest();
-          initialScrollPending.current = false;
-        });
-      });
-    }
-    // Images and composer/layout changes can resize after messages render.
-    // Keep following the bottom only while the reader has not scrolled away.
-    const observer = new ResizeObserver(followLatest);
-    observer.observe(container);
-    for (const child of container.children) observer.observe(child);
-    return () => {
-      cancelAnimationFrame(firstFrame);
-      cancelAnimationFrame(secondFrame);
-      observer.disconnect();
-    };
-  }, [active, conversationId, messages, pending, loading]);
+  const {
+    list,
+    nearBottom,
+    handlers: timelineHandlers,
+  } = useTimelineScroll({
+    active,
+    conversationId,
+    loading,
+    dependencies: [messages, pending],
+  });
   useEffect(() => {
     const container = list.current;
     if (!container) return;
@@ -789,31 +731,7 @@ export function Chat({
       <div
         className="message-timeline"
         ref={list}
-        onWheel={() => {
-          manualScrollUntil.current = Date.now() + 1000;
-        }}
-        onTouchMove={() => {
-          manualScrollUntil.current = Date.now() + 1000;
-        }}
-        onPointerDown={(event) => {
-          if (event.target === event.currentTarget)
-            manualScrollUntil.current = Date.now() + 2000;
-        }}
-        onPointerMove={(event) => {
-          if (event.buttons) manualScrollUntil.current = Date.now() + 2000;
-        }}
-        onScroll={() => {
-          const node = list.current;
-          if (
-            active &&
-            !initialScrollPending.current &&
-            Date.now() <= manualScrollUntil.current &&
-            node &&
-            node.clientHeight > 0
-          )
-            nearBottom.current =
-              node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-        }}
+        {...timelineHandlers}
         aria-label="Tin nhắn"
       >
         {older && (
@@ -863,227 +781,84 @@ export function Chat({
           return (
             <Fragment key={message.id}>
               {showTime && !isFirstUnread && (
-                <div className="chat-time-divider">
-                  <time dateTime={message.createdAt}>
-                    {new Intl.DateTimeFormat('vi-VN', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hourCycle: 'h23',
-                    }).format(new Date(message.createdAt))}
-                  </time>
-                </div>
+                <TimeDivider createdAt={message.createdAt} />
               )}
               {isFirstUnread && unreadCount.current > 0 && (
-                <div
-                  className="unread-divider"
-                  role="separator"
-                  aria-label={`${unreadCount.current} tin nhắn chưa đọc`}
-                >
-                  <span>{unreadCount.current} tin nhắn chưa đọc</span>
-                  {canSummarizeUnread && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAi({
-                          kind: 'summary',
-                          selectedIds: unreadTexts.map((item) => item.id),
-                          quickStart: true,
-                        })
-                      }
-                    >
-                      <Sparkles size={15} aria-hidden="true" />
-                      Tóm tắt bằng AI
-                    </button>
-                  )}
-                </div>
-              )}
-              <div
-                data-message-id={message.id}
-                className={`chat-message ${mine ? 'mine' : ''}${message.type === 'call' ? ' call-event' : ''}${message.content?.callStatus === 'missed' ? ' missed-call' : ''}${continuesGroup ? ' continues-group' : ''}`}
-              >
-                {message.type !== 'call' && (
-                  <>
-                    <MessageActions
-                      message={message}
-                      mine={mine}
-                      onUpdate={(updated) => accept([updated])}
-                      onReply={(message) => {
-                        setReplyTo(message);
-                        composer.current?.focus();
-                      }}
-                      onReact={() => setReactionTarget(message.id)}
-                      onAi={(kind) => setAi({ kind, targetId: message.id })}
-                    />
-                    <MessageReactions
-                      message={message}
-                      revision={reactionVersions[message.id] ?? 0}
-                      open={reactionTarget === message.id}
-                      onClose={() => setReactionTarget(undefined)}
-                      active={active}
-                      realtimeConnected={connected}
-                    />
-                  </>
-                )}
-                {!mine && (
-                  <span
-                    className={`message-sender-avatar${continuesGroup ? ' avatar-spacer' : ''}`}
-                    role={continuesGroup ? undefined : 'img'}
-                    aria-hidden={continuesGroup || undefined}
-                    aria-label={
-                      continuesGroup ? undefined : names(message.senderId)
-                    }
-                    title={continuesGroup ? undefined : names(message.senderId)}
-                  >
-                    <Avatar
-                      peer={
-                        peers.find((peer) => peer.id === message.senderId) ?? {
-                          displayName: names(message.senderId),
-                        }
-                      }
-                    />
-                  </span>
-                )}
-                <div
-                  className={`message-body${message.type === 'call' ? ' call-message-body' : ''}`}
-                >
-                  {message.deletedAt ? (
-                    'Tin nhắn đã thu hồi'
-                  ) : message.type && message.type !== 'text' ? (
-                    <MessageMedia message={message} />
-                  ) : (
-                    message.body
-                  )}
-                </div>
-                {!message.deletedAt &&
-                  translations[message.id]?.version ===
-                    sourceVersion(message) && (
-                    <div className="message-translation">
-                      <span>
-                        Bản dịch ·{' '}
-                        {translations[message.id].language.toUpperCase()}
-                      </span>
-                      <p>{translations[message.id].text}</p>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setTranslations((previous) => {
-                            const next = { ...previous };
-                            delete next[message.id];
-                            return next;
+                <UnreadDivider
+                  count={unreadCount.current}
+                  onSummarize={
+                    canSummarizeUnread
+                      ? () =>
+                          setAi({
+                            kind: 'summary',
+                            selectedIds: unreadTexts.map((item) => item.id),
+                            quickStart: true,
                           })
-                        }
-                      >
-                        Ẩn bản dịch
-                      </button>
-                    </div>
-                  )}
-                {message.type !== 'call' &&
-                  lastSent &&
-                  !message.deletedAt &&
-                  readers.length === 0 && (
-                    <div className="message-meta">
-                      <button onClick={() => void viewReceipts(message.id)}>
-                        {delivered ? `Đã nhận (${delivered})` : 'Đã gửi'}
-                      </button>
-                    </div>
-                  )}
-                {message.type !== 'call' &&
-                  lastSent &&
-                  !message.deletedAt &&
-                  readers.length > 0 && (
-                    <div className="read-avatars" aria-label="Người đã đọc">
-                      {readers.map((reader) => (
-                        <button
-                          key={reader.userId}
-                          type="button"
-                          className="read-avatar"
-                          title={`${names(reader.userId)} đã đọc`}
-                          aria-label={`${names(reader.userId)} đã đọc. Xem trạng thái tin nhắn`}
-                          onClick={() => void viewReceipts(message.id)}
-                        >
-                          {Array.from(names(reader.userId))[0]?.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-              </div>
+                      : undefined
+                  }
+                />
+              )}
+              <MessageBubble
+                message={message}
+                mine={mine}
+                continuesGroup={continuesGroup}
+                peers={peers}
+                names={names}
+                active={active}
+                realtimeConnected={connected}
+                reactionRevision={reactionVersions[message.id] ?? 0}
+                reactionOpen={reactionTarget === message.id}
+                translation={translations[message.id]}
+                showStatus={lastSent}
+                readers={readers}
+                delivered={delivered}
+                onUpdate={(updated) => accept([updated])}
+                onReply={(target) => {
+                  setReplyTo(target);
+                  composer.current?.focus();
+                }}
+                onReact={() => setReactionTarget(message.id)}
+                onCloseReactions={() => setReactionTarget(undefined)}
+                onAi={(kind) => setAi({ kind, targetId: message.id })}
+                onHideTranslation={() =>
+                  setTranslations((previous) => {
+                    const rest = { ...previous };
+                    delete rest[message.id];
+                    return rest;
+                  })
+                }
+                onOpenReceipts={() => void viewReceipts(message.id)}
+              />
             </Fragment>
           );
         })}
         {pending.map((draft) => (
-          <div key={draft.clientMessageId} className="chat-message mine">
-            <div className="message-body">{draft.body}</div>
-            {draft.status === 'sending' ? (
-              <small>Đang gửi…</small>
-            ) : (
-              <>
-                <small className="field-error">{draft.error}</small>
-                <button
-                  className="retry"
-                  disabled={unavailable}
-                  onClick={() => void send(draft)}
-                >
-                  Gửi lại
-                </button>
-              </>
-            )}
-          </div>
+          <PendingMessage
+            key={draft.clientMessageId}
+            body={draft.body}
+            status={draft.status}
+            error={draft.error}
+            retryDisabled={unavailable}
+            onRetry={() => void send(draft)}
+          />
         ))}
       </div>
       {receiptMessage && (
-        <div className="receipt-panel">
-          <div>
-            <strong>Trạng thái tin nhắn</strong>
-            <button
-              className="retry"
-              onClick={() => setReceiptMessage(undefined)}
-            >
-              Đóng
-            </button>
-          </div>
-          {receiptLoading ? (
-            <p>Đang tải…</p>
-          ) : Object.values(receipts[receiptMessage] ?? {}).filter(
-              (item) => item.userId !== user.id,
-            ).length ? (
-            <ul>
-              {Object.values(receipts[receiptMessage] ?? {})
-                .filter((item) => item.userId !== user.id)
-                .map((item) => (
-                  <li key={item.userId}>
-                    {names(item.userId)} · {item.readAt ? 'Đã đọc' : 'Đã nhận'}
-                  </li>
-                ))}
-            </ul>
-          ) : (
-            <p>Chưa có xác nhận nhận hoặc đọc.</p>
-          )}
-        </div>
+        <ReceiptPanel
+          receipts={receipts[receiptMessage]}
+          loading={receiptLoading}
+          currentUserId={user.id}
+          names={names}
+          onClose={() => setReceiptMessage(undefined)}
+        />
       )}
-      <p className="typing-note" aria-live="polite">
-        {Object.entries(typing)
-          .filter(([, expiry]) => expiry > Date.now())
-          .map(([id]) => names(id))
-          .join(', ')}
-        {Object.values(typing).some((expiry) => expiry > Date.now())
-          ? ' đang nhập…'
-          : null}
-      </p>
+      <TypingNote typing={typing} names={names} />
       {replyTo && (
-        <div className="reply-preview">
-          <div>
-            <strong>Trả lời {names(replyTo.senderId)}</strong>
-            <p>{messageSummary(replyTo).slice(0, 300)}</p>
-          </div>
-          <button
-            type="button"
-            className="retry"
-            aria-label="Hủy trả lời"
-            onClick={() => setReplyTo(undefined)}
-          >
-            ×
-          </button>
-        </div>
+        <ReplyPreview
+          message={replyTo}
+          senderName={names(replyTo.senderId)}
+          onCancel={() => setReplyTo(undefined)}
+        />
       )}
       <div className="chat-composer-bar">
         <MediaTools
@@ -1166,43 +941,17 @@ export function Chat({
           </button>
         </form>
         {emojiOpen && (
-          <div
-            className="composer-emoji-picker"
-            role="group"
-            aria-label="Biểu tượng cảm xúc"
-          >
-            {[
-              '😀',
-              '😂',
-              '🥰',
-              '😍',
-              '😭',
-              '😮',
-              '❤️',
-              '👍',
-              '👋',
-              '🎉',
-              '🔥',
-              '🙏',
-            ].map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                aria-label={emoji}
-                onClick={() => {
-                  setBody((previous) =>
-                    previous.length + emoji.length <= 10000
-                      ? previous + emoji
-                      : previous,
-                  );
-                  setEmojiOpen(false);
-                  composer.current?.focus();
-                }}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
+          <EmojiPicker
+            onPick={(emoji) => {
+              setBody((previous) =>
+                previous.length + emoji.length <= 10000
+                  ? previous + emoji
+                  : previous,
+              );
+              setEmojiOpen(false);
+              composer.current?.focus();
+            }}
+          />
         )}
       </div>
     </div>

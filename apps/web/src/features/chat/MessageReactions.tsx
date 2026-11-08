@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import * as api from './api';
-import type { Message } from './chat-model';
+import * as api from '../../lib/api';
+import type { Message } from '../../lib/chat-model';
 
 const emojis = [
   { emoji: '❤️', name: 'Yêu thích' },

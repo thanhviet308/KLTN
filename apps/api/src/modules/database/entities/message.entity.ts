@@ -26,10 +26,7 @@ import { messageTextTransformer } from '../message-encryption';
 )
 @Check('messages_edit_time', 'edited_at IS NULL OR edited_at >= created_at')
 @Check('messages_delete_time', 'deleted_at IS NULL OR deleted_at >= created_at')
-@Check(
-  'messages_edited_body_valid',
-  "edited_body IS NULL OR type = 'text'",
-)
+@Check('messages_edited_body_valid', "edited_body IS NULL OR type = 'text'")
 @Check(
   'messages_edited_body_state',
   '(edited_at IS NULL) = (edited_body IS NULL)',

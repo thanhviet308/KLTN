@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import * as api from './api';
+import * as api from '../lib/api';
 
 export interface Presence {
   online: boolean;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeMessages, newestMessagesFirst } from '../src/chat-model.ts';
+import { mergeMessages, newestMessagesFirst } from '../src/lib/chat-model.ts';
 
 const original = {
   id: 'message-1',

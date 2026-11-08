@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { UiIcon } from './UiIcon';
+import { UiIcon } from '../../components/UiIcon';
 import { LocationMap } from './LocationMap';
-import * as api from './api';
-import type { Message } from './chat-model';
+import * as api from '../../lib/api';
+import type { Message } from '../../lib/chat-model';
 
 export interface MediaDraft {
   type: 'image' | 'file' | 'voice' | 'location';

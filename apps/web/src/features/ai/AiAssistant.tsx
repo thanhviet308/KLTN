@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Sparkles, X, Copy } from 'lucide-react';
-import * as api from './api';
-import type { Message } from './chat-model';
+import * as api from '../../lib/api';
+import type { Message } from '../../lib/chat-model';
 import {
   initialSelection,
   sourceRevision,
