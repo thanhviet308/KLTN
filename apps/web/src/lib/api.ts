@@ -417,6 +417,16 @@ export function errorMessage(error: unknown) {
         'Cuộc trò chuyện đã đạt giới hạn lưu tin nhắn.',
       FRIENDSHIP_REQUIRED:
         'Bạn cần kết bạn với người này trước khi tạo hội thoại hoặc mời vào nhóm.',
+      MESSAGING_PERMISSION_REQUIRED:
+        'Hai người cần kết bạn hoặc chấp nhận tin nhắn chờ trước khi trò chuyện.',
+      SELF_MESSAGE_REQUEST: 'Bạn không thể gửi tin nhắn chờ cho chính mình.',
+      MESSAGE_REQUEST_PENDING: 'Bạn đã gửi một tin nhắn chờ cho người này.',
+      MESSAGE_REQUEST_RECEIVED:
+        'Người này đã gửi tin nhắn chờ cho bạn. Hãy mở mục Tin nhắn chờ để phản hồi.',
+      MESSAGE_REQUEST_ACCEPTED: 'Hai người đã có thể nhắn tin với nhau.',
+      MESSAGE_REQUEST_NOT_FOUND: 'Tin nhắn chờ không còn tồn tại.',
+      MESSAGE_REQUEST_STATE_CONFLICT: 'Tin nhắn chờ đã được xử lý.',
+      MESSAGE_REQUEST_FORBIDDEN: 'Bạn không có quyền xử lý tin nhắn chờ này.',
       CONVERSATION_NOT_FOUND:
         'Hội thoại không còn tồn tại hoặc bạn không còn quyền truy cập.',
       CONVERSATION_FORBIDDEN:

@@ -8,13 +8,23 @@ import { installAudioUnlock } from '../../lib/notification-sounds';
 import type { Peer, Page } from '../../lib/types';
 
 type Tab =
-  'conversations' | 'friends' | 'incoming' | 'outgoing' | 'search' | 'profile';
+  | 'conversations'
+  | 'messageRequests'
+  | 'friends'
+  | 'incoming'
+  | 'outgoing'
+  | 'search'
+  | 'profile';
 interface Row {
   id: string;
   user: Peer;
+  body?: string;
+  createdAt?: string;
+  direction?: 'incoming' | 'outgoing';
 }
 const tabs: [Tab, string][] = [
   ['conversations', 'Đoạn chat'],
+  ['messageRequests', 'Tin nhắn chờ'],
   ['friends', 'Bạn bè'],
   ['incoming', 'Lời mời nhận'],
   ['outgoing', 'Lời mời đã gửi'],
@@ -77,6 +87,8 @@ export function Home({
   const [notice, setNotice] = useState('');
   const [name, setName] = useState(user.displayName);
   const [sent, setSent] = useState<Set<string>>(new Set());
+  const [messageRequestTarget, setMessageRequestTarget] = useState<Row>();
+  const [messageRequestBody, setMessageRequestBody] = useState('');
   const [confirm, setConfirm] = useState<Row>();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -113,6 +125,10 @@ export function Home({
       const params = new URLSearchParams({ limit: '20' });
       if (next) params.set('cursor', next);
       let path = '/friends';
+      if (tab === 'messageRequests') {
+        path = '/message-requests';
+        params.set('direction', 'all');
+      }
       if (tab === 'incoming' || tab === 'outgoing') {
         path = '/friend-requests';
         params.set('direction', tab);
@@ -170,6 +186,8 @@ export function Home({
     setError('');
     setNotice('');
     setConfirm(undefined);
+    setMessageRequestTarget(undefined);
+    setMessageRequestBody('');
     setSubmittedQuery('');
     if (
       tab !== 'search' &&
@@ -186,7 +204,7 @@ export function Home({
     message: string,
     reload = true,
   ) {
-    if (busy) return;
+    if (busy) return false;
     setBusy(true);
     setError('');
     setNotice('');
@@ -199,8 +217,10 @@ export function Home({
       setNotice(message);
       setConfirm(undefined);
       if (reload) await load();
+      return true;
     } catch (e) {
       if (mounted.current) fail(e);
+      return false;
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -705,6 +725,71 @@ export function Home({
                   </button>
                 </div>
               )}
+              {messageRequestTarget && (
+                <form
+                  className="message-request-compose"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const body = messageRequestBody.trim();
+                    if (!body) {
+                      setError('Hãy nhập lời nhắn mở đầu.');
+                      return;
+                    }
+                    void action(
+                      () =>
+                        api.authenticated('/message-requests', {
+                          recipientId: messageRequestTarget.user.id,
+                          body,
+                        }),
+                      `Đã gửi tin nhắn chờ tới ${messageRequestTarget.user.displayName}.`,
+                      false,
+                    ).then((succeeded) => {
+                      if (mounted.current && succeeded) {
+                        setMessageRequestTarget(undefined);
+                        setMessageRequestBody('');
+                      }
+                    });
+                  }}
+                >
+                  <div>
+                    <strong>
+                      Gửi tin nhắn chờ tới{' '}
+                      {messageRequestTarget.user.displayName}
+                    </strong>
+                    <p>
+                      Họ sẽ xem lời nhắn này trước khi quyết định chấp nhận.
+                    </p>
+                  </div>
+                  <label htmlFor="message-request-body">Lời nhắn mở đầu</label>
+                  <textarea
+                    id="message-request-body"
+                    autoFocus
+                    maxLength={2000}
+                    value={messageRequestBody}
+                    onChange={(event) =>
+                      setMessageRequestBody(event.target.value)
+                    }
+                    placeholder="Giới thiệu ngắn gọn lý do bạn muốn trò chuyện"
+                  />
+                  <small>{messageRequestBody.length}/2000 ký tự</small>
+                  <div className="message-request-actions">
+                    <button className="primary" disabled={busy}>
+                      {busy ? 'Đang gửi…' : 'Gửi tin nhắn chờ'}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        setMessageRequestTarget(undefined);
+                        setMessageRequestBody('');
+                      }}
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                </form>
+              )}
               {loading && rows.length === 0 && (
                 <p role="status" className="list-status">
                   Đang tải danh sách…
@@ -720,16 +805,20 @@ export function Home({
                         ? 'Chưa có lời mời mới'
                         : tab === 'outgoing'
                           ? 'Chưa có lời mời đang chờ'
-                          : submittedQuery
-                            ? 'Không tìm thấy người dùng'
-                            : 'Tìm người bạn muốn kết nối'}
+                          : tab === 'messageRequests'
+                            ? 'Chưa có tin nhắn chờ'
+                            : submittedQuery
+                              ? 'Không tìm thấy người dùng'
+                              : 'Tìm người bạn muốn kết nối'}
                   </h2>
                   <p>
                     {tab === 'friends'
                       ? 'Tìm bạn bè và gửi lời mời để kết nối trên PingPong.'
                       : tab === 'search'
                         ? 'Thử tìm bằng tên hiển thị đầy đủ.'
-                        : 'Các lời mời đang chờ sẽ xuất hiện tại đây.'}
+                        : tab === 'messageRequests'
+                          ? 'Tin nhắn từ người chưa kết bạn sẽ xuất hiện tại đây.'
+                          : 'Các lời mời đang chờ sẽ xuất hiện tại đây.'}
                   </p>
                   {tab === 'friends' && (
                     <button
@@ -755,6 +844,16 @@ export function Home({
                     </span>
                     <div>
                       <strong>{row.user.displayName}</strong>
+                      {tab === 'messageRequests' && row.body && (
+                        <>
+                          <p className="hint">
+                            {row.direction === 'outgoing'
+                              ? 'Bạn đã gửi'
+                              : 'Đã gửi cho bạn'}
+                          </p>
+                          <p className="message-request-preview">{row.body}</p>
+                        </>
+                      )}
                       {tab === 'friends' && (
                         <p className="hint">
                           {presenceLabel(presence[row.user.id])}
@@ -763,26 +862,42 @@ export function Home({
                     </div>
                     <div className="peer-actions">
                       {tab === 'search' ? (
-                        <button
-                          className="secondary"
-                          disabled={busy || sent.has(row.user.id)}
-                          onClick={() =>
-                            void action(
-                              async () => {
-                                await api.authenticated('/friend-requests', {
-                                  recipientId: row.user.id,
-                                });
-                                setSent((previous) =>
-                                  new Set(previous).add(row.user.id),
-                                );
-                              },
-                              'Đã gửi lời mời kết bạn.',
-                              false,
-                            )
-                          }
-                        >
-                          {sent.has(row.user.id) ? 'Đã gửi lời mời' : 'Kết bạn'}
-                        </button>
+                        <>
+                          <button
+                            className="secondary accept"
+                            disabled={busy}
+                            onClick={() => {
+                              setMessageRequestTarget(row);
+                              setMessageRequestBody('');
+                              setError('');
+                              setNotice('');
+                            }}
+                          >
+                            Nhắn tin
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={busy || sent.has(row.user.id)}
+                            onClick={() =>
+                              void action(
+                                async () => {
+                                  await api.authenticated('/friend-requests', {
+                                    recipientId: row.user.id,
+                                  });
+                                  setSent((previous) =>
+                                    new Set(previous).add(row.user.id),
+                                  );
+                                },
+                                'Đã gửi lời mời kết bạn.',
+                                false,
+                              )
+                            }
+                          >
+                            {sent.has(row.user.id)
+                              ? 'Đã gửi lời mời'
+                              : 'Kết bạn'}
+                          </button>
+                        </>
                       ) : tab === 'friends' ? (
                         <>
                           <button
@@ -804,6 +919,63 @@ export function Home({
                             onClick={() => setConfirm(row)}
                           >
                             Hủy kết bạn
+                          </button>
+                        </>
+                      ) : tab === 'messageRequests' ? (
+                        <>
+                          {row.direction !== 'outgoing' && (
+                            <button
+                              className="secondary accept"
+                              disabled={busy}
+                              onClick={() =>
+                                void action(
+                                  async () => {
+                                    await api.authenticated(
+                                      `/message-requests/${row.id}`,
+                                      { action: 'accept' },
+                                      'PATCH',
+                                    );
+                                    setChatRecipient({
+                                      id: row.user.id,
+                                      key: Date.now(),
+                                    });
+                                  },
+                                  'Đã chấp nhận tin nhắn chờ.',
+                                  false,
+                                ).then((succeeded) => {
+                                  if (mounted.current && succeeded)
+                                    setTab('conversations');
+                                })
+                              }
+                            >
+                              Chấp nhận
+                            </button>
+                          )}
+                          <button
+                            className="secondary"
+                            disabled={busy}
+                            onClick={() =>
+                              void action(
+                                () =>
+                                  api.authenticated(
+                                    `/message-requests/${row.id}`,
+                                    {
+                                      action:
+                                        row.direction === 'outgoing'
+                                          ? 'cancel'
+                                          : 'reject',
+                                    },
+                                    'PATCH',
+                                  ),
+                                row.direction === 'outgoing'
+                                  ? 'Đã thu hồi tin nhắn chờ.'
+                                  : 'Đã từ chối tin nhắn chờ.',
+                              )
+                            }
+                          >
+                            {row.direction === 'outgoing'
+                              ? 'Thu hồi'
+                              : 'Từ chối'}
                           </button>
                         </>
                       ) : (

@@ -155,7 +155,7 @@ for script in api-runtime-dependencies.cjs sharp-runtime-smoke.cjs; do
 done
 # Only migrations explicitly reviewed as backwards-compatible may run while
 # Blue is serving traffic. Future pending migrations fail closed until added.
-reviewed_migrations=(CallMessages1791763200000 PasswordReset1793577600000 MessageEncryption1793664000000)
+reviewed_migrations=(CallMessages1791763200000 PasswordReset1793577600000 MessageEncryption1793664000000 MessageRequests1793750400000)
 migration_args=()
 for migration in "${reviewed_migrations[@]}"; do
   migration_args+=("--allow=$migration")

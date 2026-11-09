@@ -6,6 +6,7 @@ import { Conversation } from '../database/entities/conversation.entity';
 import { ConversationMember } from '../database/entities/conversation-member.entity';
 import { ConversationMemberPeriod } from '../database/entities/conversation-member-period.entity';
 import { Friendship } from '../database/entities/friendship.entity';
+import { MessageRequest } from '../database/entities/message-request.entity';
 import { User } from '../database/entities/user.entity';
 import type { Message } from '../database/entities/message.entity';
 import { decryptMessageText } from '../database/message-encryption';
@@ -79,6 +80,32 @@ export class ConversationsService {
         403,
         'FRIENDSHIP_REQUIRED',
         'Only friends can be invited to a new conversation',
+      );
+  }
+
+  private async requireDirectPermission(
+    manager: EntityManager,
+    actorId: string,
+    recipientId: string,
+  ) {
+    const [low, high] = [actorId, recipientId].sort();
+    const friendship = await manager.getRepository(Friendship).findOneBy({
+      pairLowId: low,
+      pairHighId: high,
+      status: 'accepted',
+    });
+    const request = friendship
+      ? null
+      : await manager.getRepository(MessageRequest).findOneBy({
+          pairLowId: low,
+          pairHighId: high,
+          status: 'accepted',
+        });
+    if (!friendship && !request)
+      fail(
+        403,
+        'MESSAGING_PERMISSION_REQUIRED',
+        'Friendship or an accepted message request is required',
       );
   }
 
@@ -169,6 +196,8 @@ export class ConversationsService {
       'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
       [`conversation:direct:${low}:${high}`],
     );
+    await this.activeUsers(manager, [actorId, recipientId]);
+    await this.requireDirectPermission(manager, actorId, recipientId);
     const repository = manager.getRepository(Conversation);
     const existing = await repository.findOne({
       where: { directUserLowId: low, directUserHighId: high },
@@ -183,8 +212,6 @@ export class ConversationsService {
       );
       return { conversation: this.view(conversation, member) };
     }
-    await this.activeUsers(manager, [actorId, recipientId]);
-    await this.requireFriends(manager, actorId, [recipientId]);
     const conversation = await repository.save({
       type: 'direct',
       creatorId: actorId,

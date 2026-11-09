@@ -1,6 +1,7 @@
 export function UiIcon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, string> = {
     conversations: 'M4 4h16v12H9l-5 4V4Z M8 8h8 M8 12h5',
+    messageRequests: 'M4 5h16v12H9l-5 4V5Z M8 9h8 M8 13h4 M17 2v6 M14 5h6',
     friends:
       'M16 21v-3a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v3 M18 8a3 3 0 0 1 0 6 M22 21v-3a4 4 0 0 0-3-4',
     incoming: 'M4 4h16v16H4Z M12 7v10 M8 13l4 4 4-4',

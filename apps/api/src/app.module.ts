@@ -12,6 +12,7 @@ import { MessagesModule } from './modules/messages/messages.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { AiModule } from './modules/ai/ai.module';
+import { MessageRequestsModule } from './modules/message-requests/message-requests.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AiModule } from './modules/ai/ai.module';
     AuthModule,
     UsersModule,
     FriendshipsModule,
+    MessageRequestsModule,
     ConversationsModule,
     MessagesModule,
     RealtimeModule,

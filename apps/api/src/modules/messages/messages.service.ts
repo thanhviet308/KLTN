@@ -8,6 +8,7 @@ import { Attachment } from '../database/entities/attachment.entity';
 import { Message } from '../database/entities/message.entity';
 import { MessageReceipt } from '../database/entities/message-receipt.entity';
 import { Friendship } from '../database/entities/friendship.entity';
+import { MessageRequest } from '../database/entities/message-request.entity';
 import { User } from '../database/entities/user.entity';
 import type {
   EditMessageDto,
@@ -270,11 +271,21 @@ export class MessagesService {
           },
           lock: { mode: 'pessimistic_read' },
         });
-        if (!friendship)
+        const request = friendship
+          ? null
+          : await manager.getRepository(MessageRequest).findOne({
+              where: {
+                pairLowId: conversation.directUserLowId!,
+                pairHighId: conversation.directUserHighId!,
+                status: 'accepted',
+              },
+              lock: { mode: 'pessimistic_read' },
+            });
+        if (!friendship && !request)
           fail(
             403,
-            'FRIENDSHIP_REQUIRED',
-            'Users must be friends to send new direct messages',
+            'MESSAGING_PERMISSION_REQUIRED',
+            'Friendship or an accepted message request is required',
           );
       }
       if (media) {
