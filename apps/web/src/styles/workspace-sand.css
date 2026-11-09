@@ -352,6 +352,15 @@
 .home-shell .secondary:hover:not(:disabled) {
   background: #f8ebdf;
 }
+.home-shell .secondary.accept {
+  background: #b75020;
+  border-color: #b75020;
+  color: #fff;
+}
+.home-shell .secondary.accept:hover:not(:disabled) {
+  background: #9b421b;
+  border-color: #9b421b;
+}
 .home-shell .primary {
   background: #b75020;
   color: #fff;
@@ -365,15 +374,314 @@
 .home-shell textarea,
 .home-shell select {
   accent-color: #b75020;
+  border-color: #e2d5c6;
+  color: var(--ink);
 }
 .home-shell input:focus,
-.home-shell textarea:focus {
+.home-shell textarea:focus,
+.home-shell select:focus-visible {
   outline-color: #b75020;
+  border-color: #b75020;
+}
+.home-shell .password button,
+.home-shell .retry {
+  color: #87502b;
+}
+.home-shell .success {
+  background: #f6ecdf;
+  color: #6b4222;
+  border-color: #e4d2be;
+}
+.home-shell .empty-state > span {
+  color: #b75020;
+}
+.home-shell .empty-state p,
+.home-shell .list-status {
+  color: #8d7866;
+}
+.home-shell .home-main:not(.chat-home) > :not(.conversation-view) {
+  max-width: 860px;
+  margin-inline: auto;
+}
+.home-shell .home-main:not(.chat-home) .people-list {
+  display: grid;
+  gap: 12px;
+}
+.home-shell .home-main:not(.chat-home) .people-list > li {
+  padding: 16px 20px;
+  border: 1px solid #e9e0d5;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px #3a2a1d08;
 }
 .home-shell .people-list > li,
 .home-shell .account-option {
   background: #fffdf9;
   border-color: #e9e0d5;
+}
+.home-shell .profile-panel {
+  max-width: 860px;
+}
+.home-shell .account-option {
+  color: var(--ink);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px #3a2a1d08;
+}
+.home-shell .account-option:hover {
+  background: #f8efe4;
+  border-color: #decab6;
+}
+.home-shell .account-option small {
+  color: #8d7866;
+}
+.home-shell .account-option > span:last-child {
+  color: #b75020;
+}
+.home-shell .profile-avatar {
+  background: #eddfcf;
+  color: #89542f;
+}
+.home-shell .profile-panel dl,
+.home-shell .profile-panel form {
+  background: #fffdf9;
+  border: 1px solid #e9e0d5;
+  border-radius: 16px;
+  padding: 20px 24px;
+  box-shadow: 0 4px 16px #3a2a1d08;
+}
+.home-shell .profile-panel dl > div {
+  border-bottom-color: #eee5da;
+}
+.home-shell .profile-panel dt {
+  color: #8d7866;
+}
+.home-shell .search-form {
+  background: #fffdf9;
+  border: 1px solid #e9e0d5;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 4px 16px #3a2a1d08;
+}
+.home-shell .search-form label {
+  margin-top: 0;
+}
+.home-shell .account-toggle .account-avatar {
+  background: #f5dfbd;
+  color: #50351d;
+}
+.home-shell .account-chevron {
+  background: #513622;
+  border-color: #302217;
+  color: #f5dfbd;
+}
+.home-shell .message-request-compose {
+  background: #fffdf9;
+  border-color: #e6d9cb;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px #3a2a1d08;
+}
+.home-shell .message-request-compose p,
+.home-shell .message-request-compose small {
+  color: #8d7866;
+}
+.home-shell .message-request-compose textarea {
+  border-color: #e2d5c6;
+  background: #faf7f0;
+  color: var(--ink);
+}
+.home-shell .message-request-preview {
+  color: #5d4736;
+}
+.home-shell .chat-placeholder {
+  background: radial-gradient(ellipse at center, #f5e9dc, transparent 65%);
+}
+.home-shell .chat-symbol {
+  color: #b75020;
+  background: #f4e3d1;
+}
+.home-shell .thread-content > .compose-card {
+  background: #fffdf9;
+  border-color: #e9e0d5;
+  box-shadow: 0 8px 32px #3a2a1d08;
+}
+.home-shell .compose-icon {
+  background: #f6e6d5;
+  color: #b75020;
+}
+.home-shell .compose-intro p,
+.home-shell .compose-list-label,
+.home-shell .compose-peer-name small,
+.home-shell .compose-no-results {
+  color: #8d7866;
+}
+.home-shell .compose-search {
+  background: #faf7f0;
+  border-color: #e2d5c6;
+  color: #8d7866;
+}
+.home-shell .compose-search:focus-within {
+  border-color: #b75020;
+  box-shadow: 0 0 0 3px #b7502015;
+}
+.home-shell .compose-card .compose-peer,
+.home-shell .compose-card .friend-picker label {
+  color: var(--ink);
+}
+.home-shell .compose-card .compose-peer:hover,
+.home-shell .compose-card .friend-picker label:hover {
+  background: #f8efe4;
+}
+.home-shell .compose-card .peer-avatar,
+.home-shell .conversation-details .peer-avatar,
+.home-shell .active-friend-avatar {
+  background: #eddfcf;
+  color: #89542f;
+}
+.home-shell .compose-card .friend-picker input[type='checkbox'] {
+  accent-color: #b75020;
+}
+.home-shell .compose-footer {
+  border-top-color: #eee5da;
+}
+.home-shell .compose-footer .primary {
+  background: #b75020;
+}
+.home-shell .compose-footer .primary:hover:not(:disabled) {
+  background: #9b421b;
+}
+.home-shell .member-count {
+  background: #f6e6d5;
+  color: #b75020;
+}
+.home-shell .conversation-details .people-list {
+  border-color: #e9e0d5;
+}
+.home-shell .conversation-details .people-list li {
+  border-bottom-color: #eee5da;
+}
+.home-shell .conversation-details .people-list .hint {
+  color: #8d7866;
+}
+.home-shell .conversation-details .details-back {
+  color: #87502b;
+  border-color: #ddcbb9;
+}
+.home-shell .conversations select {
+  background: #fffdf9;
+  border-color: #e2d5c6;
+  color: var(--ink);
+}
+.home-shell .active-friends-list {
+  scrollbar-color: #decab6 transparent;
+}
+.home-shell .active-friends-list button {
+  color: var(--ink);
+}
+.home-shell .active-friends-list button:hover {
+  background: #f7eee4;
+}
+.home-shell .presence-last-active {
+  background: #f5e6d6;
+  color: #89542f;
+  border-color: #fffdf9;
+}
+.home-shell .thread-list .thread-presence,
+.home-shell .thread-title-row .thread-time {
+  color: #8d7866;
+}
+.home-shell .message-tools {
+  background: #fffdf9;
+  border: 1px solid #e9e0d5;
+  box-shadow: 0 2px 8px #3a2a1d14;
+}
+.home-shell .message-tools button,
+.home-shell .message-meta button {
+  color: #6c503b;
+}
+.home-shell .message-tools button:hover {
+  background: #f6ecdf;
+}
+.home-shell .message-tools button[data-tooltip]::after {
+  background: #35271e;
+}
+.home-shell .reaction-badges button {
+  border-color: #e6d9cb;
+  background: #fffdf9;
+}
+.home-shell .reaction-badges button span {
+  color: #785132;
+}
+.home-shell .reaction-badges button.reacted {
+  border-color: #b75020;
+  background: #fae8d8;
+}
+.home-shell .emoji-dialog,
+.home-shell .composer-emoji-picker {
+  background: #fffdf9;
+  border-color: #e6d9cb;
+  box-shadow: 0 8px 30px #3a2a1d1f;
+}
+.home-shell .emoji-options button:hover,
+.home-shell .emoji-options button[aria-pressed='true'],
+.home-shell .composer-emoji-picker button:hover {
+  background: #f6ecdf;
+}
+.home-shell .reply-preview {
+  border-left-color: #b75020;
+  background: #f6eee3;
+  color: var(--ink);
+}
+.home-shell .reply-preview p {
+  color: #8d7866;
+}
+.home-shell .receipt-panel {
+  border-color: #e6d9cb;
+  background: #fffdf9;
+}
+.home-shell .message-modal-backdrop {
+  background: #231b1680;
+}
+.home-shell .message-action-dialog {
+  background: #fffdf9;
+  border: 1px solid #e6d9cb;
+  color: var(--ink);
+}
+.home-shell .message-action-dialog textarea,
+.home-shell .message-action-dialog select {
+  border-color: #e2d5c6;
+  background: #faf7f0;
+  color: var(--ink);
+}
+.home-shell .forward-preview {
+  background: #f6eee3;
+}
+.home-shell .chat-composer-bar .media-tools button:hover:not(:disabled),
+.home-shell
+  .chat-composer-bar
+  .message-composer
+  .composer-emoji:hover:not(:disabled) {
+  background: #f4e6d5;
+}
+.home-shell .location-preview {
+  background: #fffdf9;
+  border-color: #e6d9cb;
+  color: var(--ink);
+  box-shadow: 0 16px 60px #30221733;
+}
+.home-shell .location-preview::backdrop {
+  background: #231b1680;
+}
+.home-shell .location-map-status {
+  background: #fffdf9;
+  color: var(--ink);
+}
+.home-shell .location-pending,
+.home-shell .media-tools .location-preview button {
+  background: #f6eee3;
+  color: #5e4130;
+}
+.home-shell .media-tools .location-preview .location-share {
+  background: #b75020;
+  color: #fff;
 }
 .home-shell .home-title .eyebrow,
 .home-shell .hint,

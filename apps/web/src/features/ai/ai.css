@@ -76,18 +76,21 @@
 }
 .ai-dialog > header {
   position: sticky;
-  top: 0;
+  top: -24px;
   z-index: 2;
-  padding-block: 8px;
+  margin: -24px -24px 0;
+  padding: 20px 24px 12px;
   background: #fffdf9;
+  border-bottom: 1px solid #f0e8dc;
 }
 .ai-dialog h2 {
   font-size: 24px;
-  margin: 8px 0;
+  margin: 8px 0 0;
 }
 .ai-dialog h3,
 .ai-dialog h4 {
   margin: 0;
+  font-size: 15px;
 }
 .ai-eyebrow {
   display: inline-flex;
@@ -174,25 +177,34 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.ai-setting {
+.ai-dialog .ai-setting {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 16px;
+  margin: 16px 0 0;
   font-size: 13px;
+  white-space: nowrap;
 }
-.ai-setting select,
-.ai-range input {
-  padding: 9px;
+.ai-dialog .ai-setting select,
+.ai-dialog .ai-range input {
+  width: auto;
+  min-width: 180px;
+  margin-top: 0;
+  padding: 9px 12px;
   border: 1px solid #e8dfd3;
   border-radius: 9px;
   color: inherit;
   background: #fff;
-  min-width: 0;
   font: inherit;
+  font-size: 13px;
 }
-.ai-consent {
+.ai-dialog .ai-range input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+}
+.ai-dialog .ai-consent {
   display: flex;
   gap: 10px;
   align-items: flex-start;
@@ -247,10 +259,11 @@
   gap: 10px;
   margin: 14px 0;
 }
-.ai-range label {
+.ai-dialog .ai-range label {
   display: grid;
   flex: 1 1 200px;
   gap: 6px;
+  margin: 0;
   font-size: 12px;
 }
 .ai-notice,
@@ -319,6 +332,11 @@
   .ai-dialog {
     padding: 18px;
     border-radius: 18px;
+  }
+  .ai-dialog > header {
+    top: -18px;
+    margin: -18px -18px 0;
+    padding: 16px 18px 10px;
   }
   .ai-dialog h2 {
     font-size: 21px;

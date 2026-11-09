@@ -3,6 +3,7 @@ import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { Friendship } from '../database/entities/friendship.entity';
+import { MessageRequest } from '../database/entities/message-request.entity';
 import { User } from '../database/entities/user.entity';
 import { publicUserView } from '../users/user-view';
 import { pageResult } from '../../common/page.dto';
@@ -155,12 +156,20 @@ export class FriendshipsService {
         );
       row.status = next;
       const saved = await repository.save(row);
-      if (next === 'accepted')
+      if (next === 'accepted') {
+        const [low, high] = [row.requesterId, row.recipientId].sort();
+        await manager
+          .getRepository(MessageRequest)
+          .update(
+            { pairLowId: low, pairHighId: high, status: 'pending' },
+            { status: 'accepted', respondedAt: new Date() },
+          );
         await this.conversations.ensureDirect(
           manager,
           row.requesterId,
           row.recipientId,
         );
+      }
       return { request: this.view(saved) };
     });
   }
