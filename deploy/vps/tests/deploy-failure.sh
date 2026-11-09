@@ -83,6 +83,7 @@ exit 0
 STUB
 cat > "$fixture/bin/flock" <<'STUB'
 #!/usr/bin/env bash
+printf 'flock %s\n' "$*" >> "$command_log"
 exit 0
 STUB
 cat > "$fixture/bin/awk" <<'STUB'
@@ -109,6 +110,7 @@ for failure_mode in build dependency sharp migration-apply migration-check start
     proxy|rollback-fail) expected=23 ;; wrong-revision) expected=1 ;; post-stop) expected=25 ;; *) expected=0 ;;
   esac
   [[ "$status" == "$expected" ]] || { cat "$fixture/output"; exit 1; }
+  grep -q '^flock -w 900 9$' "$command_log"
   ! grep -Eq 'docker .* (up .*db|down|rm|volume)' "$command_log"
   if [[ "$failure_mode" != build && "$failure_mode" != dependency && "$failure_mode" != sharp ]]; then
     grep -q 'migrate node apps/api/dist/modules/database/migrate.js --allow=CallMessages1791763200000' "$command_log"

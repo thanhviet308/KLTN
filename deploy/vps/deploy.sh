@@ -13,10 +13,16 @@ for tool in git docker flock curl; do
 done
 [[ "$(git branch --show-current)" == main ]] || { echo 'VPS checkout must be on main' >&2; exit 1; }
 
-# Serialize manual and automated deployment in this checkout.
+# Serialize manual and automated deployments in this checkout. GitHub Actions
+# concurrency does not cover a deployment started directly on the VPS, so wait
+# for the current owner instead of failing a healthy queued deployment at once.
 lock_file="$(git rev-parse --git-dir)/pingpong-deploy.lock"
 exec 9>"$lock_file"
-flock -n 9 || { echo 'Another deployment is already running' >&2; exit 1; }
+echo 'Waiting up to 15 minutes for any running deployment to finish'
+flock -w 900 9 || {
+  echo 'Timed out waiting for another deployment; inspect the running process before retrying' >&2
+  exit 1
+}
 [[ -z "$(git status --porcelain)" ]] || { echo 'VPS checkout has local changes; deployment stopped' >&2; exit 1; }
 
 # Fast-forward to the checked commit, even if another push arrives during build.
