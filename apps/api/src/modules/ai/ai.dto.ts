@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -8,6 +9,9 @@ import {
   IsString,
   IsUUID,
   Matches,
+  MaxLength,
+  MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 export class AiRequestDto {
@@ -41,10 +45,34 @@ export class AiRequestDto {
   language?: string;
 }
 
+export class AiChatTurnDto {
+  @IsIn(['user', 'model'])
+  role!: 'user' | 'model';
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  text!: string;
+}
+
+export class AiChatRequestDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => AiChatTurnDto)
+  messages!: AiChatTurnDto[];
+}
+
 export interface AiResult {
   summary: string;
   decisions: string[];
   tasks: string[];
   replies: string[];
   translation: string;
+}
+
+export interface AiChatResult {
+  reply: string;
+  suggestions: string[];
 }

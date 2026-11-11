@@ -6,9 +6,14 @@ const { validate } = require('class-validator');
 const { AiService } = require('../dist/modules/ai/ai.service');
 const {
   AiProviderService,
+  validateAiChatResult,
   validateAiResult,
 } = require('../dist/modules/ai/ai-provider.service');
-const { AiRequestDto } = require('../dist/modules/ai/ai.dto');
+const {
+  AiChatRequestDto,
+  AiChatTurnDto,
+  AiRequestDto,
+} = require('../dist/modules/ai/ai.dto');
 
 const first = {
   id: '10000000-0000-4000-8000-000000000001',
@@ -392,4 +397,55 @@ test('DTO rejects unbounded message batches, duplicate IDs, fake revisions and u
     'messageIds',
     'sourceRevisions',
   ]);
+});
+
+test('AI chatbox validates multi-turn messages, enforces quota and parses structured replies', async () => {
+  const f = fixture();
+  const chatReply = {
+    reply: 'Chào bạn! Mình có thể giúp bạn soạn tin nhắn.',
+    suggestions: ['Soạn lời nhắn kết bạn', 'Viết tin xin nghỉ phép'],
+  };
+  f.provider.chat = async (turns) => {
+    f.calls.push(turns);
+    return chatReply;
+  };
+  await assert.rejects(
+    f.service.chat('me', { messages: [{ role: 'model', text: 'Xin chào' }] }),
+    code('AI_INPUT_INVALID'),
+  );
+  await assert.rejects(
+    f.service.chat('me', { messages: [{ role: 'user', text: '   ' }] }),
+    code('AI_INPUT_INVALID'),
+  );
+  const response = await f.service.chat('me', {
+    messages: [{ role: 'user', text: '  Xin chào PingPong AI  ' }],
+  });
+  assert.deepEqual(response.result, chatReply);
+  assert.deepEqual(f.calls[0], [
+    { role: 'user', text: 'Xin chào PingPong AI' },
+  ]);
+  assert.deepEqual(
+    validateAiChatResult({
+      reply: '  Nội dung trả lời  ',
+      suggestions: [' Gợi ý 1 ', 'Gợi ý 2', 'Gợi ý 3', 'Gợi ý 4'],
+    }),
+    {
+      reply: 'Nội dung trả lời',
+      suggestions: ['Gợi ý 1', 'Gợi ý 2', 'Gợi ý 3'],
+    },
+  );
+  assert.throws(
+    () => validateAiChatResult({ reply: '', suggestions: [] }),
+    code('AI_INVALID_OUTPUT'),
+  );
+  const invalidTurn = Object.assign(new AiChatTurnDto(), {
+    role: 'system',
+    text: '',
+  });
+  const invalidChatDto = Object.assign(new AiChatRequestDto(), {
+    messages: [invalidTurn],
+  });
+  const chatErrors = await validate(invalidChatDto);
+  assert.equal(chatErrors.length, 1);
+  assert.equal(chatErrors[0].property, 'messages');
 });

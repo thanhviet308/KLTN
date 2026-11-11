@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { ConversationsService } from '../conversations/conversations.service';
 import { Message } from '../database/entities/message.entity';
 import { AiProviderService, aiError } from './ai-provider.service';
-import type { AiRequestDto } from './ai.dto';
+import type { AiChatRequestDto, AiRequestDto } from './ai.dto';
 
 @Injectable()
 export class AiService {
@@ -16,6 +16,21 @@ export class AiService {
     private readonly conversations: ConversationsService,
     @Inject(AiProviderService) private readonly provider: AiProviderService,
   ) {}
+
+  private consumeQuota(actorId: string) {
+    const now = Date.now();
+    for (const [id, entry] of this.limits)
+      if (entry.until <= now) this.limits.delete(id);
+    if (!this.limits.has(actorId) && this.limits.size >= 10000)
+      aiError(503, 'AI_BUSY');
+    const quota = this.limits.get(actorId) ?? {
+      count: 0,
+      until: now + 3600000,
+    };
+    if (quota.count >= 20) aiError(429, 'AI_QUOTA_EXCEEDED');
+    quota.count++;
+    this.limits.set(actorId, quota);
+  }
 
   private async sources(
     actorId: string,
@@ -111,18 +126,7 @@ export class AiService {
         ) > 24000
       )
         aiError(413, 'AI_INPUT_TOO_LARGE');
-      const now = Date.now();
-      for (const [id, entry] of this.limits)
-        if (entry.until <= now) this.limits.delete(id);
-      if (!this.limits.has(actorId) && this.limits.size >= 10000)
-        aiError(503, 'AI_BUSY');
-      const quota = this.limits.get(actorId) ?? {
-        count: 0,
-        until: now + 3600000,
-      };
-      if (quota.count >= 20) aiError(429, 'AI_QUOTA_EXCEEDED');
-      quota.count++;
-      this.limits.set(actorId, quota);
+      this.consumeQuota(actorId);
       const result = await this.provider.generate(
         input,
         messages.map(({ id, sender, body, createdAt }) => ({
@@ -148,6 +152,41 @@ export class AiService {
       )
         aiError(409, 'AI_SOURCE_CHANGED');
       return { kind: input.kind, messageIds: input.messageIds, result };
+    } finally {
+      this.running.delete(actorId);
+    }
+  }
+
+  async chat(actorId: string, input: AiChatRequestDto) {
+    if (
+      !Array.isArray(input.messages) ||
+      !input.messages.length ||
+      input.messages.length > 20
+    )
+      aiError(400, 'AI_INPUT_INVALID');
+    const normalized = input.messages.map((turn) => ({
+      role: turn.role,
+      text: typeof turn.text === 'string' ? turn.text.trim() : '',
+    }));
+    if (
+      normalized.some(
+        (turn) => (turn.role !== 'user' && turn.role !== 'model') || !turn.text,
+      ) ||
+      normalized.at(-1)?.role !== 'user'
+    )
+      aiError(400, 'AI_INPUT_INVALID');
+    if (normalized.some((turn) => turn.text.length > 4000))
+      aiError(413, 'AI_INPUT_TOO_LARGE');
+    if (normalized.reduce((sum, turn) => sum + turn.text.length, 0) > 16000)
+      aiError(413, 'AI_INPUT_TOO_LARGE');
+    if (!this.provider.available()) aiError(503, 'AI_NOT_CONFIGURED');
+    if (this.running.has(actorId) || this.running.size >= 2)
+      aiError(429, 'AI_BUSY');
+    this.running.add(actorId);
+    try {
+      this.consumeQuota(actorId);
+      const result = await this.provider.chat(normalized);
+      return { result };
     } finally {
       this.running.delete(actorId);
     }

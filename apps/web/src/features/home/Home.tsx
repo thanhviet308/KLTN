@@ -1,6 +1,7 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import * as api from '../../lib/api';
 import { Conversations } from '../conversations/Conversations';
+import { AiChatbox } from '../ai/AiChatbox';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
 import { presenceLabel, usePresence } from '../../hooks/usePresence';
@@ -44,6 +45,7 @@ export function Home({
   onExpired: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('conversations');
+  const [aiChatOpen, setAiChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const presence = usePresence(user.id);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -390,6 +392,8 @@ export function Home({
               active={tab === 'conversations'}
               recipient={chatRecipient}
               onUnreadCount={setUnreadCount}
+              aiChatOpen={aiChatOpen}
+              onToggleAiChat={() => setAiChatOpen((prev) => !prev)}
             />
           </div>
           {tab === 'conversations' ? null : tab === 'profile' ? (
@@ -1042,6 +1046,12 @@ export function Home({
           )}
         </main>
       </div>
+      <AiChatbox
+        open={aiChatOpen}
+        onClose={() => setAiChatOpen(false)}
+        userName={user.displayName}
+        onExpired={onExpired}
+      />
     </div>
   );
 }

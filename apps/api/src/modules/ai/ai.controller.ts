@@ -13,7 +13,7 @@ import type { Response } from 'express';
 import { CurrentUser } from '../auth/auth.decorators';
 import type { User } from '../database/entities/user.entity';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- ValidationPipe needs runtime DTO metadata.
-import { AiRequestDto } from './ai.dto';
+import { AiChatRequestDto, AiRequestDto } from './ai.dto';
 import { AiService } from './ai.service';
 import { AiProviderService } from './ai-provider.service';
 
@@ -28,6 +28,17 @@ export class AiController {
   status(@Res({ passthrough: true }) response: Response) {
     response.setHeader('Cache-Control', 'no-store');
     return { enabled: this.provider.available() };
+  }
+
+  @Post('ai/chat')
+  @HttpCode(200)
+  chat(
+    @CurrentUser() user: User,
+    @Body() input: AiChatRequestDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'no-store');
+    return this.ai.chat(user.id, input);
   }
 
   @Post('conversations/:id/ai')

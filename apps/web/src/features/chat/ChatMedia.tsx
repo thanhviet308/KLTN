@@ -28,8 +28,13 @@ export function MediaTools({
   const [locationError, setLocationError] = useState('');
   const locationDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    if (locationOpen && !disabled) locationDialog.current?.showModal();
-    else locationDialog.current?.close();
+    const dialog = locationDialog.current;
+    if (!dialog) return;
+    if (locationOpen && !disabled) {
+      if (!dialog.open) dialog.showModal();
+    } else if (dialog.open) {
+      dialog.close();
+    }
   }, [locationOpen, disabled]);
   const input = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | undefined>(undefined);
@@ -171,27 +176,41 @@ export function MediaTools({
     setLocationOpen(true);
     // Fetch the code in parallel with geolocation, without requesting map tiles.
     void import('leaflet').catch(() => {});
-    const version = generation.current;
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (!alive.current || version !== generation.current) return;
-        setBusy(false);
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-      },
-      (error) => {
-        if (!alive.current || version !== generation.current) return;
-        setBusy(false);
-        setLocationError(
-          error.code === 1
-            ? 'Hãy cho phép trình duyệt truy cập vị trí rồi thử lại.'
-            : 'Chưa lấy được vị trí. Kiểm tra kết nối và thử lại.',
-        );
-      },
-      { timeout: 10000, maximumAge: 30000, enableHighAccuracy: false },
-    );
+    const version = ++generation.current;
+    let retried = false;
+    const requestPosition = () => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!alive.current || version !== generation.current) return;
+          setBusy(false);
+          setLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        },
+        (error) => {
+          if (!alive.current || version !== generation.current) return;
+          // Cold-starting OS location services after granting permission can
+          // transiently fail with POSITION_UNAVAILABLE (2) or TIMEOUT (3).
+          if (error.code !== 1 && !retried) {
+            retried = true;
+            setTimeout(() => {
+              if (alive.current && version === generation.current)
+                requestPosition();
+            }, 600);
+            return;
+          }
+          setBusy(false);
+          setLocationError(
+            error.code === 1
+              ? 'Hãy cho phép trình duyệt truy cập vị trí rồi thử lại.'
+              : 'Chưa lấy được vị trí. Kiểm tra dịch vụ vị trí của thiết bị và thử lại.',
+          );
+        },
+        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false },
+      );
+    };
+    requestPosition();
   }
   function closeLocation() {
     generation.current++;
@@ -293,7 +312,7 @@ export function MediaTools({
       >
         <UiIcon name="location" />
       </button>
-      {busy && (
+      {busy && !locationOpen && (
         <span className="media-status" role="status">
           {starting ? 'Đang chờ quyền truy cập micro…' : 'Đang xử lý…'}
         </span>

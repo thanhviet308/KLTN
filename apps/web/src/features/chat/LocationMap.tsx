@@ -51,8 +51,13 @@ export function LocationMap({
               retried = true;
               const timer = setTimeout(() => {
                 retries.delete(timer);
-                if (!disposed && tile.isConnected)
-                  tile.src = this.getTileUrl(coords);
+                if (!disposed && tile.isConnected) {
+                  const url = this.getTileUrl(coords);
+                  tile.src = '';
+                  tile.src = url;
+                } else if (!disposed) {
+                  done(new Error('Map tile disconnected'), tile);
+                }
               }, 700);
               retries.add(timer);
             };
@@ -88,11 +93,14 @@ export function LocationMap({
           radius: 9,
           color: '#fff',
           weight: 3,
-          fillColor: '#078478',
+          fillColor: '#b75020',
           fillOpacity: 1,
         })
           .addTo(map)
           .bindTooltip('Vị trí hiện tại');
+        requestAnimationFrame(() => {
+          if (!disposed) map.invalidateSize();
+        });
         const observer = new ResizeObserver(() => map.invalidateSize());
         observer.observe(container.current);
         cleanup = () => {

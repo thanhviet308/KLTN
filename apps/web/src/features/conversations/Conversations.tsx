@@ -17,7 +17,7 @@ import { playMessageSound } from '../../lib/notification-sounds';
 import { MessageMedia } from '../chat/ChatMedia';
 import { SharedMediaDialog } from './SharedMediaDialog';
 import { SharedFileRow } from './SharedFileRow';
-import { Bell, BellOff } from 'lucide-react';
+import { Bell, BellOff, Sparkles } from 'lucide-react';
 import type { Peer, Page } from '../../lib/types';
 import {
   roles,
@@ -38,6 +38,8 @@ export function Conversations({
   recipient,
   presence = {},
   onUnreadCount,
+  aiChatOpen = false,
+  onToggleAiChat,
 }: {
   user: api.User;
   onExpired: () => void;
@@ -45,6 +47,8 @@ export function Conversations({
   recipient?: { id: string; key: number };
   presence?: Record<string, Presence>;
   onUnreadCount?: (count: number) => void;
+  aiChatOpen?: boolean;
+  onToggleAiChat?: () => void;
 }) {
   const [items, setItems] = useState<Conversation[]>([]);
   const [directNames, setDirectNames] = useState<Record<string, string>>({});
@@ -681,36 +685,56 @@ export function Conversations({
               'PingPong'
             )}
           </h2>
-          {selected && (
+          {(selected || onToggleAiChat) && (
             <div className="chat-call-actions">
-              <button
-                type="button"
-                className="chat-info-button"
-                aria-label="Gọi thoại"
-                onClick={() => void callStart.current?.(selected.id, 'audio')}
-              >
-                <UiIcon name="phone" />
-              </button>
-              <button
-                type="button"
-                className="chat-info-button"
-                aria-label="Gọi video"
-                onClick={() => void callStart.current?.(selected.id, 'video')}
-              >
-                <UiIcon name="video" />
-              </button>
-              <button
-                type="button"
-                className="chat-info-button"
-                aria-label="Thông tin cuộc trò chuyện"
-                aria-expanded={showInfo}
-                onClick={() => {
-                  setShowInfo(!showInfo);
-                  if (!showInfo) void run(() => detail(selected.id));
-                }}
-              >
-                <UiIcon name="info" />
-              </button>
+              {onToggleAiChat && (
+                <button
+                  type="button"
+                  className="chat-info-button ai-toolbar-toggle"
+                  title="Trợ lý PingPong AI"
+                  aria-label="Trợ lý PingPong AI"
+                  aria-pressed={aiChatOpen}
+                  onClick={onToggleAiChat}
+                >
+                  <Sparkles size={19} aria-hidden="true" />
+                </button>
+              )}
+              {selected && (
+                <>
+                  <button
+                    type="button"
+                    className="chat-info-button"
+                    aria-label="Gọi thoại"
+                    onClick={() =>
+                      void callStart.current?.(selected.id, 'audio')
+                    }
+                  >
+                    <UiIcon name="phone" />
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-info-button"
+                    aria-label="Gọi video"
+                    onClick={() =>
+                      void callStart.current?.(selected.id, 'video')
+                    }
+                  >
+                    <UiIcon name="video" />
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-info-button"
+                    aria-label="Thông tin cuộc trò chuyện"
+                    aria-expanded={showInfo}
+                    onClick={() => {
+                      setShowInfo(!showInfo);
+                      if (!showInfo) void run(() => detail(selected.id));
+                    }}
+                  >
+                    <UiIcon name="info" />
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
