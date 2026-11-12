@@ -26,7 +26,7 @@ import {
   type ConversationCategory,
   type Member,
 } from './types';
-import { ActiveFriends } from './ActiveFriends';
+import { ActiveFriends, type FriendNote } from './ActiveFriends';
 import { ConversationSummaryPanel } from './ConversationSummaryPanel';
 import { ComposeForm } from './ComposeForm';
 import { ThreadListItem } from './ThreadListItem';
@@ -90,6 +90,16 @@ export function Conversations({
     }
   }
   const [friends, setFriends] = useState<Peer[]>([]);
+  const [notes, setNotes] = useState<FriendNote[]>([]);
+  const [messageRequests, setMessageRequests] = useState<
+    {
+      id: string;
+      user: Peer;
+      body?: string;
+      createdAt?: string;
+      direction?: 'incoming' | 'outgoing';
+    }[]
+  >([]);
   const [friendsLoading, setFriendsLoading] = useState(true);
   const [friendsUnavailable, setFriendsUnavailable] = useState(false);
   const onlineFriends = friends
@@ -98,7 +108,9 @@ export function Conversations({
   const [creating, setCreating] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [filter, setFilter] = useState('');
-  const [category, setCategory] = useState<ConversationCategory>('all');
+  const [category, setCategory] = useState<ConversationCategory | 'requests'>(
+    'all',
+  );
   const [friendFilter, setFriendFilter] = useState('');
   const matchingFriends = friends.filter((peer) =>
     peer.displayName
@@ -402,9 +414,17 @@ export function Conversations({
   }, [recipient?.key, busy]);
   const visibleThreads = visibleConversations(
     items,
-    category,
+    category === 'requests' ? 'all' : category,
     filter,
     directNames,
+  );
+  const incomingMessageRequestsCount = messageRequests.filter(
+    (req) => req.direction !== 'outgoing',
+  ).length;
+  const visibleMessageRequests = messageRequests.filter((req) =>
+    req.user.displayName
+      .toLocaleLowerCase('vi')
+      .includes(filter.toLocaleLowerCase('vi').trim()),
   );
   const isGroup = selected?.type === 'group';
   const owner = isGroup && selected.membership.role === 'owner';
@@ -422,9 +442,25 @@ export function Conversations({
           .displayName ?? 'Trò chuyện riêng')
     : 'Hội thoại';
   async function loadFriends() {
-    const rows = await all<{ user: Peer }>('/friends');
+    const [rows, notePage, reqPage] = await Promise.all([
+      all<{ user: Peer }>('/friends'),
+      api.authenticated<{ items: FriendNote[] }>('/notes'),
+      api
+        .authenticated<{
+          items: {
+            id: string;
+            user: Peer;
+            body?: string;
+            createdAt?: string;
+            direction?: 'incoming' | 'outgoing';
+          }[];
+        }>('/message-requests?direction=all&limit=20')
+        .catch(() => ({ items: [] })),
+    ]);
     if (live.current) {
       setFriends(rows.map((row) => row.user));
+      setNotes(notePage.items);
+      setMessageRequests(reqPage.items);
       setFriendsLoading(false);
       setFriendsUnavailable(false);
     }
@@ -522,11 +558,21 @@ export function Conversations({
           loading={friendsLoading}
           unavailable={friendsUnavailable}
           online={onlineFriends}
+          friends={friends}
+          presence={presence}
+          notes={notes}
+          currentUser={user}
           hasFriends={friends.length > 0}
           presenceLoaded={Object.keys(presence).length > 0}
           busy={busy}
           onRetry={() => void run(loadFriends)}
           onOpen={(peerId) => void startDirect(peerId)}
+          onNoteChange={(note) =>
+            setNotes((previous) => [
+              ...(note ? [note] : []),
+              ...previous.filter((item) => item.user.id !== user.id),
+            ])
+          }
         />
         <div className="thread-filters" aria-label="Lọc đoạn chat">
           {(
@@ -534,6 +580,7 @@ export function Conversations({
               ['all', 'Tất cả'],
               ['unread', 'Chưa đọc'],
               ['group', 'Nhóm'],
+              ['requests', 'Tin nhắn chờ'],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -543,6 +590,13 @@ export function Conversations({
               onClick={() => setCategory(key)}
             >
               {label}
+              {key === 'requests' && incomingMessageRequestsCount > 0 && (
+                <span className="thread-filter-badge">
+                  {incomingMessageRequestsCount > 99
+                    ? '99+'
+                    : incomingMessageRequestsCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -557,68 +611,159 @@ export function Conversations({
           <button
             className="retry"
             disabled={busy}
-            onClick={() => void run(() => list())}
+            onClick={() =>
+              void run(async () => {
+                await Promise.all([list(), loadFriends()]);
+              })
+            }
           >
             Tải lại
           </button>
         </div>
-        <ul className="thread-list">
-          {visibleThreads.map((item) => (
-            <ThreadListItem
-              key={item.id}
-              item={item}
-              currentUserId={user.id}
-              selected={selected?.id === item.id}
-              busy={busy}
-              directNames={directNames}
-              presence={presence}
-              onPreload={() => preload(item.id)}
-              onSelect={() => {
-                setSelected(item);
-                setMembers(
-                  item.peer
-                    ? [
-                        { id: user.id, user, role: 'member' },
-                        { id: item.peer.id, user: item.peer, role: 'member' },
-                      ]
-                    : [],
-                );
-                setCreating(false);
-                setShowInfo(false);
-                setConfirmation(undefined);
-                // Direct rows already contain the peer and membership.
-                if (item.type === 'group') void detail(item.id).catch(fail);
-              }}
-            />
-          ))}
-        </ul>
-        {!listLoading && items.length > 0 && visibleThreads.length === 0 && (
-          <p className="list-status">
-            {filter
-              ? 'Không tìm thấy cuộc trò chuyện phù hợp.'
-              : category === 'unread'
-                ? 'Bạn đã đọc hết tin nhắn.'
-                : 'Chưa có cuộc trò chuyện nhóm.'}
-          </p>
-        )}
-        {listLoading && !items.length && (
-          <p className="list-status" role="status">
-            Đang tải đoạn chat…
-          </p>
-        )}
-        {!listLoading && !busy && !error && !items.length && (
-          <p className="list-status">
-            Chưa có đoạn chat. Chọn “Nhắn mới” để bắt đầu.
-          </p>
-        )}
-        {cursor && (
-          <button
-            className="secondary load-more"
-            disabled={busy}
-            onClick={() => void run(() => list(cursor))}
-          >
-            Xem thêm
-          </button>
+        {category === 'requests' ? (
+          <>
+            <ul className="thread-list thread-requests-list">
+              {visibleMessageRequests.map((req) => (
+                <li key={req.id} className="thread-request-card">
+                  <div className="thread-request-top">
+                    <span className="peer-avatar" aria-hidden="true">
+                      <Avatar peer={req.user} />
+                    </span>
+                    <div className="thread-request-meta">
+                      <strong>{req.user.displayName}</strong>
+                      <small>
+                        {req.direction === 'outgoing'
+                          ? 'Bạn đã gửi tin nhắn chờ'
+                          : 'Đã gửi tin nhắn chờ cho bạn'}
+                      </small>
+                    </div>
+                  </div>
+                  {req.body && (
+                    <p className="thread-request-preview">{req.body}</p>
+                  )}
+                  <div className="thread-request-actions">
+                    {req.direction !== 'outgoing' && (
+                      <button
+                        type="button"
+                        className="secondary accept"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await api.authenticated(
+                              `/message-requests/${req.id}`,
+                              { action: 'accept' },
+                              'PATCH',
+                            );
+                            await loadFriends();
+                            setCategory('all');
+                            await startDirect(req.user.id);
+                          })
+                        }
+                      >
+                        Chấp nhận
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await api.authenticated(
+                            `/message-requests/${req.id}`,
+                            {
+                              action:
+                                req.direction === 'outgoing'
+                                  ? 'cancel'
+                                  : 'reject',
+                            },
+                            'PATCH',
+                          );
+                          await loadFriends();
+                        })
+                      }
+                    >
+                      {req.direction === 'outgoing' ? 'Thu hồi' : 'Từ chối'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {visibleMessageRequests.length === 0 && (
+              <p className="list-status">
+                {filter
+                  ? 'Không tìm thấy tin nhắn chờ phù hợp.'
+                  : 'Chưa có tin nhắn chờ nào.'}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <ul className="thread-list">
+              {visibleThreads.map((item) => (
+                <ThreadListItem
+                  key={item.id}
+                  item={item}
+                  currentUserId={user.id}
+                  selected={selected?.id === item.id}
+                  busy={busy}
+                  directNames={directNames}
+                  presence={presence}
+                  onPreload={() => preload(item.id)}
+                  onSelect={() => {
+                    setSelected(item);
+                    setMembers(
+                      item.peer
+                        ? [
+                            { id: user.id, user, role: 'member' },
+                            {
+                              id: item.peer.id,
+                              user: item.peer,
+                              role: 'member',
+                            },
+                          ]
+                        : [],
+                    );
+                    setCreating(false);
+                    setShowInfo(false);
+                    setConfirmation(undefined);
+                    // Direct rows already contain the peer and membership.
+                    if (item.type === 'group') void detail(item.id).catch(fail);
+                  }}
+                />
+              ))}
+            </ul>
+            {!listLoading &&
+              items.length > 0 &&
+              visibleThreads.length === 0 && (
+                <p className="list-status">
+                  {filter
+                    ? 'Không tìm thấy cuộc trò chuyện phù hợp.'
+                    : category === 'unread'
+                      ? 'Bạn đã đọc hết tin nhắn.'
+                      : 'Chưa có cuộc trò chuyện nhóm.'}
+                </p>
+              )}
+            {listLoading && !items.length && (
+              <p className="list-status" role="status">
+                Đang tải đoạn chat…
+              </p>
+            )}
+            {!listLoading && !busy && !error && !items.length && (
+              <p className="list-status">
+                Chưa có đoạn chat. Chọn “Nhắn mới” để bắt đầu.
+              </p>
+            )}
+            {cursor && (
+              <button
+                className="secondary load-more"
+                disabled={busy}
+                onClick={() => void run(() => list(cursor))}
+              >
+                Xem thêm
+              </button>
+            )}
+          </>
         )}
       </aside>
       <div className="thread-content">
@@ -794,6 +939,7 @@ export function Conversations({
           <Chat
             key={selected.id}
             conversationId={selected.id}
+            isGroup={selected.type === 'group'}
             onMessagesChange={setSharedMessages}
             user={user}
             peers={members.map((member) => member.user)}

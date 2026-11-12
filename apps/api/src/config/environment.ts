@@ -18,6 +18,7 @@ export interface Environment {
   LIVEKIT_API_SECRET?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
+  SPAM_DETECTION_URL?: string;
 }
 
 export type HttpEnvironment = Pick<
@@ -111,6 +112,31 @@ export function validateEnvironment(
     input.LIVEKIT_API_KEY,
     input.LIVEKIT_API_SECRET,
   ];
+  const spamDetectionInput =
+    input.SPAM_DETECTION_URL ??
+    (mode === 'production' ? undefined : 'http://127.0.0.1:8501');
+  let spamDetectionUrl: string | undefined;
+  if (spamDetectionInput !== undefined && spamDetectionInput !== '') {
+    try {
+      const candidate = new URL(String(spamDetectionInput));
+      if (candidate.protocol !== 'http:' && candidate.protocol !== 'https:')
+        throw new Error();
+      if (
+        candidate.username ||
+        candidate.password ||
+        candidate.pathname !== '/' ||
+        candidate.search ||
+        candidate.hash ||
+        (mode === 'production' && candidate.protocol !== 'https:')
+      )
+        throw new Error();
+      spamDetectionUrl = candidate.href.replace(/\/$/, '');
+    } catch {
+      throw new Error(
+        'SPAM_DETECTION_URL must be an HTTP origin; production requires HTTPS',
+      );
+    }
+  }
   const configuredLivekit = livekitValues.filter(
     (value) => typeof value === 'string' && value.length > 0,
   ).length;
@@ -174,6 +200,7 @@ export function validateEnvironment(
       typeof input.GEMINI_MODEL === 'string'
         ? input.GEMINI_MODEL.trim() || undefined
         : undefined,
+    SPAM_DETECTION_URL: spamDetectionUrl,
     SMTP_PORT:
       typeof input.SMTP_PORT === 'string' ? input.SMTP_PORT : undefined,
     SMTP_USER:

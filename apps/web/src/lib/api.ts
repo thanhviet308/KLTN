@@ -441,6 +441,16 @@ export function errorMessage(error: unknown) {
       OWNER_TRANSFER_REQUIRED: 'Hãy chuyển quyền chủ nhóm trước khi rời nhóm.',
       CALL_ALREADY_OPEN:
         'Hội thoại đang có một cuộc gọi khác. Hãy tiếp tục hoặc kết thúc cuộc gọi đó.',
+      GAME_DIRECT_ONLY:
+        'Trò chơi hiện chỉ hỗ trợ trong cuộc trò chuyện riêng giữa hai người.',
+      GAME_ALREADY_OPEN: 'Cuộc trò chuyện đang có một ván đấu chưa kết thúc.',
+      GAME_NOT_FOUND: 'Ván đấu không còn tồn tại hoặc bạn không có quyền xem.',
+      GAME_FORBIDDEN: 'Bạn không có quyền thực hiện thao tác này.',
+      GAME_STATE_CONFLICT: 'Trạng thái ván đấu vừa thay đổi. Hãy thử lại.',
+      GAME_NOT_YOUR_TURN: 'Chưa đến lượt của bạn.',
+      GAME_CELL_OCCUPIED: 'Ô này đã có quân. Hãy chọn ô khác.',
+      GAME_COLUMN_FULL: 'Cột này đã đầy. Hãy chọn cột khác.',
+      GAME_CELL_INVALID: 'Vị trí vừa chọn không hợp lệ.',
       SELF_CONVERSATION: 'Bạn không thể tạo trò chuyện riêng với chính mình.',
       ALREADY_FRIENDS: 'Hai bạn đã là bạn bè.',
       INCOMING_REQUEST_EXISTS:

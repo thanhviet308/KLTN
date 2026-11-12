@@ -1,7 +1,14 @@
+:root {
+  --ui-zoom: 1.06;
+  --app-h: calc(100dvh / 1.06);
+}
+html {
+  zoom: 1.06;
+}
 @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap');
 
 .home-shell {
-  min-height: 100dvh;
+  min-height: var(--app-h, 100dvh);
   background: #f4f7f2;
 }
 .conversation-toolbar {
@@ -35,7 +42,7 @@
 .call-window {
   position: relative;
   width: min(960px, 100%);
-  max-height: calc(100vh - 2rem);
+  max-height: calc(var(--app-h, 100dvh) - 2rem);
   overflow: auto;
   border: 1px solid rgb(255 255 255 / 12%);
   border-radius: 1.25rem;
@@ -76,7 +83,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 0.5rem;
-  min-height: min(68vh, 620px);
+  min-height: min(calc(var(--app-h, 100dvh) * 0.68), 620px);
   padding: 0.5rem;
   background: #030712;
 }
@@ -258,13 +265,13 @@
   }
 
   .call-window {
-    min-height: 100vh;
-    max-height: 100vh;
+    min-height: var(--app-h, 100dvh);
+    max-height: var(--app-h, 100dvh);
     border-radius: 0;
   }
 
   .call-stage {
-    min-height: 100vh;
+    min-height: var(--app-h, 100dvh);
   }
 
   .call-stage.one-to-one.has-remote .call-track.video.local {
@@ -647,7 +654,7 @@ a {
 .page {
   display: grid;
   grid-template-columns: 46% 54%;
-  min-height: 100dvh;
+  min-height: var(--app-h, 100dvh);
 }
 .story {
   background: #134e4a;
@@ -1090,7 +1097,7 @@ a:focus-visible {
   }
   main {
     padding: 25px;
-    min-height: calc(100dvh - 158px);
+    min-height: calc(var(--app-h, 100dvh) - 158px);
   }
   .card {
     padding: 35px 0;
@@ -1173,7 +1180,7 @@ a:focus-visible {
   margin: 0;
 }
 .message-timeline {
-  height: min(55dvh, 560px);
+  height: min(calc(var(--app-h, 100dvh) * 0.55), 560px);
   min-height: 300px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1710,7 +1717,7 @@ a:focus-visible {
 .message-action-dialog {
   width: 100%;
   max-width: 440px;
-  max-height: 85dvh;
+  max-height: calc(var(--app-h, 100dvh) * 0.85);
   overflow-y: auto;
   border-radius: 16px;
   padding: 24px;
@@ -1761,7 +1768,7 @@ a:focus-visible {
 
 /* Keep the app within the viewport; scroll each content pane independently. */
 .home-shell {
-  height: 100dvh;
+  height: var(--app-h, 100dvh);
   min-height: 0;
   display: flex;
   flex-direction: column;

@@ -20,6 +20,11 @@ export interface Message {
   } | null;
   editedAt?: string | null;
   deletedAt?: string | null;
+  spam?: {
+    suspicious: boolean;
+    score: number;
+    model: string;
+  } | null;
   createdAt: string;
 }
 export interface Receipt {
@@ -72,11 +77,33 @@ export function mergeReceipt(
   };
 }
 
+export function parseGameInviteBody(body: string | null | undefined): {
+  gameType: string;
+  gameId?: string;
+  text: string;
+} | null {
+  if (!body) return null;
+  const match =
+    /^🎮\s*\[GAME_INVITE:([a-z0-9_]+)(?::([a-f0-9-]+))?\]\s*(.*)$/i.exec(
+      body.trim(),
+    );
+  if (!match) return null;
+  return {
+    gameType: match[1]!,
+    gameId: match[2],
+    text: match[3] || 'Đã gửi lời mời chơi trò chơi',
+  };
+}
+
 export function messageSummary(
   message: Pick<Message, 'deletedAt' | 'body' | 'type' | 'content'>,
 ) {
   if (message.deletedAt) return 'Tin nhắn đã thu hồi';
-  if (message.body) return message.body;
+  if (message.body) {
+    const gameInvite = parseGameInviteBody(message.body);
+    if (gameInvite) return `🎮 ${gameInvite.text}`;
+    return message.body;
+  }
   if (message.type === 'location') return 'Vị trí được chia sẻ';
   if (message.type === 'voice') return 'Tin nhắn thoại';
   if (message.type === 'call') {

@@ -11,7 +11,7 @@ export function presenceBadge(state?: Presence, now = Date.now()) {
   const timestamp = Date.parse(state.lastActiveAt);
   if (!Number.isFinite(timestamp)) return '';
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
-  if (minutes < 1) return 'Vừa xong';
+  if (minutes < 1) return '1 phút';
   if (minutes < 60) return `${minutes} phút`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} giờ`;

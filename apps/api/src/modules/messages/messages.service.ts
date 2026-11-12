@@ -19,6 +19,7 @@ import type { PageDto } from '../../common/page.dto';
 import { pageResult } from '../../common/page.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
 import { MessageRateLimit } from './message-rate-limit';
+import { SpamDetectionService } from './spam-detection.service';
 
 const MAX_SEQUENCE = 9223372036854775807n;
 function fail(status: number, code: string, message: string): never {
@@ -95,6 +96,8 @@ export class MessagesService {
     private readonly conversations: ConversationsService,
     @Inject(RealtimeEvents) private readonly events: RealtimeEvents,
     @Inject(MessageRateLimit) private readonly rateLimit: MessageRateLimit,
+    @Inject(SpamDetectionService)
+    private readonly spamDetection: SpamDetectionService,
   ) {}
 
   private view(message: Message) {
@@ -110,6 +113,14 @@ export class MessagesService {
       createdAt: message.createdAt,
       editedAt: message.editedAt,
       deletedAt: message.deletedAt,
+      spam:
+        message.deletedAt || message.spamLabel === null
+          ? null
+          : {
+              suspicious: message.spamLabel,
+              score: message.spamScore!,
+              model: message.spamModel!,
+            },
     };
   }
 
@@ -195,6 +206,8 @@ export class MessagesService {
           }
         : null;
     this.rateLimit.take(actorId, 'send');
+    const spamPrediction =
+      type === 'text' && body ? await this.spamDetection.predict(body) : null;
     const result = await this.db.transaction(async (manager) => {
       // Key scope is sender across conversations, matching messages_client_id.
       await manager.query(
@@ -318,6 +331,9 @@ export class MessagesService {
         body,
         content,
         sequence: sequence.toString(),
+        spamLabel: spamPrediction?.label ?? null,
+        spamScore: spamPrediction?.score ?? null,
+        spamModel: spamPrediction?.model ?? null,
       });
       if (media)
         await manager.getRepository(Attachment).insert({
@@ -434,6 +450,7 @@ export class MessagesService {
     input: EditMessageDto,
   ) {
     this.rateLimit.take(actorId, 'send');
+    const spamPrediction = await this.spamDetection.predict(input.body);
     const result = await this.db.transaction(async (manager) => {
       await this.conversations.requireAccess(
         manager,
@@ -472,6 +489,9 @@ export class MessagesService {
           'Message changed; fetch its current state before editing',
         );
       message.editedBody = input.body;
+      message.spamLabel = spamPrediction?.label ?? null;
+      message.spamScore = spamPrediction?.score ?? null;
+      message.spamModel = spamPrediction?.model ?? null;
       message.editedAt = new Date(
         Math.max(
           Date.now(),

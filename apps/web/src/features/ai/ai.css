@@ -54,7 +54,7 @@
 }
 .ai-dialog {
   width: min(680px, calc(100vw - 32px));
-  max-height: calc(100dvh - 40px);
+  max-height: calc(var(--app-h, 100dvh) - 40px);
   box-sizing: border-box;
   overflow-y: auto;
   padding: 24px;
@@ -364,7 +364,7 @@
   display: flex;
   flex-direction: column;
   width: min(380px, calc(100vw - 32px));
-  height: min(540px, calc(100dvh - 104px));
+  height: min(540px, calc(var(--app-h, 100dvh) - 104px));
   border: 1px solid #e5d8c7;
   border-radius: 22px;
   background: #fffdf9;
@@ -572,6 +572,6 @@
   }
   .ai-chatbox-panel {
     width: calc(100vw - 32px);
-    height: min(480px, calc(100dvh - 140px));
+    height: min(480px, calc(var(--app-h, 100dvh) - 140px));
   }
 }

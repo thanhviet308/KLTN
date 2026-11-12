@@ -36,6 +36,7 @@ import {
   type History,
 } from '../../lib/chat-model';
 import type { Peer } from '../../lib/types';
+import { CaroGame, GAME_INFO, type CaroSession } from '../games/CaroGame';
 
 interface Draft {
   clientMessageId: string;
@@ -47,6 +48,7 @@ interface Draft {
 const drafts = new Map<string, { body: string; pending: Draft[] }>();
 export function Chat({
   conversationId,
+  isGroup,
   user,
   peers,
   onExpired,
@@ -58,6 +60,7 @@ export function Chat({
   initialUnreadCount = 0,
 }: {
   conversationId: string;
+  isGroup?: boolean;
   user: api.User;
   peers: Peer[];
   onExpired: () => void;
@@ -98,6 +101,24 @@ export function Chat({
   );
   const [body, setBody] = useState(() => drafts.get(draftKey)?.body ?? '');
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [gameOpen, setGameOpen] = useState(false);
+  const [currentGame, setCurrentGame] = useState<CaroSession | null>(null);
+  useEffect(() => {
+    let activeFetch = true;
+    setCurrentGame(null);
+    setGameOpen(false);
+    void api
+      .authenticated<{ game: CaroSession | null }>(
+        `/conversations/${conversationId}/games/current`,
+      )
+      .then((res) => {
+        if (activeFetch) setCurrentGame(res.game);
+      })
+      .catch(() => {});
+    return () => {
+      activeFetch = false;
+    };
+  }, [conversationId]);
   useDismissOnOutside(
     emojiOpen,
     () => setEmojiOpen(false),
@@ -403,6 +424,13 @@ export function Chat({
           }));
       },
     );
+    client.on('game:updated', (result: { game: CaroSession }) => {
+      if (result.game.conversationId === conversationId && alive.current) {
+        setCurrentGame(result.game);
+        if (result.game.status === 'invited' && result.game.oUserId === user.id)
+          setGameOpen(true);
+      }
+    });
     client.on('sync:required', () => void sync());
     client.on('disconnect', (reason: string) => {
       if (!stopped) {
@@ -680,6 +708,62 @@ export function Chat({
   const canSummarizeUnread = unreadTexts.length >= UNREAD_SUMMARY_THRESHOLD;
   return (
     <div className="chat-panel">
+      {gameOpen && active && (
+        <CaroGame
+          conversationId={conversationId}
+          userId={user.id}
+          names={names}
+          socket={socket.current}
+          isGroup={
+            isGroup ?? peers.filter((peer) => peer.id !== user.id).length > 1
+          }
+          onGameChange={setCurrentGame}
+          onClose={() => setGameOpen(false)}
+        />
+      )}
+      {!gameOpen &&
+        currentGame &&
+        (currentGame.status === 'invited' ||
+          currentGame.status === 'active') && (
+          <div className="game-live-banner" role="status">
+            <div className="game-live-banner-info">
+              <span className="game-live-dot" aria-hidden="true" />
+              <div>
+                <strong>
+                  {GAME_INFO[currentGame.gameType]?.name ?? 'Trò chơi'}
+                </strong>
+                <span>
+                  {currentGame.status === 'invited'
+                    ? GAME_INFO[currentGame.gameType]?.groupOnly
+                      ? currentGame.xUserId === user.id
+                        ? 'Đang chờ các thành viên trong nhóm tham gia…'
+                        : `${names(currentGame.xUserId)} vừa mở phòng chơi nhóm!`
+                      : currentGame.oUserId === user.id
+                        ? `${names(currentGame.xUserId)} đang mời bạn vào bàn`
+                        : `Đang chờ ${names(currentGame.oUserId)} tham gia…`
+                    : (currentGame.xUserId === user.id ? 'X' : 'O') ===
+                        currentGame.turn
+                      ? 'Đến lượt của bạn đi!'
+                      : `Lượt của ${names(
+                          currentGame.xUserId === user.id
+                            ? currentGame.oUserId
+                            : currentGame.xUserId,
+                        )}`}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="game-live-banner-btn"
+              onClick={() => setGameOpen(true)}
+            >
+              {currentGame.status === 'invited' &&
+              currentGame.xUserId !== user.id
+                ? 'Tham gia ngay'
+                : 'Mở bàn chơi'}
+            </button>
+          </div>
+        )}
       {ai && active && (
         <AiAssistant
           key={`${conversationId}:${ai.kind}:${ai.targetId ?? ''}`}
@@ -828,6 +912,19 @@ export function Chat({
                   })
                 }
                 onOpenReceipts={() => void viewReceipts(message.id)}
+                currentGame={currentGame}
+                onOpenGame={() => setGameOpen(true)}
+                onAcceptGame={(gameId) => {
+                  setGameOpen(true);
+                  void api
+                    .authenticated<{ game: CaroSession }>(
+                      `/games/${gameId}/accept`,
+                      undefined,
+                      'POST',
+                    )
+                    .then((res) => setCurrentGame(res.game))
+                    .catch((e) => setError(api.errorMessage(e)));
+                }}
               />
             </Fragment>
           );
@@ -861,6 +958,27 @@ export function Chat({
         />
       )}
       <div className="chat-composer-bar">
+        <button
+          className={`composer-game${
+            currentGame &&
+            (currentGame.status === 'invited' ||
+              currentGame.status === 'active')
+              ? ' has-open-game'
+              : ''
+          }`}
+          type="button"
+          disabled={unavailable || !active}
+          aria-label="Mở trung tâm trò chơi"
+          title="Trò chơi trong chat"
+          onClick={() => setGameOpen(true)}
+        >
+          <UiIcon name="game" />
+          {currentGame &&
+            (currentGame.status === 'invited' ||
+              currentGame.status === 'active') && (
+              <span className="composer-game-badge" aria-hidden="true" />
+            )}
+        </button>
         <MediaTools
           disabled={unavailable || !active}
           onError={setError}

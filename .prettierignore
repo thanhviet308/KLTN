@@ -11,3 +11,6 @@ apps/android/ios/build/
 apps/android/ios/Pods/
 apps/android/build/
 apps/android/.jest-cache/
+ml/spam_detection/artifacts/
+ml/spam_detection/reports/
+ml/spam_detection/web/data/

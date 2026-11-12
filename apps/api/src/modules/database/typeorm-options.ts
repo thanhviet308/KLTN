@@ -21,6 +21,8 @@ import { AuditLog } from './entities/audit-log.entity';
 import { RegistrationVerification } from './entities/registration-verification.entity';
 import { PasswordReset } from './entities/password-reset.entity';
 import { MessageRequest } from './entities/message-request.entity';
+import { GameSession } from './entities/game-session.entity';
+import { UserNote } from './entities/user-note.entity';
 
 export function typeormOptions(databaseUrl: string): PostgresConnectionOptions {
   return {
@@ -48,6 +50,8 @@ export function typeormOptions(databaseUrl: string): PostgresConnectionOptions {
       AiJob,
       Report,
       AuditLog,
+      GameSession,
+      UserNote,
     ],
     migrations: [resolve(__dirname, 'migrations/*.js')],
     migrationsTableName: 'typeorm_migrations',

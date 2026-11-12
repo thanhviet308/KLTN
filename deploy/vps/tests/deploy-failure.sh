@@ -31,7 +31,7 @@ case "$*" in
   *'build api'|*'build api-green') [[ "$failure_mode" != build ]] || exit 17 ;;
   'run --rm '*api-runtime-dependencies.cjs) [[ "$failure_mode" != dependency ]] || exit 19 ;;
   'run --rm '*sharp-runtime-smoke.cjs*) [[ "$failure_mode" != sharp ]] || exit 20 ;;
-  *'migrate node apps/api/dist/modules/database/migrate.js --allow=CallMessages1791763200000 --allow=PasswordReset1793577600000 --allow=MessageEncryption1793664000000 --allow=MessageRequests1793750400000') [[ "$failure_mode" != migration-apply ]] || exit 18 ;;
+  *'migrate node apps/api/dist/modules/database/migrate.js --allow=CallMessages1791763200000 --allow=PasswordReset1793577600000 --allow=MessageEncryption1793664000000 --allow=MessageRequests1793750400000 --allow=SpamDetection1793836800000 --allow=CaroGames1793923200000 --allow=MoreChatGames1794009600000 --allow=ExpandArcadeGames1794096000000 --allow=UserNotes1794182400000') [[ "$failure_mode" != migration-apply ]] || exit 18 ;;
   *'migrate node apps/api/dist/modules/database/migrate.js --check') [[ "$failure_mode" != migration-check ]] || exit 27 ;;
   *'up -d --no-deps --no-build --wait --wait-timeout 120 '* ) [[ "$failure_mode" != startup ]] || exit 21 ;;
   *'stop api'|*'stop api-green') touch "$stopped_file" ;;

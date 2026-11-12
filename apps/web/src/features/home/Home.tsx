@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as api from '../../lib/api';
 import { Conversations } from '../conversations/Conversations';
 import { AiChatbox } from '../ai/AiChatbox';
@@ -23,11 +23,35 @@ interface Row {
   createdAt?: string;
   direction?: 'incoming' | 'outgoing';
 }
+const primaryTabs: [Tab, string][] = [
+  ['conversations', 'Đoạn chat'],
+  ['friends', 'Bạn bè'],
+];
+
+const friendSubTabs: [
+  Extract<Tab, 'friends' | 'incoming' | 'outgoing' | 'search'>,
+  string,
+  string,
+][] = [
+  ['friends', 'Tất cả bạn bè', 'Danh sách bạn bè đã kết nối'],
+  ['incoming', 'Lời mời nhận', 'Lời mời kết bạn gửi đến bạn'],
+  ['outgoing', 'Lời mời đã gửi', 'Lời mời bạn đã gửi đi'],
+  ['search', 'Tìm bạn', 'Tìm kiếm và kết bạn mới'],
+];
+
+const isFriendsHubTab = (
+  value: Tab,
+): value is 'friends' | 'incoming' | 'outgoing' | 'search' =>
+  value === 'friends' ||
+  value === 'incoming' ||
+  value === 'outgoing' ||
+  value === 'search';
+
 const tabs: [Tab, string][] = [
   ['conversations', 'Đoạn chat'],
   ['messageRequests', 'Tin nhắn chờ'],
   ['friends', 'Bạn bè'],
-  ['incoming', 'Lời mời nhận'],
+  ['incoming', 'Lời mời kết bạn'],
   ['outgoing', 'Lời mời đã gửi'],
   ['search', 'Tìm bạn'],
   ['profile', 'Tài khoản'],
@@ -47,6 +71,7 @@ export function Home({
   const [tab, setTab] = useState<Tab>('conversations');
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [incomingCount, setIncomingCount] = useState(0);
   const presence = usePresence(user.id);
   const [accountOpen, setAccountOpen] = useState(false);
   const [profileSection, setProfileSection] = useState<
@@ -113,6 +138,25 @@ export function Home({
     setName(user.displayName);
   }, [user.displayName]);
   useEffect(() => installAudioUnlock(), []);
+  useEffect(() => {
+    let active = true;
+    const fetchIncomingCount = () => {
+      void api
+        .authenticated<Page<Row>>(
+          '/friend-requests?direction=incoming&limit=20',
+        )
+        .then((page) => {
+          if (active) setIncomingCount(page.items.length);
+        })
+        .catch(() => {});
+    };
+    fetchIncomingCount();
+    const timer = window.setInterval(fetchIncomingCount, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [user.id]);
 
   function fail(e: unknown) {
     if (e instanceof api.ApiError && e.status === 401) onExpired();
@@ -174,6 +218,9 @@ export function Home({
       if (current !== generation.current) return;
       setRows(updated);
       setCursor(page.nextCursor);
+      if (tab === 'incoming') {
+        setIncomingCount(updated.length);
+      }
     } catch (e) {
       if (current === generation.current) fail(e);
     } finally {
@@ -235,29 +282,41 @@ export function Home({
           <span className="brand-dot">.</span>
         </a>
         <nav className="home-nav" aria-label="Điều hướng PingPong">
-          {tabs
-            .filter(([key]) => key !== 'profile')
-            .map(([key, label]) => (
+          {primaryTabs.map(([key, label]) => {
+            const isActive =
+              key === 'friends' ? isFriendsHubTab(tab) : tab === key;
+            const badgeCount =
+              key === 'conversations'
+                ? unreadCount
+                : key === 'friends'
+                  ? incomingCount
+                  : 0;
+            return (
               <button
                 key={key}
                 title={label}
                 aria-label={label}
-                aria-current={tab === key ? 'page' : undefined}
+                aria-current={isActive ? 'page' : undefined}
                 disabled={busy}
                 onClick={() => setTab(key)}
               >
                 <UiIcon name={key} />
                 <span className="nav-label">{label}</span>
-                {key === 'conversations' && unreadCount > 0 && (
+                {badgeCount > 0 && (
                   <span
                     className="nav-unread-badge"
-                    aria-label={`${unreadCount} tin nhắn chưa đọc`}
+                    aria-label={
+                      key === 'conversations'
+                        ? `${badgeCount} tin nhắn chưa đọc`
+                        : `${badgeCount} lời mời kết bạn`
+                    }
                   >
-                    {unreadCount > 99 ? '99+' : unreadCount}
+                    {badgeCount > 99 ? '99+' : badgeCount}
                   </span>
                 )}
               </button>
-            ))}
+            );
+          })}
         </nav>
         <div
           className="account-control"
@@ -360,8 +419,16 @@ export function Home({
           {tab !== 'conversations' && (
             <div className="home-title">
               <div>
-                <span className="eyebrow dark">KHÔNG GIAN CỦA BẠN</span>
-                <h1>{tabs.find(([key]) => key === tab)?.[1]}</h1>
+                <span className="eyebrow dark">
+                  {isFriendsHubTab(tab)
+                    ? 'DANH BẠ & KẾT NỐI'
+                    : 'KHÔNG GIAN CỦA BẠN'}
+                </span>
+                <h1>
+                  {isFriendsHubTab(tab)
+                    ? 'Bạn bè'
+                    : tabs.find(([key]) => key === tab)?.[1]}
+                </h1>
               </div>
               {tab !== 'profile' && (tab !== 'search' || submittedQuery) && (
                 <button
@@ -372,6 +439,43 @@ export function Home({
                   Tải lại
                 </button>
               )}
+            </div>
+          )}
+          {isFriendsHubTab(tab) && (
+            <div
+              className="friends-hub-nav"
+              role="tablist"
+              aria-label="Danh mục bạn bè"
+            >
+              {friendSubTabs.map(([subKey, subLabel, subHint]) => {
+                const selected = tab === subKey;
+                return (
+                  <button
+                    key={subKey}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    className={`friends-hub-tab${selected ? ' is-active' : ''}`}
+                    disabled={busy}
+                    onClick={() => setTab(subKey)}
+                  >
+                    <span className="friends-hub-tab-icon">
+                      <UiIcon name={subKey} size={18} />
+                    </span>
+                    <span className="friends-hub-tab-copy">
+                      <strong>
+                        {subLabel}
+                        {subKey === 'incoming' && incomingCount > 0 && (
+                          <span className="friends-hub-badge">
+                            {incomingCount > 99 ? '99+' : incomingCount}
+                          </span>
+                        )}
+                      </strong>
+                      <small>{subHint}</small>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
           {notice && (

@@ -9,7 +9,8 @@ export interface ChatEvent {
     | 'message:receipt'
     | 'typing:update'
     | 'call:incoming'
-    | 'call:updated';
+    | 'call:updated'
+    | 'game:updated';
   conversationId: string;
   messageId?: string;
   actorId?: string;

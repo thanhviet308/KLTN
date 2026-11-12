@@ -1,0 +1,2910 @@
+/* PingPong Arcade — Warm Sand & Espresso Multi-Game System */
+
+.composer-game {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: #6c503b;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.composer-game:hover:not(:disabled) {
+  background: #f4e6d5;
+  color: #b75020;
+}
+
+.composer-game.has-open-game {
+  background: #fbe7d7;
+  border-color: #ebc5a7;
+  color: #b75020;
+}
+
+.composer-game-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d95a2b;
+  border: 2px solid #faf7f0;
+}
+
+.composer-game:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.composer-game:focus-visible,
+.game-icon-button:focus-visible,
+.game-back-pill:focus-visible,
+.game-category-tabs button:focus-visible,
+.caro-board button:focus-visible,
+.game-primary:focus-visible,
+.game-secondary:focus-visible,
+.game-danger-button:focus-visible,
+.game-text-button:focus-visible,
+.game-live-banner-btn:focus-visible {
+  outline: 2.5px solid #b75020;
+  outline-offset: 2px;
+}
+
+/* Live Game Banner inside Chat Panel */
+.game-live-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 4px;
+  padding: 10px 14px;
+  border: 1px solid #e6cdb5;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #fffdf9 0%, #f9ede0 100%);
+  color: #35271c;
+  box-shadow: 0 6px 20px rgb(53 39 28 / 0.06);
+}
+
+.game-live-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.game-live-dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #d95a2b;
+  box-shadow: 0 0 0 4px rgb(217 90 43 / 0.18);
+}
+
+.game-live-banner-info strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.3;
+  color: #302217;
+}
+
+.game-live-banner-info span {
+  display: block;
+  font-size: 12px;
+  color: #7d644f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-live-banner-btn {
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #b75020;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.game-live-banner-btn:hover {
+  background: #9b421b;
+}
+
+/* Modal Scrim & Panel */
+.game-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(32 22 15 / 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.caro-panel {
+  --board-fit: min(100%, calc(var(--app-h, 100dvh) - 116px), 490px);
+  display: flex;
+  flex-direction: column;
+  width: min(94vw, 940px);
+  max-height: calc(var(--app-h, 100dvh) - 20px);
+  overflow: hidden;
+  border: 1px solid #e4d5c3;
+  border-radius: 24px;
+  background: #fffdf9;
+  color: #30271f;
+  box-shadow:
+    0 28px 80px rgb(35 23 14 / 0.34),
+    0 2px 8px rgb(35 23 14 / 0.08);
+}
+
+.caro-panel.panel-catalog {
+  width: min(94vw, 980px);
+}
+
+.game-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 18px;
+  background: #302217;
+  color: #fff4e4;
+  border-bottom: 1px solid #453122;
+}
+
+.game-header-title-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.game-back-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid #5c422e;
+  border-radius: 999px;
+  background: #432f20;
+  color: #f5dfbd;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.game-back-pill:hover:not(:disabled) {
+  background: #573d2a;
+}
+
+.game-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffac69;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.caro-panel h2 {
+  margin: 0;
+  color: #fff4e4;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.game-icon-button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #523a28;
+  border-radius: 50%;
+  background: #432f20;
+  color: #f5dfbd;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.game-icon-button:hover {
+  background: #593e2b;
+}
+
+.game-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 18px 16px;
+  background: #faf7f0;
+}
+
+/* Catalog View & Category Tabs */
+.game-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.game-catalog-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 15px 18px;
+  border: 1px solid #e7d9c8;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fffdf9 0%, #f6eadb 100%);
+}
+
+.game-catalog-banner h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: #302217;
+}
+
+.game-catalog-banner p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6e5a49;
+  max-width: 520px;
+}
+
+.game-return-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+.game-group-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e3b88f;
+  border-radius: 14px;
+  background: #fff3e4;
+  color: #7d3e19;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.game-catalog-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.game-category-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #e6d8c7;
+  border-radius: 14px;
+  background: #f3eae0;
+}
+
+.game-category-tabs button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #6b533e;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.game-category-tabs button:hover:not(.is-active) {
+  color: #302217;
+}
+
+.game-category-tabs button.is-active {
+  background: #fffdf9;
+  color: #b75020;
+  box-shadow: 0 2px 8px rgb(48 34 23 / 0.08);
+}
+
+.game-catalog {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 860px) {
+  .game-catalog {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.game-catalog-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid #e6d9c8;
+  border-radius: 20px;
+  background: #fffdf9;
+  box-shadow: 0 4px 14px rgb(48 34 23 / 0.04);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.game-catalog-card:hover {
+  border-color: #d4b89b;
+  box-shadow: 0 8px 24px rgb(48 34 23 / 0.08);
+}
+
+.game-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.game-card-top > .game-catalog-symbol {
+  width: 58px;
+  height: 58px;
+}
+
+/* Mini Illustrations for Game Cards */
+.game-catalog-symbol {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgb(48 34 23 / 0.1);
+}
+
+.symbol-memory {
+  background: linear-gradient(135deg, #ffd89b 0%, #f59f00 100%);
+  padding: 6px;
+}
+
+.mini-grid-memory {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+}
+
+.mini-grid-memory span {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: #fff9ec;
+  font-size: 13px;
+  font-weight: 800;
+  color: #b75020;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+}
+
+.symbol-treasure {
+  background: linear-gradient(135deg, #2b5876 0%, #4e4376 100%);
+  padding: 6px;
+}
+
+.mini-grid-treasure {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+}
+
+.mini-grid-treasure span {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.16);
+  color: #ffe066;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.symbol-rps {
+  background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+  padding: 6px;
+}
+
+.mini-rps-icons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.symbol-pirate {
+  background: linear-gradient(135deg, #4b2c20 0%, #8c4a27 100%);
+  padding: 6px;
+}
+
+.mini-pirate-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.symbol-sudoku {
+  background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%);
+  padding: 6px;
+}
+
+.mini-grid-sudoku {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  background: #2f5233;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.mini-grid-sudoku span {
+  display: grid;
+  place-items: center;
+  background: #f8fff4;
+  color: #1f4722;
+  font-size: 11px;
+  font-weight: 900;
+  border-radius: 3px;
+}
+
+.symbol-xiangqi {
+  background: linear-gradient(135deg, #ecc994 0%, #dca968 100%);
+  padding: 6px;
+}
+
+.mini-xq-board {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.xq-mini-token {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #fdf4e3;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+}
+
+.xq-mini-token.red {
+  color: #b8291d;
+  border: 1.5px solid #b8291d;
+}
+
+.xq-mini-token.black {
+  color: #1f2933;
+  border: 1.5px solid #1f2933;
+}
+
+.symbol-chess {
+  background: #d2ab80;
+  padding: 6px;
+}
+
+.mini-grid-chess {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.mini-grid-chess span {
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.mini-grid-chess span.light {
+  background: #f5e6d3;
+  color: #8c421e;
+}
+
+.mini-grid-chess span.dark {
+  background: #9e714c;
+  color: #1e1915;
+}
+
+.symbol-othello {
+  background: #1c6b46;
+  padding: 8px;
+}
+
+.mini-grid-othello {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.mini-grid-othello span {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.35);
+}
+
+.mini-grid-othello span.white {
+  background: #fcfaf5;
+}
+
+.mini-grid-othello span.black {
+  background: #1c2126;
+}
+
+.symbol-checkers {
+  background: #8a5636;
+  padding: 6px;
+}
+
+.mini-grid-checkers {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.mini-grid-checkers .sq-l {
+  background: #f2dfc8;
+}
+
+.mini-grid-checkers .sq-d {
+  display: grid;
+  place-items: center;
+  background: #6c4329;
+}
+
+.mini-grid-checkers .sq-d::after {
+  content: '';
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+}
+
+.mini-grid-checkers .sq-d.red::after {
+  background: #d63e2a;
+  box-shadow: inset 0 0 0 2px #f99b8d;
+}
+
+.mini-grid-checkers .sq-d.black::after {
+  background: #232a31;
+  box-shadow: inset 0 0 0 2px #7e8b99;
+}
+
+.symbol-coganh {
+  background: #ead1ab;
+  padding: 8px;
+}
+
+.mini-grid-coganh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 2px;
+  background: #8c6239;
+}
+
+.mini-grid-coganh span {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+.mini-grid-coganh span.red {
+  background: #c83e23;
+}
+
+.mini-grid-coganh span.blue {
+  background: #17697d;
+}
+
+.symbol-caro {
+  background: #ebd0a4;
+  padding: 7px;
+}
+
+.mini-grid-caro {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgb(92 64 35 / 0.35);
+  background: #f5dfb9;
+}
+
+.mini-grid-caro span {
+  display: grid;
+  place-items: center;
+  border: 0.5px solid rgb(92 64 35 / 0.22);
+  font-size: 9px;
+  font-weight: 900;
+  color: #0e677a;
+  line-height: 1;
+}
+
+.mini-grid-caro span:nth-child(2),
+.mini-grid-caro span:nth-child(4),
+.mini-grid-caro span:nth-child(8) {
+  color: #c24620;
+}
+
+.mini-grid-caro span.win {
+  background: rgb(183 80 32 / 0.18);
+  color: #0b596b;
+}
+
+.symbol-ttt {
+  background: #f7e6d4;
+  padding: 8px;
+}
+
+.mini-grid-ttt {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  background: #dcc3aa;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mini-grid-ttt span {
+  display: grid;
+  place-items: center;
+  background: #fffaf3;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.mini-grid-ttt span.x {
+  color: #b75020;
+}
+
+.mini-grid-ttt span.o {
+  color: #16697a;
+}
+
+.symbol-c4 {
+  background: #23496d;
+  padding: 8px;
+}
+
+.mini-grid-c4 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+}
+
+.mini-grid-c4 span {
+  border-radius: 50%;
+  background: #16324c;
+}
+
+.mini-grid-c4 span.gold {
+  background: #f7b731;
+}
+
+.mini-grid-c4 span.coral {
+  background: #eb4d4b;
+}
+
+.game-invite-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.game-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.game-invite-copy h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #302217;
+}
+
+.game-card-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f5e6d6;
+  color: #964922;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.game-invite-copy p {
+  margin: 0;
+  color: #6e5a49;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Buttons */
+.game-primary,
+.game-secondary,
+.game-danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 13px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.game-primary {
+  background: #b75020;
+  color: #fff;
+  box-shadow: 0 4px 12px rgb(183 80 32 / 0.22);
+}
+
+.game-primary:hover:not(:disabled) {
+  background: #9b421b;
+}
+
+.game-secondary {
+  border-color: #dccbb8;
+  background: #fffdf9;
+  color: #4f3a29;
+}
+
+.game-secondary:hover:not(:disabled) {
+  background: #f5ebe0;
+  border-color: #cdb69d;
+}
+
+.game-danger-button {
+  background: #b8332a;
+  color: #fff;
+}
+
+.game-danger-button:hover:not(:disabled) {
+  background: #992820;
+}
+
+.game-primary:disabled,
+.game-secondary:disabled,
+.game-danger-button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Matchup Bar & Laptop Widescreen Split Layout */
+.game-arena {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.game-sidebar-hud {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.game-main-stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+@media (min-width: 760px) {
+  .game-arena.is-split-layout {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .game-arena.is-split-layout .game-sidebar-hud {
+    justify-content: flex-start;
+  }
+
+  .game-arena.is-split-layout .game-matchup-bar {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .game-arena.is-split-layout .game-vs-divider {
+    flex-direction: row;
+    justify-content: center;
+    gap: 8px;
+    padding: 2px 0;
+  }
+
+  .game-arena.is-split-layout .game-player-card.player-o {
+    justify-content: flex-start;
+    flex-direction: row-reverse;
+  }
+
+  .game-arena.is-split-layout .game-player-meta.align-right {
+    text-align: left;
+    align-items: flex-start;
+    margin-right: auto;
+  }
+
+  .game-arena.is-split-layout .game-status {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .game-arena.is-split-layout .game-active-footer,
+  .game-arena.is-split-layout .game-postmatch-actions {
+    margin-top: auto;
+    padding-top: 4px;
+  }
+}
+
+/* Live Turn Thinking Clock */
+.game-turn-clock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 13px;
+  border: 1.5px solid #e2cdb5;
+  border-radius: 15px;
+  background: #fffdf9;
+  box-shadow: 0 3px 10px rgb(48 34 23 / 0.04);
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.game-turn-clock.is-my-clock {
+  border-color: #d88b56;
+  background: linear-gradient(135deg, #fffdf9 0%, #fff4e8 100%);
+}
+
+.game-turn-clock.is-warning {
+  border-color: #e69d00;
+  background: #fff9e6;
+}
+
+.game-turn-clock.is-danger {
+  border-color: #d93829;
+  background: #fff1f0;
+  animation: game-clock-pulse 0.85s ease-in-out infinite alternate;
+}
+
+@keyframes game-clock-pulse {
+  from {
+    box-shadow: 0 0 0 0 rgb(217 56 41 / 0.2);
+  }
+  to {
+    box-shadow: 0 0 0 4px rgb(217 56 41 / 0.18);
+  }
+}
+
+.game-turn-clock-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.game-turn-clock-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #5c4532;
+}
+
+.game-turn-clock-value {
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3e5d4;
+  color: #8f3d16;
+  font-size: 12.5px;
+  font-weight: 900;
+}
+
+.game-turn-clock.is-warning .game-turn-clock-value {
+  background: #ffe8a3;
+  color: #8c5800;
+}
+
+.game-turn-clock.is-danger .game-turn-clock-value {
+  background: #ffd1cc;
+  color: #a81e14;
+}
+
+.game-turn-clock-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #eadbc9;
+}
+
+.game-turn-clock-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2b8a3e 0%, #51cf66 100%);
+  transition:
+    width 0.25s linear,
+    background 0.25s ease;
+}
+
+.game-turn-clock.is-warning .game-turn-clock-fill {
+  background: linear-gradient(90deg, #e67700 0%, #fcc419 100%);
+}
+
+.game-turn-clock.is-danger .game-turn-clock-fill {
+  background: linear-gradient(90deg, #c92a2a 0%, #ff6b6b 100%);
+}
+
+.game-turn-clock-hint {
+  font-size: 10.5px;
+  color: #826a55;
+  line-height: 1.3;
+}
+
+.game-matchup-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid #e6d9c8;
+  border-radius: 18px;
+  background: #fffdf9;
+}
+
+.game-player-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1.5px solid transparent;
+  border-radius: 14px;
+  background: #f8f2e9;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.game-player-card.player-o {
+  justify-content: flex-end;
+}
+
+.game-player-card.is-active-turn {
+  border-color: #b75020;
+  background: #fff6ed;
+  box-shadow: 0 4px 14px rgb(183 80 32 / 0.12);
+}
+
+.game-player-card.is-winner {
+  border-color: #d48b19;
+  background: #fff9e6;
+}
+
+.game-player-token {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.game-player-token.token-x {
+  background: #fce8df;
+  color: #b8321a;
+}
+
+.game-player-token.token-o {
+  background: #e2eef2;
+  color: #1b4d63;
+}
+
+.game-player-token.mode-caro.token-x,
+.game-player-token.mode-tic_tac_toe.token-x {
+  background: #e2f2f5;
+  color: #0d6678;
+}
+
+.game-player-token.mode-caro.token-o,
+.game-player-token.mode-tic_tac_toe.token-o {
+  background: #fce8df;
+  color: #bf431e;
+}
+
+.game-player-token.mode-connect_four.token-x {
+  border-radius: 50%;
+  background: #fff3cc;
+  color: #e69d00;
+  font-size: 22px;
+}
+
+.game-player-token.mode-connect_four.token-o {
+  border-radius: 50%;
+  background: #ffe3e3;
+  color: #e03e3e;
+  font-size: 22px;
+}
+
+.game-player-token.mode-othello.token-x {
+  border-radius: 50%;
+  background: #232a31;
+  color: #fff;
+  font-size: 16px;
+}
+
+.game-player-token.mode-othello.token-o {
+  border-radius: 50%;
+  background: #f5efe6;
+  color: #fff;
+  border: 1.5px solid #cabaa6;
+  font-size: 16px;
+}
+
+.game-player-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.game-player-meta.align-right {
+  text-align: right;
+  align-items: flex-end;
+}
+
+.game-player-meta strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 800;
+  color: #302217;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.winner-crown {
+  color: #d98a00;
+  flex-shrink: 0;
+}
+
+.game-player-meta small {
+  font-size: 11px;
+  color: #846d59;
+}
+
+.game-player-card.is-active-turn .game-player-meta small {
+  color: #b75020;
+  font-weight: 700;
+}
+
+.game-vs-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+}
+
+.game-vs-badge {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #f2e5d5;
+  color: #8d512a;
+}
+
+.game-vs-divider small {
+  font-size: 11px;
+  font-weight: 600;
+  color: #846d59;
+  white-space: nowrap;
+}
+
+/* Status Banner */
+.game-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 15px;
+  border: 1px solid #e5d6c5;
+  border-radius: 15px;
+  background: #f5ece0;
+  color: #4f3928;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.game-status-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-status.is-my-turn {
+  border-color: #e6b896;
+  background: linear-gradient(135deg, #fff6ec 0%, #fbe6d2 100%);
+  color: #9c3f16;
+}
+
+.game-status.status-won,
+.game-status.status-forfeited {
+  border-color: #dfbe78;
+  background: linear-gradient(135deg, #fffbeb 0%, #faecc7 100%);
+  color: #784f08;
+}
+
+.game-status.status-draw {
+  border-color: #c9d4d8;
+  background: #eef3f5;
+  color: #36505c;
+}
+
+.game-rule-pill {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.72);
+  color: #6b533f;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Invitation & Declined Stages */
+.game-invite-stage,
+.game-declined-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid #e6d9c8;
+  border-radius: 20px;
+  background: #fffdf9;
+}
+
+.game-invite-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.game-invite-stage-copy h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: #302217;
+}
+
+.game-invite-stage-copy p,
+.game-declined-stage p {
+  margin: 0;
+  color: #695443;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.game-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Game Board Container & Base Grids */
+.game-board-frame {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e6d8c7;
+  border-radius: 20px;
+  background: #fffdf9;
+  box-shadow: inset 0 2px 6px rgb(48 34 23 / 0.03);
+}
+
+.caro-board {
+  position: relative;
+  display: grid;
+  width: var(--board-fit);
+  max-width: var(--board-fit);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 2.5px solid #96744e;
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 25% 20%,
+      rgb(255 247 228 / 0.45),
+      transparent 60%
+    ),
+    linear-gradient(145deg, #efd5a7 0%, #e4c187 100%);
+  box-shadow: 0 10px 28px rgb(68 46 24 / 0.14);
+}
+
+.board-svg-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.caro-board button {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid rgb(96 68 38 / 0.28);
+  border-bottom: 1px solid rgb(96 68 38 / 0.28);
+  border-radius: 0;
+  background: transparent;
+  color: #0c6375;
+  font-size: clamp(11px, 2.7vw, 21px);
+  font-weight: 900;
+  line-height: 1;
+  overflow: visible;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  transition: background-color 0.12s ease;
+}
+
+.caro-board button:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.caro-board.board-caro button.mark-2,
+.caro-board.board-tic_tac_toe button.mark-2 {
+  color: #c23f1b;
+}
+
+/* Hover ghost preview on empty cells for Caro & Tic-Tac-Toe */
+.caro-board.is-interactive button.hover-preview-x:not(:disabled):hover {
+  background: rgb(12 99 117 / 0.14);
+}
+.caro-board.is-interactive button.hover-preview-x:not(:disabled):hover::after {
+  content: 'X';
+  opacity: 0.35;
+  color: #0c6375;
+  font-weight: 800;
+}
+
+.caro-board.is-interactive button.hover-preview-o:not(:disabled):hover {
+  background: rgb(194 63 27 / 0.14);
+}
+.caro-board.is-interactive button.hover-preview-o:not(:disabled):hover::after {
+  content: 'O';
+  opacity: 0.35;
+  color: #c23f1b;
+  font-weight: 800;
+}
+
+.caro-board.board-caro button.is-last-move,
+.caro-board.board-tic_tac_toe button.is-last-move {
+  background: rgb(255 250 232 / 0.65);
+  box-shadow: inset 0 0 0 2px rgb(183 80 32 / 0.55);
+}
+
+.caro-board.board-caro button.is-winning-cell,
+.caro-board.board-tic_tac_toe button.is-winning-cell {
+  background: #fff2b2;
+  box-shadow: inset 0 0 0 2.5px #d98a00;
+}
+
+.board-glyph {
+  display: inline-block;
+  filter: drop-shadow(0 1px 1px rgb(255 255 255 / 0.45));
+}
+
+/* ==========================================
+   1. CỜ TƯỚNG (Xiangqi 10x9)
+   ========================================== */
+.caro-board.board-xiangqi {
+  width: min(100%, calc((var(--app-h, 100dvh) - 116px) * 0.9), 460px);
+  max-width: min(100%, calc((var(--app-h, 100dvh) - 116px) * 0.9), 460px);
+  aspect-ratio: 9 / 10;
+  border: 3px solid #784f2b;
+  background: linear-gradient(160deg, #efd3a2 0%, #dfb87c 100%);
+}
+
+.caro-board.board-xiangqi button {
+  border: 0;
+  padding: 2px;
+}
+
+.xiangqi-token {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 88%;
+  height: 88%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 32% 28%,
+    #fffdf7 0%,
+    #f5dfb8 72%,
+    #dfbe89 100%
+  );
+  box-shadow:
+    0 3px 6px rgb(50 30 10 / 0.32),
+    inset 0 1px 1px rgb(255 255 255 / 0.8);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.xiangqi-token.xq-red {
+  color: #b82518;
+  border: 2px solid #b82518;
+}
+
+.xiangqi-token.xq-black {
+  color: #1c252c;
+  border: 2px solid #24303a;
+}
+
+.xq-hanzi {
+  font-size: clamp(13px, 3vw, 20px);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.xq-viet {
+  font-size: clamp(7px, 1.5vw, 9.5px);
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 1px;
+  opacity: 0.88;
+}
+
+/* ==========================================
+   2. CỜ VUA (Chess 8x8)
+   ========================================== */
+.caro-board.board-chess {
+  width: var(--board-fit);
+  max-width: var(--board-fit);
+  aspect-ratio: 1;
+  border: 4px solid #593a22;
+  border-radius: 14px;
+}
+
+.caro-board.board-chess button {
+  border: 0;
+}
+
+.caro-board.board-chess button.sq-light {
+  background: #f3e4cf;
+}
+
+.caro-board.board-chess button.sq-dark {
+  background: #b08259;
+}
+
+.caro-board.board-chess button.is-last-move {
+  box-shadow: inset 0 0 0 3px rgb(230 161 0 / 0.75);
+}
+
+.chess-token {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 86%;
+  height: 86%;
+  border-radius: 12px;
+  transition: transform 0.14s ease;
+}
+
+.chess-token.chess-white {
+  background: radial-gradient(circle at 35% 25%, #ffffff 0%, #f4eadb 85%);
+  color: #7d3616;
+  border: 1.5px solid #c9ab88;
+  box-shadow: 0 3px 6px rgb(40 25 10 / 0.22);
+}
+
+.chess-token.chess-black {
+  background: radial-gradient(circle at 35% 25%, #434d56 0%, #1d2329 85%);
+  color: #fcebd4;
+  border: 1.5px solid #111519;
+  box-shadow: 0 3px 6px rgb(0 0 0 / 0.32);
+}
+
+.chess-glyph {
+  font-size: clamp(18px, 4vw, 27px);
+  line-height: 1;
+}
+
+.chess-label {
+  font-size: clamp(7.5px, 1.5vw, 9.5px);
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+/* ==========================================
+   3. CỜ ĐAM (Checkers 8x8)
+   ========================================== */
+.caro-board.board-checkers {
+  width: var(--board-fit);
+  max-width: var(--board-fit);
+  aspect-ratio: 1;
+  border: 4px solid #52341e;
+  border-radius: 14px;
+}
+
+.caro-board.board-checkers button {
+  border: 0;
+}
+
+.caro-board.board-checkers button.sq-light {
+  background: #f4e6d2;
+}
+
+.caro-board.board-checkers button.sq-dark {
+  background: #7c4f31;
+}
+
+.checkers-token {
+  display: grid;
+  place-items: center;
+  width: 78%;
+  height: 78%;
+  border-radius: 50%;
+  transition: transform 0.14s ease;
+}
+
+.checkers-token.ck-red {
+  background: radial-gradient(circle at 35% 30%, #ff7961 0%, #c62828 80%);
+  border: 2.5px solid #ffab91;
+  color: #fff3c4;
+  box-shadow:
+    0 3px 6px rgb(0 0 0 / 0.38),
+    inset 0 0 0 3px rgb(140 20 20 / 0.45);
+}
+
+.checkers-token.ck-black {
+  background: radial-gradient(circle at 35% 30%, #525c66 0%, #1d232a 80%);
+  border: 2.5px solid #9aa5b1;
+  color: #ffd54f;
+  box-shadow:
+    0 3px 6px rgb(0 0 0 / 0.42),
+    inset 0 0 0 3px rgb(0 0 0 / 0.45);
+}
+
+/* ==========================================
+   4. CỜ GÁNH (Vietnamese 5x5)
+   ========================================== */
+.caro-board.board-co_ganh {
+  width: min(100%, 390px);
+  aspect-ratio: 1;
+  border: 3px solid #7d5432;
+  background: linear-gradient(145deg, #f3dab0 0%, #e4c18a 100%);
+}
+
+.caro-board.board-co_ganh button {
+  border: 0;
+}
+
+.ganh-token {
+  display: block;
+  width: 68%;
+  height: 68%;
+  border-radius: 50%;
+  transition: transform 0.14s ease;
+}
+
+.ganh-token.ganh-red {
+  background: radial-gradient(
+    circle at 35% 30%,
+    #ff8666 0%,
+    #c43519 75%,
+    #8f220d 100%
+  );
+  border: 2px solid #ffd2c4;
+  box-shadow: 0 4px 8px rgb(80 20 10 / 0.32);
+}
+
+.ganh-token.ganh-blue {
+  background: radial-gradient(
+    circle at 35% 30%,
+    #56c8e0 0%,
+    #126b80 75%,
+    #0a4757 100%
+  );
+  border: 2px solid #c4f0fa;
+  box-shadow: 0 4px 8px rgb(10 45 60 / 0.32);
+}
+
+/* Step-move Selection & Valid Destination Highlights (Xiangqi, Chess, Checkers, Co Ganh) */
+.caro-board button.is-selected-piece .xiangqi-token,
+.caro-board button.is-selected-piece .chess-token,
+.caro-board button.is-selected-piece .checkers-token,
+.caro-board button.is-selected-piece .ganh-token {
+  transform: scale(1.1);
+  box-shadow:
+    0 0 0 3.5px #f59f00,
+    0 6px 14px rgb(0 0 0 / 0.35);
+}
+
+.caro-board button.is-move-target::after {
+  content: '';
+  width: 32%;
+  height: 32%;
+  border-radius: 50%;
+  background: #1ea65a;
+  box-shadow:
+    0 0 0 4px rgb(30 166 90 / 0.25),
+    0 2px 4px rgb(0 0 0 / 0.25);
+}
+
+.caro-board button.is-capture-target::after {
+  content: '';
+  position: absolute;
+  inset: 5%;
+  border-radius: 50%;
+  border: 3px dashed #e03131;
+  background: rgb(224 49 49 / 0.14);
+  pointer-events: none;
+}
+
+/* ==========================================
+   5. CỜ LẬT OTHELLO (Reversi 8x8)
+   ========================================== */
+.caro-board.board-othello {
+  width: var(--board-fit);
+  max-width: var(--board-fit);
+  aspect-ratio: 1;
+  padding: 6px;
+  gap: 3px;
+  border: 4px solid #12422b;
+  border-radius: 18px;
+  background: #134a30;
+}
+
+.caro-board.board-othello button {
+  border: 0;
+  border-radius: 6px;
+  background: #1e6e47;
+  font-size: 0;
+}
+
+.caro-board.board-othello button.is-othello-valid::after {
+  content: '';
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.42);
+  border: 1.5px solid rgb(255 255 255 / 0.7);
+}
+
+.caro-board.board-othello button.is-othello-valid:hover {
+  background: #278558;
+}
+
+.caro-board.board-othello button.mark-1 .c4-disc {
+  transform: scale(1);
+  background: radial-gradient(
+    circle at 35% 30%,
+    #4f5963 0%,
+    #181d22 75%,
+    #0c0f12 100%
+  );
+  box-shadow: 0 3px 6px rgb(0 0 0 / 0.45);
+}
+
+.caro-board.board-othello button.mark-2 .c4-disc {
+  transform: scale(1);
+  background: radial-gradient(
+    circle at 35% 30%,
+    #ffffff 0%,
+    #efe8dc 75%,
+    #cbbba4 100%
+  );
+  box-shadow: 0 3px 6px rgb(0 0 0 / 0.38);
+}
+
+.caro-board.board-othello button.is-othello-flip .c4-disc {
+  box-shadow: 0 0 0 3px #ffd43b;
+}
+
+/* ==========================================
+   6. TIC-TAC-TOE (3x3) & CONNECT FOUR (6x7)
+   ========================================== */
+.caro-board.board-tic_tac_toe {
+  width: min(100%, 340px);
+  padding: 10px;
+  gap: 10px;
+  border: 2px solid #dfd0be;
+  border-radius: 22px;
+  background: #f2e7d8;
+  box-shadow: inset 0 2px 6px rgb(68 46 24 / 0.06);
+}
+
+.caro-board.board-tic_tac_toe button {
+  border: 1.5px solid #e4d5c4;
+  border-radius: 16px;
+  background: #fffdf9;
+  font-size: clamp(38px, 9vw, 68px);
+  box-shadow: 0 4px 10px rgb(48 34 23 / 0.05);
+}
+
+.caro-board.board-tic_tac_toe button.is-winning-cell {
+  background: #fff4c2;
+  border-color: #d98a00;
+  box-shadow: 0 0 0 3px rgb(217 138 0 / 0.25);
+}
+
+.caro-board.board-connect_four {
+  width: min(100%, calc((var(--app-h, 100dvh) - 116px) * 1.16), 490px);
+  max-width: min(100%, calc((var(--app-h, 100dvh) - 116px) * 1.16), 490px);
+  aspect-ratio: 7 / 6;
+  padding: 12px;
+  gap: 8px;
+  border: 3px solid #1b3b5a;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #27537d 0%, #1c3f60 100%);
+  box-shadow:
+    0 14px 32px rgb(22 48 74 / 0.28),
+    inset 0 2px 4px rgb(255 255 255 / 0.18);
+}
+
+.caro-board.board-connect_four button {
+  border: 0;
+  border-radius: 50%;
+  background: #132c44;
+  box-shadow:
+    inset 0 4px 8px rgb(0 0 0 / 0.45),
+    0 1px 1px rgb(255 255 255 / 0.14);
+  font-size: 0;
+}
+
+.caro-board.board-connect_four button.is-col-hover:not(.mark-1):not(.mark-2) {
+  background: #1b3c5c;
+}
+
+.caro-board.board-connect_four button.is-drop-target.preview-x::after,
+.caro-board.board-connect_four button.is-drop-target.preview-o::after {
+  content: '';
+  width: 76%;
+  height: 76%;
+  border-radius: 50%;
+  border: 2.5px dashed rgb(255 255 255 / 0.65);
+}
+
+.caro-board.board-connect_four button.is-drop-target.preview-x::after {
+  background: rgb(255 196 46 / 0.38);
+  border-color: #ffd45e;
+}
+
+.caro-board.board-connect_four button.is-drop-target.preview-o::after {
+  background: rgb(240 78 78 / 0.38);
+  border-color: #ff8585;
+}
+
+.c4-disc {
+  display: block;
+  width: 84%;
+  height: 84%;
+  border-radius: 50%;
+  font-size: 0;
+  transform: scale(0);
+  transition: transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+.caro-board.board-connect_four button.mark-1 .c4-disc {
+  transform: scale(1);
+  background: radial-gradient(
+    circle at 35% 30%,
+    #ffe37a 0%,
+    #f5ab00 72%,
+    #c98600 100%
+  );
+  box-shadow:
+    inset 0 -3px 5px rgb(120 72 0 / 0.45),
+    0 2px 4px rgb(0 0 0 / 0.35);
+}
+
+.caro-board.board-connect_four button.mark-2 .c4-disc {
+  transform: scale(1);
+  background: radial-gradient(
+    circle at 35% 30%,
+    #ff8a80 0%,
+    #e53935 72%,
+    #ab1f1c 100%
+  );
+  box-shadow:
+    inset 0 -3px 5px rgb(90 10 10 / 0.45),
+    0 2px 4px rgb(0 0 0 / 0.35);
+}
+
+.caro-board.board-connect_four button.is-last-move .c4-disc,
+.caro-board.board-othello button.is-last-move .c4-disc {
+  box-shadow:
+    0 0 0 2.5px rgb(255 255 255 / 0.85),
+    inset 0 -3px 5px rgb(0 0 0 / 0.35);
+}
+
+.caro-board.board-connect_four button.is-winning-cell .c4-disc {
+  box-shadow:
+    0 0 0 4px #fff,
+    0 0 14px #ffd43b;
+}
+
+/* ==========================================
+   7. LẬT HÌNH TRÍ NHỚ (Memory Match 4x4)
+   ========================================== */
+.caro-board.board-memory_match {
+  width: min(100%, 400px);
+  padding: 12px;
+  gap: 10px;
+  border: 2px solid #dfcab0;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #f9efe1 0%, #eddcc5 100%);
+}
+
+.caro-board.board-memory_match button {
+  border: 0;
+  border-radius: 16px;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.memory-card-back {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  border: 2px solid #d9822b;
+  background: linear-gradient(135deg, #f59f00 0%, #d95a2b 100%);
+  color: #fff6e5;
+  font-size: clamp(22px, 5vw, 30px);
+  font-weight: 900;
+  box-shadow:
+    0 4px 10px rgb(183 80 32 / 0.22),
+    inset 0 1px 1px rgb(255 255 255 / 0.35);
+  transition: transform 0.15s ease;
+}
+
+.caro-board.board-memory_match.is-interactive
+  button:not(:disabled):hover
+  .memory-card-back {
+  transform: translateY(-2px) scale(1.02);
+}
+
+.memory-card-face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  border: 2px solid #e0cdb6;
+  background: #fffdf9;
+  box-shadow: 0 4px 10px rgb(48 34 23 / 0.08);
+}
+
+.memory-card-face.is-temp {
+  border-color: #f59f00;
+  background: #fff9db;
+}
+
+.memory-card-face.is-matched.owner-x {
+  border-color: #e06d3b;
+  background: #fff1e8;
+}
+
+.memory-card-face.is-matched.owner-o {
+  border-color: #26869e;
+  background: #eaf7fa;
+}
+
+.memory-emoji {
+  font-size: clamp(26px, 6.5vw, 40px);
+  line-height: 1;
+}
+
+/* ==========================================
+   8. SĂN KHO BÁU NÉ BOM (Treasure Hunt 6x6)
+   ========================================== */
+.game-helper-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px dashed #dcc8b0;
+  border-radius: 12px;
+  background: #fbf5ec;
+  color: #5c4633;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.caro-board.board-treasure_hunt {
+  width: min(100%, 430px);
+  padding: 10px;
+  gap: 6px;
+  border: 3px solid #2b4c65;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #214059 0%, #172e40 100%);
+}
+
+.caro-board.board-treasure_hunt button {
+  border: 0;
+  border-radius: 11px;
+  padding: 0;
+}
+
+.treasure-unopened {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 11px;
+  border: 1.5px solid #deb887;
+  background: linear-gradient(145deg, #f3d6a4 0%, #d9b074 100%);
+  color: #7d5327;
+  font-size: 15px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.5);
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
+}
+
+.caro-board.board-treasure_hunt.is-interactive
+  button:not(:disabled):hover
+  .treasure-unopened {
+  filter: brightness(1.07);
+  transform: scale(1.03);
+}
+
+.treasure-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 11px;
+  font-size: clamp(16px, 4vw, 22px);
+  line-height: 1;
+}
+
+.treasure-tile small {
+  font-size: 9.5px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+.treasure-tile.tile-diamond {
+  background: linear-gradient(135deg, #e0f7fa 0%, #80deea 100%);
+  color: #006064;
+  border: 1.5px solid #26c6da;
+}
+
+.treasure-tile.tile-gold {
+  background: linear-gradient(135deg, #fff8e1 0%, #ffe082 100%);
+  color: #8d5800;
+  border: 1.5px solid #ffca28;
+}
+
+.treasure-tile.tile-bomb {
+  background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+  color: #b71c1c;
+  border: 1.5px solid #ef5350;
+}
+
+.treasure-tile.tile-radar {
+  background: #284b63;
+  color: #e0fbfc;
+  border: 1px solid #3d6987;
+}
+
+.radar-count {
+  font-size: clamp(14px, 3.5vw, 19px);
+  font-weight: 900;
+}
+
+/* ==========================================
+   9. OẲN TÙ TÌ ĐẠI CHIẾN (RPS Showdown)
+   ========================================== */
+.rps-arena {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e6d8c7;
+  border-radius: 22px;
+  background: #fffdf9;
+}
+
+.rps-status-cards {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.rps-fighter-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px;
+  border: 1.5px solid #e7d9c7;
+  border-radius: 18px;
+  background: #faf4ec;
+  text-align: center;
+}
+
+.rps-fighter-box.is-ready {
+  border-color: #2b8a3e;
+  background: #ebfbee;
+}
+
+.rps-fighter-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #6b533e;
+}
+
+.rps-fighter-hand {
+  font-size: 38px;
+  line-height: 1.1;
+}
+
+.rps-fighter-box small {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #5c4735;
+}
+
+.rps-round-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: #302217;
+  color: #fff4e4;
+  text-align: center;
+}
+
+.rps-round-badge strong {
+  font-size: 13px;
+}
+
+.rps-round-badge span {
+  font-size: 10.5px;
+  color: #ffac69;
+}
+
+.rps-hand-choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.rps-hand-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 10px;
+  border: 2px solid #e4d4c2;
+  border-radius: 18px;
+  background: #fffaf3;
+  color: #302217;
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    border-color 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.rps-hand-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #b75020;
+  background: #fff3e6;
+}
+
+.rps-hand-btn.is-picked {
+  border-color: #2b8a3e;
+  background: #ebfbee;
+  box-shadow: 0 0 0 3px rgb(43 138 62 / 0.18);
+}
+
+.rps-hand-btn:disabled {
+  cursor: default;
+  opacity: 0.78;
+}
+
+.rps-hand-emoji {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.rps-hand-btn strong {
+  font-size: 13.5px;
+}
+
+.rps-history {
+  border-top: 1px solid #ede2d4;
+  padding-top: 10px;
+}
+
+.rps-history-title {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #7c6551;
+}
+
+.rps-history-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rps-history-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: #f5ece0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rps-history-item.win-x {
+  background: #ffe8db;
+  color: #a83813;
+}
+
+.rps-history-item.win-o {
+  background: #e3f4f8;
+  color: #11586b;
+}
+
+/* ==========================================
+   10. HẢI TẶC ĐÂM THÙNG (Pirate Roulette)
+   ========================================== */
+.pirate-arena {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e6d8c7;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #fffdf9 0%, #f8efe4 100%);
+}
+
+.pirate-barrel-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1.5px solid #dec9b0;
+  border-radius: 18px;
+  background: #f5e8d7;
+}
+
+.pirate-barrel-hero.is-exploded {
+  border-color: #e03131;
+  background: #ffe3e3;
+}
+
+.pirate-mascot {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.pirate-barrel-copy strong {
+  display: block;
+  font-size: 14.5px;
+  color: #302217;
+  margin-bottom: 3px;
+}
+
+.pirate-barrel-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  color: #69523e;
+  line-height: 1.4;
+}
+
+.pirate-slots-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.pirate-slot-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 62px;
+  padding: 6px;
+  border: 2px solid #8c5830;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #b87b4b 0%, #8f572d 100%);
+  color: #fff6e8;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
+}
+
+.pirate-slot-btn.is-available:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+}
+
+.pirate-slot-btn.is-used {
+  border-color: #c9b7a2;
+  background: #e9dfd2;
+  color: #6b5643;
+}
+
+.pirate-slot-btn.is-bonus {
+  border-color: #f59f00;
+  background: #fff3bf;
+  color: #8c5400;
+}
+
+.pirate-slot-btn.is-trap {
+  border-color: #e03131;
+  background: #ffc9c9;
+  color: #a61e1e;
+}
+
+.pirate-slot-num {
+  font-size: 10.5px;
+  font-weight: 800;
+  opacity: 0.85;
+}
+
+.pirate-slot-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ==========================================
+   11. GIẢI MÃ SUDOKU ĐÔI (Sudoku Duel 4x4)
+   ========================================== */
+.caro-board.board-sudoku_duel {
+  width: min(100%, 340px);
+  border: 3px solid #2d4732;
+  border-radius: 16px;
+  background: #fffdf9;
+}
+
+.caro-board.board-sudoku_duel button {
+  border-right: 1px solid #c5d1c6;
+  border-bottom: 1px solid #c5d1c6;
+  background: #ffffff;
+  color: #1f3622;
+  font-size: clamp(22px, 5.5vw, 32px);
+  font-weight: 900;
+}
+
+.caro-board.board-sudoku_duel button.sudoku-box-alt {
+  background: #f1f7f1;
+}
+
+.caro-board.board-sudoku_duel button.is-selected-piece {
+  background: #fff3bf;
+  box-shadow: inset 0 0 0 3px #f59f00;
+}
+
+.sudoku-empty-mark {
+  color: #9bb09d;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.sudoku-cell-num.solver-given {
+  color: #2b382d;
+}
+
+.sudoku-cell-num.solver-x {
+  color: #c24118;
+}
+
+.sudoku-cell-num.solver-o {
+  color: #0e697d;
+}
+
+.sudoku-numpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid #dce6dc;
+  border-radius: 16px;
+  background: #f4faf4;
+}
+
+.sudoku-numpad span {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #2c4a30;
+}
+
+.sudoku-numpad-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.sudoku-num-btn {
+  width: 52px;
+  height: 46px;
+  border: 2px solid #3b6941;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1f4224;
+  font-size: 20px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 3px 8px rgb(31 66 36 / 0.12);
+  transition:
+    transform 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.sudoku-num-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: #e6f4e7;
+}
+
+.sudoku-num-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ==========================================
+   12. TRÒ CHƠI NHÓM (Group Games)
+   ========================================== */
+.pirate-slots-grid.bomb-wires-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.truth-dare-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1.5px solid #e6c6a8;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fffdf9 0%, #fdefe0 100%);
+  color: #362417;
+}
+
+.truth-dare-banner p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.td-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.td-badge.td-truth {
+  background: #e3f4f8;
+  color: #0e5a6d;
+}
+
+.td-badge.td-dare {
+  background: #ffe5db;
+  color: #b53312;
+}
+
+.caro-board.board-group_truth_dare {
+  width: min(100%, 420px);
+  aspect-ratio: 4 / 3;
+  padding: 12px;
+  gap: 10px;
+  border: 2px solid #dfcab0;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #f9efe1 0%, #eddcc5 100%);
+}
+
+.caro-board.board-group_truth_dare button {
+  border: 0;
+  border-radius: 16px;
+  padding: 0;
+  background: transparent;
+}
+
+.caro-board.board-group_lucky_wheel,
+.caro-board.board-group_spy_hunt {
+  width: min(100%, 420px);
+  padding: 10px;
+  gap: 7px;
+  border: 3px solid #2b4c65;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #214059 0%, #172e40 100%);
+}
+
+.caro-board.board-group_lucky_wheel button,
+.caro-board.board-group_spy_hunt button {
+  border: 0;
+  border-radius: 12px;
+  padding: 0;
+}
+
+.vault-locks-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.vault-lock-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 8px;
+  border: 2px solid #d8c8b4;
+  border-radius: 16px;
+  background: #faf4ec;
+  color: #302217;
+  cursor: pointer;
+  text-align: center;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.vault-lock-card.is-selected {
+  border-color: #b75020;
+  background: #fff4e8;
+  box-shadow: 0 0 0 3px rgb(183 80 32 / 0.16);
+}
+
+.vault-lock-card.is-cracked {
+  border-color: #2b8a3e;
+  background: #ebfbee;
+  cursor: default;
+}
+
+.vault-lock-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.vault-lock-code {
+  font-size: 12px;
+  font-weight: 800;
+  color: #5c4531;
+}
+
+.vault-lock-hint {
+  font-size: 11px;
+  font-weight: 700;
+  color: #964922;
+}
+
+.quiz-question-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 1.5px solid #e3d3c1;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fffdf9 0%, #f5eadc 100%);
+}
+
+.quiz-step-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #302217;
+  color: #ffac69;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.quiz-question-box h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #2d1f14;
+}
+
+.quiz-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.quiz-option-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 2px solid #e2d2c0;
+  border-radius: 15px;
+  background: #fffdf9;
+  color: #302217;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.quiz-option-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #b75020;
+  background: #fff4e8;
+}
+
+.quiz-option-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.quiz-opt-letter {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #f3e4d2;
+  color: #964922;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.quiz-feedback-bar {
+  padding: 10px 14px;
+  border-radius: 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.quiz-feedback-bar.is-correct {
+  background: #ebfbee;
+  border: 1px solid #b2f2bb;
+  color: #2b8a3e;
+}
+
+.quiz-feedback-bar.is-wrong {
+  background: #fff5f5;
+  border: 1px solid #ffc9c9;
+  color: #c92a2a;
+}
+
+/* Active Game Footer & Forfeit Confirmation */
+.game-active-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.game-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #9e3929;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.game-text-button:hover:not(:disabled) {
+  background: #fae8e5;
+  border-color: #f0c9c2;
+}
+
+.game-forfeit-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #ecc2ba;
+  border-radius: 15px;
+  background: #fff5f3;
+  color: #7d261c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.game-forfeit-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.game-postmatch-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* Error & Loading States */
+.game-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 11px 14px;
+  border: 1px solid #f0c2bb;
+  border-radius: 13px;
+  background: #fff2ef;
+  color: #99281e;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.game-error-dismiss {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.game-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 52px 16px;
+  text-align: center;
+  color: #7c6755;
+  font-size: 14px;
+}
+
+.game-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid #eadbc9;
+  border-top-color: #b75020;
+  animation: game-spin 0.8s linear infinite;
+}
+
+@keyframes game-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 640px) {
+  .game-scrim {
+    padding: 0;
+    align-items: end;
+  }
+
+  .caro-panel,
+  .caro-panel.panel-catalog {
+    width: 100%;
+    max-height: calc(var(--app-h, 100dvh) * 0.94);
+    border-radius: 24px 24px 0 0;
+  }
+
+  .game-catalog {
+    grid-template-columns: 1fr;
+  }
+
+  .game-modal-header {
+    padding: 15px 16px;
+  }
+
+  .game-modal-body {
+    padding: 14px 14px 18px;
+  }
+
+  .game-matchup-bar {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .game-player-card {
+    padding: 6px 8px;
+    gap: 7px;
+  }
+
+  .game-player-token {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .game-board-frame {
+    padding: 6px;
+  }
+
+  .caro-board {
+    width: 100%;
+  }
+
+  .caro-board button {
+    font-size: clamp(10px, 3.8vw, 17px);
+  }
+
+  .caro-board.board-connect_four {
+    padding: 8px;
+    gap: 5px;
+  }
+
+  .game-invite-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .game-postmatch-actions button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-scrim {
+    backdrop-filter: none;
+  }
+  .game-loading-spinner {
+    animation: none;
+  }
+  .c4-disc {
+    transition: none;
+  }
+}
+
+/* ============================================================================
+   In-Chat Game Invitation Card (MessageBubble)
+   ============================================================================ */
+
+.message-body.game-invite-message-body {
+  padding: 6px;
+}
+
+.game-chat-invite-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fffdf9 0%, #f8efe4 100%);
+  border: 1.5px solid #e2cbb0;
+  color: #2f2014;
+  box-shadow: 0 6px 16px rgba(62, 36, 17, 0.08);
+  text-align: left;
+}
+
+.game-chat-invite-card.is-mine {
+  background: linear-gradient(145deg, #fffaf3 0%, #f4e5d2 100%);
+  border-color: #d7b793;
+}
+
+.game-chat-invite-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.game-chat-invite-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a64b1e;
+}
+
+.game-chat-invite-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f0dfcc;
+  color: #7d3c18;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.game-chat-invite-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #2c1d11;
+  line-height: 1.25;
+}
+
+.game-chat-invite-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #5e4835;
+}
+
+.game-chat-invite-footer {
+  display: flex;
+  margin-top: 4px;
+}
+
+.game-chat-invite-btn {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid #c96833;
+  background: linear-gradient(180deg, #c95c25 0%, #a84516 100%);
+  color: #fffaf4;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(168, 69, 22, 0.24);
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
+}
+
+.game-chat-invite-btn.is-accept {
+  border-color: #1f8b4c;
+  background: linear-gradient(180deg, #279f59 0%, #1c7c43 100%);
+  box-shadow: 0 3px 10px rgba(28, 124, 67, 0.25);
+}
+
+.game-chat-invite-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}

@@ -73,21 +73,120 @@
 .home-shell .chat-time-divider {
   margin: 16px 0;
 }
+.home-shell .thread-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+}
+.home-shell .thread-filters button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
 .home-shell .thread-filters button[aria-pressed='true'] {
   background: #f5e2d0;
   color: #97502b;
 }
-@media (min-width: 1200px) {
+.home-shell .thread-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #b75020;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.home-shell .thread-requests-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.home-shell .thread-request-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 13px;
+  border: 1px solid #eadccf;
+  border-radius: 15px;
+  background: #faf5ed;
+}
+.home-shell .thread-request-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.home-shell .thread-request-top .peer-avatar {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 13px;
+}
+.home-shell .thread-request-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.home-shell .thread-request-meta strong {
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-shell .thread-request-meta small {
+  font-size: 11px;
+  color: #8d7866;
+}
+.home-shell .thread-request-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 11px;
+  background: #fffdf9;
+  border: 1px solid #eee5da;
+  color: #4f3b2c;
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.home-shell .thread-request-actions {
+  display: flex;
+  gap: 8px;
+}
+.home-shell .thread-request-actions button {
+  flex: 1 1 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+@media (min-width: 1360px) {
   .home-shell .messenger-layout.has-summary {
-    grid-template-columns: 290px minmax(0, 1fr) 285px;
+    grid-template-columns: 300px minmax(0, 1fr) 270px;
   }
   .home-shell .chat-summary-panel {
     display: block;
+    box-sizing: border-box;
     min-width: 0;
     height: 100%;
+    max-height: var(--app-h, 100dvh);
     overflow: auto;
     border-left: 1px solid #e9e1d6;
-    padding: 27px 20px;
+    padding: 24px 18px;
     background: #fffdf9;
   }
   .home-shell .summary-profile {
@@ -118,20 +217,21 @@
   }
   .home-shell .summary-actions {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     justify-content: center;
     margin: 22px 0;
   }
   .home-shell .summary-actions button {
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 8px;
     align-items: center;
-    width: 72px;
+    width: 62px;
     border: 0;
     background: transparent;
     color: #5e4734;
-    font-size: 11px;
+    font-size: 10.5px;
+    white-space: nowrap;
     padding: 5px 0;
   }
   .home-shell .summary-actions button svg {
@@ -286,6 +386,36 @@
   box-shadow: 0 2px 5px #53361c03;
   font-size: 14px;
   line-height: 1.6;
+}
+.home-shell .spam-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  max-width: min(440px, 78vw);
+  margin-top: 5px;
+  padding: 10px 12px;
+  border: 1px solid #e3a36f;
+  border-radius: 12px;
+  background: #fff1df;
+  color: #7d3518;
+  box-shadow: 0 7px 18px #7d351810;
+}
+.home-shell .spam-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.home-shell .spam-warning span {
+  display: grid;
+  gap: 3px;
+}
+.home-shell .spam-warning strong {
+  color: #713015;
+  font-size: 12px;
+}
+.home-shell .spam-warning small {
+  color: #82563d;
+  font-size: 11px;
+  line-height: 1.45;
 }
 .home-shell .chat-message.mine .message-body {
   background: #b75020;
@@ -460,18 +590,19 @@
   border-radius: 16px;
   padding: 18px 20px;
   box-shadow: 0 4px 16px #3a2a1d08;
+  margin-bottom: 16px;
 }
 .home-shell .search-form label {
   margin-top: 0;
 }
 .home-shell .account-toggle .account-avatar {
-  background: #f5dfbd;
-  color: #50351d;
+  background: #eddfcf;
+  color: #89542f;
 }
 .home-shell .account-chevron {
-  background: #513622;
-  border-color: #302217;
-  color: #f5dfbd;
+  background: #fffdf9;
+  border-color: #ddcbb9;
+  color: #5d4736;
 }
 .home-shell .message-request-compose {
   background: #fffdf9;
@@ -584,6 +715,100 @@
   color: #89542f;
   border-color: #fffdf9;
 }
+
+/* Friends Hub Sub-Navigation (Messenger-style inside Bạn bè) */
+.friends-hub-nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: 12px;
+  margin: 0 auto 22px;
+  max-width: 860px;
+}
+.friends-hub-tab {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1.5px solid #e9e0d5;
+  border-radius: 16px;
+  background: #fffdf9;
+  color: #5e4734;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.12s ease;
+  box-shadow: 0 3px 10px #3a2a1d06;
+}
+.friends-hub-tab:hover:not(:disabled) {
+  background: #f8efe4;
+  border-color: #ddcbb9;
+  transform: translateY(-1px);
+}
+.friends-hub-tab.is-active {
+  background: #fbe7d7;
+  border-color: #b75020;
+  color: #9b421b;
+  box-shadow: 0 6px 18px rgb(183 80 32 / 12%);
+}
+.friends-hub-tab-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: #f4e8da;
+  color: #89542f;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+.friends-hub-tab.is-active .friends-hub-tab-icon {
+  background: #b75020;
+  color: #ffffff;
+}
+.friends-hub-tab-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.friends-hub-tab-copy strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #30271f;
+}
+.friends-hub-tab.is-active .friends-hub-tab-copy strong {
+  color: #9b421b;
+}
+.friends-hub-tab-copy small {
+  font-size: 11.5px;
+  color: #8d7866;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friends-hub-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #b75020;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .home-shell .thread-list .thread-presence,
 .home-shell .thread-title-row .thread-time {
   color: #8d7866;
@@ -710,8 +935,8 @@
 @media (min-width: 901px) {
   .home-shell {
     display: grid;
-    grid-template-columns: 100px minmax(0, 1fr);
-    height: 100dvh;
+    grid-template-columns: 84px minmax(0, 1fr);
+    height: var(--app-h, 100dvh);
     min-height: 0;
     overflow: hidden;
   }
@@ -719,13 +944,13 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    width: 100px;
-    height: 100dvh;
-    padding: 23px 9px 18px;
-    gap: 26px;
-    background: #302217;
-    border: 0;
-    box-shadow: none;
+    width: 84px;
+    height: var(--app-h, 100dvh);
+    padding: 22px 9px 18px;
+    gap: 24px;
+    background: #fffdf9;
+    border-right: 1px solid #e9e1d6;
+    box-shadow: 2px 0 14px rgb(58 42 29 / 4%);
     z-index: 30;
   }
   .home-shell .home-header .brand {
@@ -733,18 +958,19 @@
     flex-direction: column;
     gap: 7px;
     align-self: center;
-    color: #fff4e4;
+    color: #30271f;
     font-size: 13px;
+    font-weight: 700;
     letter-spacing: -0.5px;
   }
   .home-shell .home-header .brand-icon {
-    width: 35px;
-    height: 35px;
+    width: 36px;
+    height: 36px;
     border-radius: 12px;
-    background: #f5dfbd;
-    color: #50351d;
-    font-size: 25px;
-    box-shadow: none;
+    background: #b75020;
+    color: #ffffff;
+    font-size: 23px;
+    box-shadow: 0 4px 12px rgb(183 80 32 / 22%);
   }
   .home-shell .home-header .brand-dot {
     display: none;
@@ -762,27 +988,35 @@
     width: 100%;
     height: 67px;
     min-height: 60px;
-    padding: 9px 3px;
+    padding: 9px 4px;
     gap: 7px;
     flex-direction: column;
-    color: #e9dacb;
-    border-radius: 12px;
+    color: #7c6755;
+    border-radius: 14px;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
   }
   .home-shell .home-nav .nav-label {
     color: inherit;
-    font-size: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
     white-space: normal;
     text-align: center;
   }
   .home-shell .home-nav button[aria-current='page'] {
-    background: #513622;
-    color: #ffac69;
+    background: #fbe7d7;
+    color: #a94c23;
+  }
+  .home-shell .home-nav button[aria-current='page'] .nav-label {
+    font-weight: 700;
   }
   .home-shell .home-nav button[aria-current='page']::after {
     display: none;
   }
-  .home-shell .home-nav button:hover {
-    background: #493222;
+  .home-shell .home-nav button:hover:not([aria-current='page']) {
+    background: #f6ede2;
+    color: #30271f;
   }
   .home-shell .account-control {
     margin: auto 0 0;
@@ -791,7 +1025,7 @@
   .home-shell .account-toggle {
     background: transparent;
     border-color: transparent;
-    color: #ead6bd;
+    color: #5e4734;
   }
   .home-shell .account-menu {
     top: auto;
@@ -803,7 +1037,7 @@
   .home-shell .home-layout {
     width: 100%;
     max-width: none;
-    height: 100dvh;
+    height: var(--app-h, 100dvh);
     min-height: 0;
     margin: 0;
     padding: 0;
@@ -823,12 +1057,15 @@
   .home-shell .messenger-layout {
     height: 100%;
     min-height: 0;
-    grid-template-columns: 310px minmax(0, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr);
     border: 0;
     border-radius: 0;
   }
   .home-shell .thread-sidebar {
-    padding: 24px 14px 16px;
+    box-sizing: border-box;
+    height: 100%;
+    max-height: var(--app-h, 100dvh);
+    padding: 22px 14px 16px;
   }
   .home-shell .thread-content {
     min-height: 0;
@@ -885,7 +1122,7 @@
 }
 .shared-media-dialog {
   width: min(760px, calc(100vw - 32px));
-  max-height: 85dvh;
+  max-height: calc(var(--app-h, 100dvh) * 0.85);
   overflow: auto;
   padding: 24px;
   border: 1px solid #e5d8c7;
@@ -1124,4 +1361,159 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---- Larger, more readable type + wrapping filter tabs ---- */
+.home-shell {
+  font-size: 15px;
+}
+.home-shell .thread-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+}
+.home-shell .thread-filters button {
+  min-width: 0;
+  padding: 8px 4px;
+  font-size: 13.5px;
+  line-height: 1.25;
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+  flex-wrap: wrap;
+}
+.home-shell .thread-search input,
+.home-shell .thread-sidebar-heading + .thread-search input {
+  font-size: 15px;
+}
+.home-shell .thread-tools .retry {
+  font-size: 13px;
+}
+.home-shell .thread-list strong {
+  font-size: 15px;
+}
+.home-shell .thread-list small,
+.home-shell .thread-title-row .thread-time,
+.home-shell .thread-list .thread-presence {
+  font-size: 13px;
+}
+.home-shell .active-friend-name {
+  font-size: 12px;
+}
+.home-shell .note-bubble {
+  font-size: 11.5px;
+}
+.home-shell .note-bubble small {
+  font-size: 9.5px;
+}
+.home-shell .presence-last-active {
+  font-size: 10px;
+}
+.home-shell .thread-request-meta strong {
+  font-size: 15px;
+}
+.home-shell .thread-request-meta small {
+  font-size: 12.5px;
+}
+.home-shell .thread-request-preview {
+  font-size: 14px;
+}
+.home-shell .thread-request-actions button {
+  font-size: 13.5px;
+}
+.home-shell .message-body {
+  font-size: 15.5px;
+}
+.home-shell .chat-header-title {
+  font-size: 16px;
+}
+.home-shell .chat-header-title small {
+  font-size: 13px;
+}
+.home-shell .message-composer textarea {
+  font-size: 15.5px;
+}
+.home-shell .message-meta,
+.home-shell .chat-time-divider {
+  font-size: 12px;
+}
+.home-shell .home-nav .nav-label {
+  font-size: 11.5px;
+}
+.home-shell .game-chat-invite-desc {
+  font-size: 13.5px;
+}
+.home-shell .game-chat-invite-title {
+  font-size: 16.5px;
+}
+.home-shell .game-chat-invite-btn {
+  font-size: 13.5px;
+}
+.home-shell .game-chat-invite-kicker {
+  font-size: 11px;
+}
+.home-shell .game-chat-invite-badge {
+  font-size: 11.5px;
+}
+@media (min-width: 1360px) {
+  .home-shell .summary-profile h2 {
+    font-size: 22px;
+  }
+  .home-shell .summary-profile p {
+    font-size: 13.5px;
+  }
+  .home-shell .summary-actions {
+    gap: 2px;
+  }
+  .home-shell .summary-actions button {
+    width: 64px;
+    font-size: 12px;
+    line-height: 1.25;
+    white-space: normal;
+    text-align: center;
+  }
+  .home-shell .summary-section h3 {
+    font-size: 17px;
+  }
+  .home-shell .summary-section-heading button {
+    font-size: 13px;
+  }
+  .home-shell .summary-empty {
+    font-size: 13.5px;
+  }
+  .home-shell .shared-file-name {
+    font-size: 14px;
+  }
+  .home-shell .shared-file-meta {
+    font-size: 12px;
+  }
+}
+@media (min-width: 901px) {
+  .home-shell .messenger-layout {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+}
+@media (min-width: 1360px) {
+  .home-shell .messenger-layout.has-summary {
+    grid-template-columns: 300px minmax(0, 1fr) 270px;
+  }
+}
+.home-shell .people-list strong {
+  font-size: 16px;
+}
+.home-shell .people-list .hint,
+.home-shell .hint,
+.home-shell .intro {
+  font-size: 14px;
+}
+.home-shell .friends-hub-tab-copy strong {
+  font-size: 15px;
+}
+.home-shell .friends-hub-tab-copy small {
+  font-size: 12.5px;
+}
+.home-shell .secondary,
+.home-shell .primary {
+  font-size: 14px;
 }

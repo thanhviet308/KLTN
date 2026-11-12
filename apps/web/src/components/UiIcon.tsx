@@ -24,6 +24,7 @@ export function UiIcon({ name, size = 20 }: { name: string; size?: number }) {
     stop: 'M6 6h12v12H6Z',
     close: 'M6 6l12 12 M18 6 6 18',
     send: 'm3 3 18 9-18 9 4-9-4-9Z M7 12h14',
+    game: 'M8 8h8l3 2 2 8c.4 2-2 3-3 1l-2-3H8l-2 3c-1 2-3.4-3-1l2-8 3-2Z M8 12h4 M10 10v4 M16 11h.01 M18 13h.01',
   };
   return (
     <svg

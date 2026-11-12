@@ -1,12 +1,18 @@
 import { Avatar } from '../../components/Avatar';
-import type { Message, Receipt } from '../../lib/chat-model';
+import {
+  parseGameInviteBody,
+  type Message,
+  type Receipt,
+} from '../../lib/chat-model';
 import type { Peer } from '../../lib/types';
 import { sourceVersion, type AiKind } from '../ai/ai-model';
+import { GAME_INFO, type CaroSession, type GameType } from '../games/CaroGame';
 import { MessageMedia } from './ChatMedia';
 import { MessageActions } from './MessageActions';
 import { MessageReactions } from './MessageReactions';
 import { SentStatus } from './SentStatus';
 import { TranslationNote } from './TranslationNote';
+import { SpamWarning } from './SpamWarning';
 
 export interface Translation {
   version: string;
@@ -30,6 +36,9 @@ interface MessageBubbleProps {
   showStatus: boolean;
   readers: Receipt[];
   delivered: number;
+  currentGame?: CaroSession | null;
+  onOpenGame?: () => void;
+  onAcceptGame?: (gameId: string) => void;
   onUpdate: (message: Message) => void;
   onReply: (message: Message) => void;
   onReact: () => void;
@@ -53,6 +62,9 @@ export function MessageBubble({
   showStatus,
   readers,
   delivered,
+  currentGame,
+  onOpenGame,
+  onAcceptGame,
   onUpdate,
   onReply,
   onReact,
@@ -62,6 +74,18 @@ export function MessageBubble({
   onOpenReceipts,
 }: MessageBubbleProps) {
   const isCall = message.type === 'call';
+  const gameInvite =
+    !message.deletedAt && (!message.type || message.type === 'text')
+      ? parseGameInviteBody(message.body)
+      : null;
+  const gameMeta = gameInvite
+    ? GAME_INFO[gameInvite.gameType as GameType]
+    : undefined;
+  const isThisGame =
+    !!gameInvite &&
+    !!currentGame &&
+    (!gameInvite.gameId || currentGame.id === gameInvite.gameId);
+
   return (
     <div
       data-message-id={message.id}
@@ -104,15 +128,71 @@ export function MessageBubble({
           />
         </span>
       )}
-      <div className={`message-body${isCall ? ' call-message-body' : ''}`}>
+      <div
+        className={`message-body${isCall ? ' call-message-body' : ''}${
+          gameInvite ? ' game-invite-message-body' : ''
+        }`}
+      >
         {message.deletedAt ? (
           'Tin nhắn đã thu hồi'
         ) : message.type && message.type !== 'text' ? (
           <MessageMedia message={message} />
+        ) : gameInvite ? (
+          <div className="game-chat-invite-card">
+            <div className="game-chat-invite-header">
+              <span className="game-chat-invite-kicker">
+                {gameMeta?.groupOnly
+                  ? '🎉 TRÒ CHƠI NHÓM'
+                  : '🎮 THÁCH ĐẤU TRÒ CHƠI'}
+              </span>
+              {gameMeta && (
+                <span className="game-chat-invite-badge">{gameMeta.badge}</span>
+              )}
+            </div>
+            <strong className="game-chat-invite-title">
+              {gameMeta?.name ?? 'Trò chơi trực tuyến'}
+            </strong>
+            <p className="game-chat-invite-desc">
+              {gameMeta?.description ?? gameInvite.text}
+            </p>
+            <div className="game-chat-invite-footer">
+              {isThisGame && currentGame.status === 'invited' && !mine ? (
+                <button
+                  type="button"
+                  className="game-chat-invite-btn is-accept"
+                  onClick={() => {
+                    if (onAcceptGame && currentGame.id) {
+                      onAcceptGame(currentGame.id);
+                    } else {
+                      onOpenGame?.();
+                    }
+                  }}
+                >
+                  ⚡ Chấp nhận & Vào chơi ngay
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="game-chat-invite-btn"
+                  onClick={() => onOpenGame?.()}
+                >
+                  {isThisGame && currentGame.status === 'invited'
+                    ? '⏳ Mở phòng chờ'
+                    : isThisGame && currentGame.status === 'active'
+                      ? '🔥 Vào bàn chơi ngay'
+                      : '🎮 Mở bàn chơi'}
+                </button>
+              )}
+            </div>
+          </div>
         ) : (
           message.body
         )}
       </div>
+      {!mine &&
+        !message.deletedAt &&
+        message.type !== 'call' &&
+        message.spam?.suspicious && <SpamWarning score={message.spam.score} />}
       {!message.deletedAt &&
         translation?.version === sourceVersion(message) && (
           <TranslationNote

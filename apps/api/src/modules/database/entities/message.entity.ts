@@ -84,4 +84,10 @@ export class Message {
   editedAt!: Date | null;
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
+  @Column({ name: 'spam_label', type: 'boolean', nullable: true })
+  spamLabel!: boolean | null;
+  @Column({ name: 'spam_score', type: 'real', nullable: true })
+  spamScore!: number | null;
+  @Column({ name: 'spam_model', type: 'varchar', length: 100, nullable: true })
+  spamModel!: string | null;
 }

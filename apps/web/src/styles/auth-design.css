@@ -8,7 +8,7 @@
   display: grid;
   grid-template-columns: 43% 57%;
   width: 100%;
-  min-height: 100dvh;
+  min-height: var(--app-h, 100dvh);
   padding: 110px clamp(30px, 6vw, 105px) 30px;
   gap: 25px;
   background:
@@ -353,7 +353,7 @@
     padding-block: 8px;
   }
   .page .auth-illustration {
-    max-height: calc(100dvh - 130px);
+    max-height: calc(var(--app-h, 100dvh) - 130px);
     object-fit: contain;
   }
   .page {
@@ -464,7 +464,7 @@
   .page .auth-illustration {
     width: auto;
     max-width: 100%;
-    max-height: calc(100dvh - 135px);
+    max-height: calc(var(--app-h, 100dvh) - 135px);
     margin-inline: auto;
     mask-image:
       linear-gradient(90deg, transparent, #000 10%, #000 94%, transparent),

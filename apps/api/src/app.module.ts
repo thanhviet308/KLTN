@@ -13,6 +13,8 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { AiModule } from './modules/ai/ai.module';
 import { MessageRequestsModule } from './modules/message-requests/message-requests.module';
+import { GamesModule } from './modules/games/games.module';
+import { NotesModule } from './modules/notes/notes.module';
 
 @Module({
   imports: [
@@ -33,6 +35,8 @@ import { MessageRequestsModule } from './modules/message-requests/message-reques
     RealtimeModule,
     CallsModule,
     AiModule,
+    GamesModule,
+    NotesModule,
   ],
 })
 export class AppModule {}
