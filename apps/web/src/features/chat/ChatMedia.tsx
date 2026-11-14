@@ -3,6 +3,11 @@ import { UiIcon } from '../../components/UiIcon';
 import { LocationMap } from './LocationMap';
 import * as api from '../../lib/api';
 import type { Message } from '../../lib/chat-model';
+import {
+  classifyChatUpload,
+  MAX_CHAT_FILE_BYTES,
+  prepareChatUploadFile,
+} from './image-upload';
 
 export interface MediaDraft {
   type: 'image' | 'file' | 'voice' | 'location';
@@ -73,16 +78,35 @@ export function MediaTools({
     setLocationOpen(false);
   }, [disabled]);
   const send = async (draft: MediaDraft) => {
+    if (draft.file && draft.file.size === 0) {
+      onError('Chọn tệp có dung lượng từ 1 byte đến 10 MB.');
+      return;
+    }
     if (
       draft.file &&
-      (draft.file.size === 0 || draft.file.size > 10 * 1024 * 1024)
+      draft.type !== 'image' &&
+      draft.file.size > MAX_CHAT_FILE_BYTES
     ) {
       onError('Chọn tệp có dung lượng từ 1 byte đến 10 MB.');
       return;
     }
     setBusy(true);
     try {
-      await onSend(draft);
+      let nextDraft = draft;
+      if (draft.file && draft.type === 'image') {
+        const prepared = await prepareChatUploadFile(draft.file);
+        if (
+          prepared.file.size === 0 ||
+          prepared.file.size > MAX_CHAT_FILE_BYTES
+        ) {
+          if (alive.current) {
+            onError('Chọn tệp có dung lượng từ 1 byte đến 10 MB.');
+          }
+          return;
+        }
+        nextDraft = { ...draft, file: prepared.file, type: prepared.type };
+      }
+      await onSend(nextDraft);
     } finally {
       if (alive.current) setBusy(false);
     }
@@ -230,9 +254,7 @@ export function MediaTools({
           if (file)
             void send({
               file,
-              type: /^image\/(png|jpeg|webp)$/.test(file.type)
-                ? 'image'
-                : 'file',
+              type: classifyChatUpload(file),
             });
         }}
       />

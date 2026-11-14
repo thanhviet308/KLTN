@@ -53,6 +53,18 @@ check_route blue
 if "${helper[@]}" 9999; then echo 'Unexpected port accepted' >&2; exit 1; fi
 echo 'Actual Nginx: Blue -> Green -> Blue and failed-reload restoration OK'
 
+# Oversized uploads rejected at Nginx must keep CORS headers so browsers see FILE_TOO_LARGE instead of NETWORK_ERROR.
+dd if=/dev/zero of=/tmp/oversized.bin bs=1M count=11 status=none
+oversize_status=$(curl --silent --show-error -o /tmp/oversize-body -D /tmp/oversize-headers \
+  -w '%{http_code}' -X POST -H 'Host: pingpongapi.id.vn' \
+  -H 'Origin: https://www.pingpong.id.vn' \
+  --data-binary @/tmp/oversized.bin http://127.0.0.1/api/v1/health/ready)
+[[ "$oversize_status" == 413 ]] || { echo "Expected 413 for 11MB upload, got $oversize_status" >&2; exit 1; }
+grep -qi '^Access-Control-Allow-Origin: https://www.pingpong.id.vn' /tmp/oversize-headers
+grep -qi '^Access-Control-Allow-Credentials: true' /tmp/oversize-headers
+grep -q 'FILE_TOO_LARGE' /tmp/oversize-body
+echo 'Nginx 413 payload-limit CORS and JSON error OK'
+
 # A browser must be able to distinguish throttling from a network/CORS error.
 rate_status=200
 for attempt in $(seq 1 100); do

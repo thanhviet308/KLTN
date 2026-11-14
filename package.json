@@ -24,7 +24,7 @@
     "build": "npm run build --workspaces --if-present",
     "start:api": "npm run start --workspace=@chat/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "node --test apps/api/tests/notifications.test.cjs apps/api/tests/user-search.test.cjs apps/api/tests/reports.test.cjs apps/api/tests/calls.test.cjs apps/api/tests/presence.test.cjs apps/api/tests/password-reset.test.cjs apps/api/tests/registration.test.cjs apps/api/tests/ai.test.cjs apps/api/tests/message-encryption.test.cjs apps/api/tests/message-requests.test.cjs apps/web/tests/ai-model.test.mjs apps/web/tests/chat-history-cache.test.mjs apps/web/tests/chat-model.test.mjs apps/web/tests/notification-sounds.test.mjs apps/web/tests/session-refresh.test.mjs && npm test --workspace=@chat/android -- --runInBand",
+    "test": "node --test apps/api/tests/notifications.test.cjs apps/api/tests/user-search.test.cjs apps/api/tests/reports.test.cjs apps/api/tests/calls.test.cjs apps/api/tests/presence.test.cjs apps/api/tests/password-reset.test.cjs apps/api/tests/registration.test.cjs apps/api/tests/ai.test.cjs apps/api/tests/message-encryption.test.cjs apps/api/tests/message-requests.test.cjs apps/web/tests/ai-model.test.mjs apps/web/tests/chat-history-cache.test.mjs apps/web/tests/chat-model.test.mjs apps/web/tests/image-upload.test.mjs apps/web/tests/notification-sounds.test.mjs apps/web/tests/session-refresh.test.mjs && npm test --workspace=@chat/android -- --runInBand",
     "lint": "eslint apps/api/src && npm run lint --workspace=@chat/android",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
