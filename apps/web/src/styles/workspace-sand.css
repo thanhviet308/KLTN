@@ -31,10 +31,19 @@
   text-overflow: ellipsis;
 }
 .home-shell .chat-header-title .presence-status {
+  display: block;
+  position: relative;
+  padding-left: 11px;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.home-shell .chat-header-title .presence-status > span {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
 }
 .home-shell .chat-call-actions {
   margin-left: auto;
@@ -492,7 +501,7 @@
   border-radius: 50%;
 }
 .home-shell .composer-emoji,
-.home-shell .media-tools button {
+.home-shell .media-tools > button {
   color: #6c503b;
 }
 .home-shell .conversation-details {
@@ -910,7 +919,7 @@
 .home-shell .forward-preview {
   background: #f6eee3;
 }
-.home-shell .chat-composer-bar .media-tools button:hover:not(:disabled),
+.home-shell .chat-composer-bar .media-tools > button:hover:not(:disabled),
 .home-shell
   .chat-composer-bar
   .message-composer
@@ -930,14 +939,24 @@
   background: #fffdf9;
   color: var(--ink);
 }
+.home-shell .location-preview small a {
+  color: #b75020;
+  font-weight: 600;
+}
 .home-shell .location-pending,
-.home-shell .media-tools .location-preview button {
+.home-shell .location-preview button {
   background: #f6eee3;
   color: #5e4130;
 }
-.home-shell .media-tools .location-preview .location-share {
+.home-shell .location-preview button:hover:not(:disabled) {
+  background: #eddcc9;
+}
+.home-shell .location-preview .location-share {
   background: #b75020;
   color: #fff;
+}
+.home-shell .location-preview .location-share:hover:not(:disabled) {
+  background: #9b421b;
 }
 .home-shell .home-title .eyebrow,
 .home-shell .hint,
@@ -1802,7 +1821,7 @@
     gap: 1px;
     padding-bottom: 0;
   }
-  .home-shell .chat-composer-bar .media-tools button {
+  .home-shell .chat-composer-bar .media-tools > button {
     width: 30px;
     height: 30px;
     padding: 4px;
@@ -1817,10 +1836,17 @@
     min-width: 0;
     font-size: 12.5px;
   }
-  .home-shell .chat-composer-bar .media-tools.is-recording button {
+  .home-shell .chat-composer-bar .media-tools.is-recording > button {
     min-height: 34px;
     padding: 6px 10px;
     white-space: nowrap;
+  }
+  .home-shell .location-preview {
+    padding: 18px;
+    border-radius: 22px;
+  }
+  .home-shell .location-preview h2 {
+    font-size: 16.5px;
   }
   .home-shell .workspace-mention-select {
     width: 32px;

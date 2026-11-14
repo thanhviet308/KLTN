@@ -8,6 +8,10 @@ import {
   MAX_CHAT_FILE_BYTES,
   prepareChatUploadFile,
 } from './image-upload';
+import {
+  formatGeolocationError,
+  isEmbeddedInAppBrowser,
+} from './location-helper';
 
 export interface MediaDraft {
   type: 'image' | 'file' | 'voice' | 'location';
@@ -47,6 +51,9 @@ export function MediaTools({
   const alive = useRef(true);
   const generation = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const locationWatchdog = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   useEffect(() => {
     if (!recording) return;
     const startedAt = Date.now();
@@ -62,6 +69,7 @@ export function MediaTools({
       alive.current = false;
       generation.current++;
       clearTimeout(timer.current);
+      clearTimeout(locationWatchdog.current);
       if (recorder.current?.state === 'recording') recorder.current.stop();
       stream.current?.getTracks().forEach((track) => track.stop());
     };
@@ -70,6 +78,7 @@ export function MediaTools({
     if (!disabled) return;
     generation.current++;
     clearTimeout(timer.current);
+    clearTimeout(locationWatchdog.current);
     if (recorder.current?.state === 'recording') recorder.current.stop();
     stream.current?.getTracks().forEach((track) => track.stop());
     setRecording(false);
@@ -194,50 +203,89 @@ export function MediaTools({
       onError('Trình duyệt không hỗ trợ vị trí.');
       return;
     }
-    setBusy(true);
+    const embedded = isEmbeddedInAppBrowser(navigator.userAgent);
+    clearTimeout(locationWatchdog.current);
     setLocation(undefined);
     setLocationError('');
     setLocationOpen(true);
+
+    if (window.isSecureContext === false) {
+      setBusy(false);
+      setLocationError(
+        formatGeolocationError({ embedded, secureContext: false }),
+      );
+      return;
+    }
+
+    setBusy(true);
     // Fetch the code in parallel with geolocation, without requesting map tiles.
     void import('leaflet').catch(() => {});
     const version = ++generation.current;
-    let retried = false;
-    const requestPosition = () => {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          if (!alive.current || version !== generation.current) return;
-          setBusy(false);
-          setLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          });
-        },
-        (error) => {
-          if (!alive.current || version !== generation.current) return;
-          // Cold-starting OS location services after granting permission can
-          // transiently fail with POSITION_UNAVAILABLE (2) or TIMEOUT (3).
-          if (error.code !== 1 && !retried) {
-            retried = true;
-            setTimeout(() => {
-              if (alive.current && version === generation.current)
-                requestPosition();
-            }, 600);
-            return;
-          }
-          setBusy(false);
-          setLocationError(
-            error.code === 1
-              ? 'Hãy cho phép trình duyệt truy cập vị trí rồi thử lại.'
-              : 'Chưa lấy được vị trí. Kiểm tra dịch vụ vị trí của thiết bị và thử lại.',
-          );
-        },
-        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false },
-      );
+    const requestPosition = (highAccuracy: boolean) => {
+      let settled = false;
+      const timeoutMs = highAccuracy
+        ? embedded
+          ? 6000
+          : 9000
+        : embedded
+          ? 5500
+          : 7500;
+      const failAttempt = (code?: number) => {
+        if (settled || !alive.current || version !== generation.current) return;
+        settled = true;
+        clearTimeout(locationWatchdog.current);
+        // If coarse/network location fails or stalls, try GPS once before giving up.
+        if (code !== 1 && !highAccuracy) {
+          locationWatchdog.current = setTimeout(() => {
+            if (alive.current && version === generation.current)
+              requestPosition(true);
+          }, 300);
+          return;
+        }
+        setBusy(false);
+        setLocationError(
+          formatGeolocationError({
+            code,
+            embedded,
+            secureContext: window.isSecureContext,
+          }),
+        );
+      };
+
+      // Guard against WebViews that silently ignore getCurrentPosition without calling error().
+      locationWatchdog.current = setTimeout(() => {
+        failAttempt(3);
+      }, timeoutMs + 1500);
+
+      try {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (settled || !alive.current || version !== generation.current)
+              return;
+            settled = true;
+            clearTimeout(locationWatchdog.current);
+            setBusy(false);
+            setLocation({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            });
+          },
+          (error) => failAttempt(error.code),
+          {
+            timeout: timeoutMs,
+            maximumAge: highAccuracy ? 60000 : 300000,
+            enableHighAccuracy: highAccuracy,
+          },
+        );
+      } catch {
+        failAttempt(2);
+      }
     };
-    requestPosition();
+    requestPosition(false);
   }
   function closeLocation() {
     generation.current++;
+    clearTimeout(locationWatchdog.current);
     setLocationOpen(false);
     setLocation(undefined);
     setBusy(false);
