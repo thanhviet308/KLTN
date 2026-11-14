@@ -1,3 +1,4 @@
+import { UnfriendDialog } from './UnfriendDialog';
 import { SessionsPanel } from '../workspace/WorkspacePanels';
 import { useEffect, useRef, useState } from 'react';
 import * as api from '../../lib/api';
@@ -838,35 +839,23 @@ export function Home({
                 </form>
               )}
               {confirm && (
-                <div className="confirm-panel" role="alert">
-                  <p>
-                    Hủy kết bạn với <strong>{confirm.user.displayName}</strong>?
-                  </p>
-                  <button
-                    className="danger"
-                    disabled={busy}
-                    onClick={() =>
-                      void action(
-                        () =>
-                          api.authenticated(
-                            `/friends/${confirm.user.id}`,
-                            undefined,
-                            'DELETE',
-                          ),
-                        'Đã hủy kết bạn.',
-                      )
-                    }
-                  >
-                    Hủy kết bạn
-                  </button>{' '}
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => setConfirm(undefined)}
-                  >
-                    Giữ kết bạn
-                  </button>
-                </div>
+                <UnfriendDialog
+                  peer={confirm.user}
+                  busy={busy}
+                  error={error}
+                  onCancel={() => setConfirm(undefined)}
+                  onConfirm={() =>
+                    void action(
+                      () =>
+                        api.authenticated(
+                          `/friends/${confirm.user.id}`,
+                          undefined,
+                          'DELETE',
+                        ),
+                      'Đã hủy kết bạn.',
+                    )
+                  }
+                />
               )}
               {messageRequestTarget && (
                 <form
@@ -1090,7 +1079,10 @@ export function Home({
                           <button
                             className="secondary"
                             disabled={busy}
-                            onClick={() => setConfirm(row)}
+                            onClick={() => {
+                              setError('');
+                              setConfirm(row);
+                            }}
                           >
                             Hủy kết bạn
                           </button>
