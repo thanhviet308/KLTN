@@ -345,19 +345,31 @@ export function ReportQueue({
         {items.map((row) => (
           <article className="admin-report" key={row.id}>
             <div>
-              <small>
-                {types[row.targetType] ?? row.targetType} ·{' '}
-                {new Date(row.createdAt).toLocaleString('vi-VN')}
-              </small>
+              <div className="admin-report-top">
+                <small>
+                  {types[row.targetType] ?? row.targetType} ·{' '}
+                  {new Date(row.createdAt).toLocaleString('vi-VN')}
+                </small>
+                <span className={`admin-status ${row.status}`}>
+                  <i />
+                  {statuses[row.status]}
+                </span>
+              </div>
               <h3>{row.reason}</h3>
-              <span className="admin-status">{statuses[row.status]}</span>
-              <p>
-                Mã báo cáo: {row.id}
-                <br />
-                Người gửi: {row.reporterId}
-                <br />
-                Đối tượng: {row.targetId}
-              </p>
+              <div className="admin-report-meta">
+                <span>
+                  <strong>Mã báo cáo:</strong>{' '}
+                  <code className="admin-uuid">{row.id}</code>
+                </span>
+                <span>
+                  <strong>Người gửi:</strong>{' '}
+                  <code className="admin-uuid">{row.reporterId}</code>
+                </span>
+                <span>
+                  <strong>Đối tượng:</strong>{' '}
+                  <code className="admin-uuid">{row.targetId}</code>
+                </span>
+              </div>
               <ReportEvidence row={row} />
               <ReportReview row={row} userId={user!.id} onDone={() => load()} />
             </div>

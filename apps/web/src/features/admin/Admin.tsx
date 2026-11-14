@@ -63,6 +63,15 @@ function chartDate(index: number, period: string) {
   });
 }
 
+const avatarTones = ['peach', 'sage', 'lilac', 'sand'] as const;
+function avatarTone(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return avatarTones[Math.abs(hash) % avatarTones.length];
+}
+
 function formatShortIsoDate(isoDate: string) {
   const [, m, d] = isoDate.split('-');
   return d && m ? `${d}/${m}` : isoDate;
@@ -334,31 +343,49 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
       </aside>
       <div className="admin-workspace">
         <header className="admin-topbar">
-          <div>
-            Không gian quản trị <ChevronRight size={14} />
+          <div className="admin-breadcrumbs">
+            <span>Không gian quản trị</span>
+            <ChevronRight size={14} />
             <strong>{current.label}</strong>
           </div>
-          <span className="admin-preview-pill">
-            {isAdmin ? 'Hệ thống trực tiếp' : 'Bản xem thử'}
-          </span>
+          <div className="admin-topbar-actions">
+            <span className={`admin-preview-pill ${isAdmin ? 'is-live' : ''}`}>
+              <i className="admin-live-dot" aria-hidden="true" />
+              {isAdmin ? 'Hệ thống trực tiếp' : 'Bản xem thử'}
+            </span>
+          </div>
         </header>
         <main id="admin-content" className="admin-main">
           <div className="admin-page-heading">
             <div>
-              <p className="admin-eyebrow">PINGPONG / ADMIN</p>
+              <p className="admin-eyebrow">PINGPONG / QUẢN TRỊ HỆ THỐNG</p>
               <h1 ref={heading} tabIndex={-1}>
                 {current.label}
                 <span>.</span>
               </h1>
               <p>{current.description}</p>
             </div>
-            <button
-              className="admin-button"
-              onClick={() => void exportOverviewUsers()}
-            >
-              <ArrowDownToLine size={17} />
-              Xuất người dùng
-            </button>
+            <div className="admin-heading-actions">
+              {isAdmin && section === 'overview' && (
+                <button
+                  type="button"
+                  className="admin-button"
+                  disabled={dashboardLoading}
+                  onClick={() => void loadDashboard(period)}
+                >
+                  Làm mới số liệu
+                </button>
+              )}
+              <button
+                type="button"
+                className="admin-button primary"
+                disabled={dashboardLoading}
+                onClick={() => void exportOverviewUsers()}
+              >
+                <ArrowDownToLine size={17} />
+                Xuất danh sách CSV
+              </button>
+            </div>
           </div>
           <div className="admin-demo-note">
             <ShieldCheck size={17} />
@@ -693,6 +720,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                       <th scope="col">VAI TRÒ</th>
                       <th scope="col">TRẠNG THÁI</th>
                       <th scope="col">NGÀY TẠO</th>
+                      <th scope="col">THAO TÁC</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -700,17 +728,30 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                       <tr key={u.id}>
                         <td>
                           <div className="admin-person">
-                            <span className="admin-avatar peach">
+                            <span
+                              className={`admin-avatar ${avatarTone(u.id)}`}
+                            >
                               {u.displayName.slice(0, 1).toUpperCase()}
                             </span>
                             <div>
-                              <strong>{u.displayName}</strong>
+                              <strong>
+                                {u.displayName}
+                                {user?.id === u.id && (
+                                  <span className="admin-self-tag">Bạn</span>
+                                )}
+                              </strong>
                               <small>{u.email}</small>
                             </div>
                           </div>
                         </td>
                         <td>
-                          {u.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}
+                          <span
+                            className={`admin-role-pill ${u.role === 'admin' ? 'is-admin' : ''}`}
+                          >
+                            {u.role === 'admin'
+                              ? 'Quản trị viên'
+                              : 'Thành viên'}
+                          </span>
                         </td>
                         <td>
                           <span className={`admin-status ${u.status}`}>
@@ -723,6 +764,16 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                           </span>
                         </td>
                         <td>{formatDateTime(u.createdAt)}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="admin-mini-btn"
+                            onClick={() => navigate('users')}
+                          >
+                            Quản lý
+                            <ChevronRight size={14} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

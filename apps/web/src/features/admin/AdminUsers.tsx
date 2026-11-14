@@ -30,6 +30,15 @@ const statusLabels: Record<AdminUserAccount['status'], string> = {
   deleted: 'Đã xóa mềm',
 };
 
+const avatarTones = ['peach', 'sage', 'lilac', 'sand'] as const;
+function avatarTone(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return avatarTones[Math.abs(hash) % avatarTones.length];
+}
+
 export function AdminUsers({
   currentUserId,
   onAuditChanged,
@@ -335,11 +344,16 @@ export function AdminUsers({
                 <tr key={u.id}>
                   <td>
                     <div className="admin-person">
-                      <span className="admin-avatar peach">
+                      <span className={`admin-avatar ${avatarTone(u.id)}`}>
                         {u.displayName.slice(0, 1).toUpperCase()}
                       </span>
                       <div>
-                        <strong>{u.displayName}</strong>
+                        <strong>
+                          {u.displayName}
+                          {isSelf && (
+                            <span className="admin-self-tag">Bạn</span>
+                          )}
+                        </strong>
                         <small>{u.email}</small>
                         <code className="admin-uuid">{u.id}</code>
                       </div>
@@ -536,14 +550,29 @@ export function AdminUsers({
           {overviewError && <p role="alert">{overviewError}</p>}
           {overview && (
             <>
-              <div className="admin-person">
-                <span className="admin-avatar peach">
-                  {overview.user.displayName.slice(0, 1).toUpperCase()}
-                </span>
-                <div>
-                  <strong>{overview.user.displayName}</strong>
-                  <small>{overview.user.email}</small>
-                  <code className="admin-uuid">{overview.user.id}</code>
+              <div className="admin-overview-hero">
+                <div className="admin-person">
+                  <span
+                    className={`admin-avatar ${avatarTone(overview.user.id)}`}
+                  >
+                    {overview.user.displayName.slice(0, 1).toUpperCase()}
+                  </span>
+                  <div>
+                    <strong>{overview.user.displayName}</strong>
+                    <small>{overview.user.email}</small>
+                    <code className="admin-uuid">{overview.user.id}</code>
+                  </div>
+                </div>
+                <div className="admin-overview-badges">
+                  <span
+                    className={`admin-role-pill ${overview.user.role === 'admin' ? 'is-admin' : ''}`}
+                  >
+                    {overview.user.role === 'admin' ? 'Admin' : 'Thành viên'}
+                  </span>
+                  <span className={`admin-status ${overview.user.status}`}>
+                    <i />
+                    {statusLabels[overview.user.status] ?? overview.user.status}
+                  </span>
                 </div>
               </div>
 
