@@ -586,10 +586,16 @@ export function Conversations({
             <button
               key={key}
               type="button"
+              title={label}
+              aria-label={
+                key === 'requests'
+                  ? `Tin nhắn chờ${incomingMessageRequestsCount > 0 ? `, ${incomingMessageRequestsCount} lời mời` : ''}`
+                  : label
+              }
               aria-pressed={category === key}
               onClick={() => setCategory(key)}
             >
-              {label}
+              {key === 'requests' ? 'Chờ' : label}
               {key === 'requests' && incomingMessageRequestsCount > 0 && (
                 <span className="thread-filter-badge">
                   {incomingMessageRequestsCount > 99

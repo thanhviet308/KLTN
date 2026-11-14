@@ -13,6 +13,7 @@ import { MessageReactions } from './MessageReactions';
 import { SentStatus } from './SentStatus';
 import { TranslationNote } from './TranslationNote';
 import { SpamWarning } from './SpamWarning';
+import { ReportButton } from '../reports/ReportDialog';
 
 export interface Translation {
   version: string;
@@ -91,6 +92,15 @@ export function MessageBubble({
       data-message-id={message.id}
       className={`chat-message ${mine ? 'mine' : ''}${isCall ? ' call-event' : ''}${message.content?.callStatus === 'missed' ? ' missed-call' : ''}${continuesGroup ? ' continues-group' : ''}`}
     >
+      {isCall && message.content?.callId && (
+        <ReportButton
+          target={{
+            targetType: 'call',
+            targetId: message.content.callId,
+            label: 'Báo cáo cuộc gọi',
+          }}
+        />
+      )}
       {!isCall && (
         <>
           <MessageActions

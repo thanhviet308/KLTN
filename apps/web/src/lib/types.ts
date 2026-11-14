@@ -3,6 +3,7 @@ export interface Peer {
   avatarUrl?: string | null;
   id: string;
   displayName: string;
+  friendshipStatus?: 'none' | 'friends' | 'incoming' | 'outgoing';
 }
 
 /** Cursor-paginated API response. */

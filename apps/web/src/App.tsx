@@ -6,6 +6,9 @@ import { AuthPage } from './features/auth/AuthPage';
 const Home = lazy(() =>
   import('./features/home/Home').then((m) => ({ default: m.Home })),
 );
+const Admin = lazy(() =>
+  import('./features/admin/Admin').then((m) => ({ default: m.Admin })),
+);
 
 const SESSION_EXPIRED = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
 const RENEW_INTERVAL_MS = 60_000;
@@ -15,9 +18,21 @@ export function App() {
   const [booting, setBooting] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [adminOpen, setAdminOpen] = useState(location.pathname === '/admin');
+  const adminPreview = location.pathname === '/admin/preview';
+
+  useEffect(() => {
+    const syncRoute = () => setAdminOpen(location.pathname === '/admin');
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, []);
 
   useEffect(() => {
     async function restore() {
+      if (adminPreview) {
+        setBooting(false);
+        return;
+      }
       try {
         setUser((await api.refresh()).user);
       } catch (e) {
@@ -63,11 +78,35 @@ export function App() {
     };
   }, [user?.id]);
 
+  if (adminPreview || (user?.role === 'admin' && adminOpen))
+    return (
+      <Suspense fallback={<p role="status">Đang tải trang quản trị…</p>}>
+        <Admin
+          user={user}
+          onBack={() => {
+            if (adminPreview) location.assign('/');
+            else {
+              history.replaceState(null, '', '/');
+              setAdminOpen(false);
+            }
+          }}
+        />
+      </Suspense>
+    );
+
   if (user)
     return (
       <Suspense fallback={null}>
         <Home
           user={user}
+          onAdmin={
+            user.role === 'admin'
+              ? () => {
+                  history.pushState(null, '', '/admin');
+                  setAdminOpen(true);
+                }
+              : undefined
+          }
           onUser={setUser}
           onLogout={async () => {
             await api.logout();

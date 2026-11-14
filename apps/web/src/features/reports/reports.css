@@ -1,0 +1,138 @@
+.report-dialog {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  border: 1px solid #e8dfd3;
+  border-radius: 20px;
+  padding: 24px;
+  background: #fffdf9;
+  color: #30271f;
+  box-shadow: 0 24px 80px #30271f33;
+}
+.report-dialog::backdrop {
+  background: #241c1766;
+}
+.report-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.report-heading h2 {
+  margin: 0;
+  font-size: 22px;
+}
+.report-dialog button,
+.report-trigger {
+  cursor: pointer;
+  font: inherit;
+}
+.report-dialog button {
+  min-height: 44px;
+  border: 1px solid #ddcfc0;
+  border-radius: 10px;
+  background: #fffdf9;
+  padding: 10px 14px;
+  color: #503b2c;
+}
+.report-dialog button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.report-dialog label {
+  display: block;
+  margin: 18px 0 8px;
+  font-weight: 600;
+}
+.report-dialog select,
+.report-dialog textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ddcfc0;
+  border-radius: 10px;
+  background: white;
+  color: #30271f;
+  font: inherit;
+}
+.report-dialog textarea {
+  resize: vertical;
+}
+.report-dialog p {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.report-dialog small,
+.report-target {
+  color: #736456;
+}
+.report-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+.report-dialog .report-submit {
+  background: #b75020;
+  color: white;
+  border-color: #b75020;
+}
+.report-error {
+  color: #a12d2d;
+}
+.report-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #80543e;
+}
+.report-trigger:hover {
+  background: #f5e2d0;
+}
+.report-dialog :focus-visible,
+.report-trigger:focus-visible {
+  outline: 2px solid #b75020;
+  outline-offset: 3px;
+}
+.report-queue-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 13px;
+}
+.report-review-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.report-review-form textarea {
+  flex: 1 1 100%;
+  min-height: 70px;
+  padding: 10px;
+  border: 1px solid #ddcfc0;
+  border-radius: 10px;
+  font: inherit;
+}
+.report-evidence-image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  margin-top: 12px;
+  border-radius: 12px;
+}
+.report-queue-detail dt {
+  font-weight: 600;
+  margin-top: 10px;
+}
+.report-queue-detail dd {
+  margin: 4px 0;
+}

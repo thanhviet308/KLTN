@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { createHash } from 'node:crypto';
+import { writeNotification } from '../notifications/notification-writer';
 import { ConversationsService } from '../conversations/conversations.service';
 import { Message } from '../database/entities/message.entity';
 import { AiProviderService, aiError } from './ai-provider.service';
@@ -151,6 +152,13 @@ export class AiService {
         )
       )
         aiError(409, 'AI_SOURCE_CHANGED');
+      await this.db.transaction((manager) =>
+        writeNotification(manager, actorId, 'ai_completed', {
+          title: 'AI đã hoàn thành yêu cầu của bạn',
+          conversationId,
+          kind: input.kind,
+        }),
+      );
       return { kind: input.kind, messageIds: input.messageIds, result };
     } finally {
       this.running.delete(actorId);
@@ -186,6 +194,11 @@ export class AiService {
     try {
       this.consumeQuota(actorId);
       const result = await this.provider.chat(normalized);
+      await this.db.transaction((manager) =>
+        writeNotification(manager, actorId, 'ai_completed', {
+          title: 'PingPong AI đã trả lời bạn',
+        }),
+      );
       return { result };
     } finally {
       this.running.delete(actorId);

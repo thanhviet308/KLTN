@@ -308,6 +308,10 @@ export async function chatFile(conversationId: string, messageId: string) {
   return request;
 }
 
+export async function reportImage(reportId: string) {
+  return (await binaryRequest(`/admin/reports/${reportId}/image`)).blob();
+}
+
 export const register = (body: {
   email: string;
   password: string;

@@ -15,6 +15,8 @@ import { AiModule } from './modules/ai/ai.module';
 import { MessageRequestsModule } from './modules/message-requests/message-requests.module';
 import { GamesModule } from './modules/games/games.module';
 import { NotesModule } from './modules/notes/notes.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -37,6 +39,8 @@ import { NotesModule } from './modules/notes/notes.module';
     AiModule,
     GamesModule,
     NotesModule,
+    NotificationsModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}

@@ -1363,25 +1363,27 @@
   white-space: nowrap;
 }
 
-/* ---- Larger, more readable type + wrapping filter tabs ---- */
+/* ---- Readable type and compact conversation filters ---- */
 .home-shell {
   font-size: 15px;
 }
 .home-shell .thread-filters {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 4px;
 }
 .home-shell .thread-filters button {
+  flex: 1 0 auto;
   min-width: 0;
-  padding: 8px 4px;
+  min-height: 40px;
+  padding: 8px 7px;
   font-size: 13.5px;
   line-height: 1.25;
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
-  overflow-wrap: anywhere;
-  flex-wrap: wrap;
+  overflow-wrap: normal;
+  flex-wrap: nowrap;
 }
 .home-shell .thread-search input,
 .home-shell .thread-sidebar-heading + .thread-search input {

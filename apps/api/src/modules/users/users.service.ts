@@ -7,7 +7,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError } from 'typeorm';
+import { In, QueryFailedError } from 'typeorm';
+import { Friendship } from '../database/entities/friendship.entity';
 import type { EntityManager, Repository } from 'typeorm';
 import { User } from '../database/entities/user.entity';
 import { publicUserView, userView } from './user-view';
@@ -189,6 +190,39 @@ export class UsersService {
       .take(input.limit + 1);
     if (input.cursor)
       query.andWhere('user.id > :cursor', { cursor: input.cursor });
-    return pageResult((await query.getMany()).map(publicUserView), input.limit);
+    const page = pageResult(
+      (await query.getMany()).map(publicUserView),
+      input.limit,
+    );
+    const ids = page.items.map((user) => user.id);
+    const friendships = ids.length
+      ? await this.users.manager.getRepository(Friendship).find({
+          where: [
+            { requesterId: currentUserId, recipientId: In(ids) },
+            { recipientId: currentUserId, requesterId: In(ids) },
+          ],
+        })
+      : [];
+    const byPeer = new Map(
+      friendships.map((row) => [
+        row.requesterId === currentUserId ? row.recipientId : row.requesterId,
+        row,
+      ]),
+    );
+    return {
+      ...page,
+      items: page.items.map((user) => {
+        const row = byPeer.get(user.id);
+        const friendshipStatus =
+          row?.status === 'accepted'
+            ? 'friends'
+            : row?.status === 'pending'
+              ? row.requesterId === currentUserId
+                ? 'outgoing'
+                : 'incoming'
+              : 'none';
+        return { ...user, friendshipStatus };
+      }),
+    };
   }
 }

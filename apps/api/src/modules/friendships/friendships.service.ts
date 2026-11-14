@@ -1,4 +1,5 @@
 import { ConversationsService } from '../conversations/conversations.service';
+import { writeNotification } from '../notifications/notification-writer';
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import type { EntityManager } from 'typeorm';
@@ -91,6 +92,17 @@ export class FriendshipsService {
             'INCOMING_REQUEST_EXISTS',
             'Respond to the existing incoming request',
           );
+        await writeNotification(
+          manager,
+          recipientId,
+          'friend_request',
+          {
+            title: 'Bạn có lời mời kết bạn mới',
+            requesterId: actorId,
+            requestId: row.id,
+          },
+          `friend_request:${row.id}`,
+        );
         return { request: this.view(row) };
       }
       // A new request gets a new ID; a delayed action cannot mutate a later invitation.
@@ -100,6 +112,17 @@ export class FriendshipsService {
         recipientId,
         status: 'pending',
       });
+      await writeNotification(
+        manager,
+        recipientId,
+        'friend_request',
+        {
+          title: 'Bạn có lời mời kết bạn mới',
+          requesterId: actorId,
+          requestId: fresh.id,
+        },
+        `friend_request:${fresh.id}`,
+      );
       return { request: this.view(fresh) };
     });
   }
@@ -157,6 +180,16 @@ export class FriendshipsService {
       row.status = next;
       const saved = await repository.save(row);
       if (next === 'accepted') {
+        await writeNotification(
+          manager,
+          row.requesterId,
+          'friend_accepted',
+          {
+            title: 'Lời mời kết bạn đã được chấp nhận',
+            userId: actorId,
+          },
+          `friend_accepted:${row.id}`,
+        );
         const [low, high] = [row.requesterId, row.recipientId].sort();
         await manager
           .getRepository(MessageRequest)

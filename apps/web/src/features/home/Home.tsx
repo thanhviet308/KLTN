@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as api from '../../lib/api';
 import { Conversations } from '../conversations/Conversations';
 import { AiChatbox } from '../ai/AiChatbox';
+import { NotificationCenter } from '../notifications/NotificationCenter';
+import { ReportButton } from '../reports/ReportDialog';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
 import { presenceLabel, usePresence } from '../../hooks/usePresence';
@@ -62,11 +64,13 @@ export function Home({
   onUser,
   onLogout,
   onExpired,
+  onAdmin,
 }: {
   user: api.User;
   onUser: (user: api.User) => void;
   onLogout: () => Promise<void>;
   onExpired: () => void;
+  onAdmin?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('conversations');
   const [aiChatOpen, setAiChatOpen] = useState(false);
@@ -113,7 +117,6 @@ export function Home({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [name, setName] = useState(user.displayName);
-  const [sent, setSent] = useState<Set<string>>(new Set());
   const [messageRequestTarget, setMessageRequestTarget] = useState<Row>();
   const [messageRequestBody, setMessageRequestBody] = useState('');
   const [confirm, setConfirm] = useState<Row>();
@@ -318,6 +321,7 @@ export function Home({
             );
           })}
         </nav>
+        <NotificationCenter key={user.id} onExpired={onExpired} />
         <div
           className="account-control"
           ref={accountArea}
@@ -373,6 +377,19 @@ export function Home({
           {accountOpen && (
             <div className="account-menu" role="menu" aria-label="Tài khoản">
               <div className="account-menu-name">{user.displayName}</div>
+              {onAdmin && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountOpen(false);
+                    onAdmin();
+                  }}
+                >
+                  <UiIcon name="profile" size={18} />
+                  Quản lý admin
+                </button>
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -969,12 +986,27 @@ export function Home({
                       )}
                     </div>
                     <div className="peer-actions">
+                      <ReportButton
+                        target={{
+                          targetType: 'user',
+                          targetId: row.user.id,
+                          label: `Báo cáo ${row.user.displayName}`,
+                        }}
+                      />
                       {tab === 'search' ? (
                         <>
                           <button
                             className="secondary accept"
                             disabled={busy}
                             onClick={() => {
+                              if (row.user.friendshipStatus === 'friends') {
+                                setChatRecipient({
+                                  id: row.user.id,
+                                  key: Date.now(),
+                                });
+                                setTab('conversations');
+                                return;
+                              }
                               setMessageRequestTarget(row);
                               setMessageRequestBody('');
                               setError('');
@@ -985,25 +1017,48 @@ export function Home({
                           </button>
                           <button
                             className="secondary"
-                            disabled={busy || sent.has(row.user.id)}
+                            disabled={
+                              busy ||
+                              row.user.friendshipStatus === 'friends' ||
+                              row.user.friendshipStatus === 'outgoing'
+                            }
                             onClick={() =>
-                              void action(
-                                async () => {
-                                  await api.authenticated('/friend-requests', {
-                                    recipientId: row.user.id,
-                                  });
-                                  setSent((previous) =>
-                                    new Set(previous).add(row.user.id),
-                                  );
-                                },
-                                'Đã gửi lời mời kết bạn.',
-                                false,
-                              )
+                              row.user.friendshipStatus === 'incoming'
+                                ? setTab('incoming')
+                                : void action(
+                                    async () => {
+                                      await api.authenticated(
+                                        '/friend-requests',
+                                        {
+                                          recipientId: row.user.id,
+                                        },
+                                      );
+                                      setRows((previous) =>
+                                        previous.map((item) =>
+                                          item.user.id === row.user.id
+                                            ? {
+                                                ...item,
+                                                user: {
+                                                  ...item.user,
+                                                  friendshipStatus: 'outgoing',
+                                                },
+                                              }
+                                            : item,
+                                        ),
+                                      );
+                                    },
+                                    'Đã gửi lời mời kết bạn.',
+                                    false,
+                                  )
                             }
                           >
-                            {sent.has(row.user.id)
-                              ? 'Đã gửi lời mời'
-                              : 'Kết bạn'}
+                            {row.user.friendshipStatus === 'friends'
+                              ? 'Đã là bạn bè'
+                              : row.user.friendshipStatus === 'incoming'
+                                ? 'Xem lời mời'
+                                : row.user.friendshipStatus === 'outgoing'
+                                  ? 'Đã gửi lời mời'
+                                  : 'Kết bạn'}
                           </button>
                         </>
                       ) : tab === 'friends' ? (

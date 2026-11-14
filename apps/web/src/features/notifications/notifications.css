@@ -1,0 +1,228 @@
+.notification-center {
+  position: relative;
+  flex-shrink: 0;
+  color: #263b33;
+}
+.notification-center button {
+  cursor: pointer;
+  font: inherit;
+}
+.notification-center button:focus-visible {
+  outline: 3px solid #258563;
+  outline-offset: 2px;
+}
+.notification-center button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.notification-bell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #d9e1db;
+  border-radius: 50%;
+  color: #254c3c;
+  background: #fff;
+}
+.notification-badge {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 20px;
+  padding: 2px 5px;
+  border-radius: 12px;
+  background: #b73b36;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.notification-panel {
+  position: absolute;
+  z-index: 100;
+  right: 0;
+  top: calc(100% + 12px);
+  width: min(390px, calc(100vw - 24px));
+  border: 1px solid #d9e1db;
+  border-radius: 18px;
+  background: #fffefa;
+  box-shadow: 0 16px 48px #182d3026;
+  overflow: hidden;
+}
+.notification-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 18px 10px;
+}
+.notification-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.notification-heading p {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: #53645c;
+}
+.notification-heading button,
+.notification-toolbar button {
+  min-height: 44px;
+  min-width: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+}
+.notification-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 10px;
+  border-bottom: 1px solid #e0e6df;
+}
+.notification-toolbar button {
+  padding: 8px 12px;
+}
+.notification-toolbar button[aria-pressed='true'] {
+  background: #e4efe6;
+  color: #24533d;
+  font-weight: 700;
+}
+.notification-toolbar button:last-child {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+}
+.notification-list {
+  max-height: min(480px, calc(100dvh - 220px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid #e5e9e3;
+}
+.notification-item.is-unread {
+  background: #f0f6ec;
+}
+.notification-type {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #e1ebdf;
+  color: #315c42;
+}
+.notification-item > div {
+  flex: 1;
+  min-width: 0;
+}
+.notification-item strong {
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.notification-item time,
+.notification-read-label {
+  display: block;
+  margin-top: 5px;
+  color: #53645c;
+  font-size: 12px;
+}
+.notification-item button {
+  min-height: 36px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: #28613f;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.notification-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2c794f;
+  flex-shrink: 0;
+  margin-top: 7px;
+}
+.notification-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 36px 24px;
+  text-align: center;
+}
+.notification-empty p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #53645c;
+}
+.notification-error {
+  padding: 12px 16px;
+  color: #a12d2d;
+  font-size: 14px;
+}
+.notification-status {
+  padding: 16px;
+  text-align: center;
+}
+.notification-more {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: #e4efe6;
+  color: #24533d;
+}
+@media (max-width: 900px) {
+  .home-shell .home-header {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .home-shell .notification-center {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .home-shell .account-control {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .home-shell .home-nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .notification-panel {
+    position: fixed;
+    top: 76px;
+    right: 12px;
+  }
+}
+@media (min-width: 681px) and (max-width: 900px) {
+  .home-shell .home-header {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+  .home-shell .home-nav {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .home-shell .notification-center {
+    grid-column: 3;
+  }
+  .home-shell .account-control {
+    grid-column: 4;
+  }
+}
+@media (min-width: 901px) {
+  .notification-panel {
+    left: calc(100% + 18px);
+    right: auto;
+    top: auto;
+    bottom: 0;
+  }
+}

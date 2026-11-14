@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from '../../lib/api';
 import type { Message } from '../../lib/chat-model';
+import { ReportDialog, type ReportTarget } from '../reports/ReportDialog';
 
 export function MessageActions({
   message,
@@ -19,6 +20,7 @@ export function MessageActions({
   onAi?: (kind: 'replies' | 'translate') => void;
 }) {
   const isText = !message.type || message.type === 'text';
+  const [report, setReport] = useState<ReportTarget>();
   const [mode, setMode] = useState<'forward' | 'edit' | 'recall'>();
   const [menu, setMenu] = useState<{ left: number; top: number }>();
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -49,7 +51,10 @@ export function MessageActions({
       return;
     }
     const bounds = menuButton.current!.getBoundingClientRect();
-    const height = (mine && isText ? 136 : 56) + (isText && onAi ? 88 : 0);
+    const height =
+      (mine && isText ? 136 : 56) +
+      (isText && onAi ? 88 : 0) +
+      (!mine ? (message.type === 'image' ? 132 : 88) : 0);
     setMenu({
       left: Math.max(8, Math.min(bounds.right - 180, window.innerWidth - 188)),
       top:
@@ -206,7 +211,7 @@ export function MessageActions({
             <path d="m9 4-6 6 6 6M3 10h9c6 0 9 4 9 10" />
           </svg>
         </button>
-        {(mine || isText) && (
+        {
           <button
             type="button"
             ref={menuButton}
@@ -227,7 +232,7 @@ export function MessageActions({
               <circle cx="12" cy="19" r="2" />
             </svg>
           </button>
-        )}
+        }
       </div>
       {menu &&
         createPortal(
@@ -262,6 +267,54 @@ export function MessageActions({
               }
             }}
           >
+            {!mine && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(undefined);
+                    setReport({
+                      targetType: 'message',
+                      targetId: message.id,
+                      label: 'Báo cáo tin nhắn',
+                    });
+                  }}
+                >
+                  Báo cáo tin nhắn
+                </button>
+                {message.type === 'image' && message.content?.attachmentId && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenu(undefined);
+                      setReport({
+                        targetType: 'attachment',
+                        targetId: message.content!.attachmentId!,
+                        label: 'Báo cáo ảnh',
+                      });
+                    }}
+                  >
+                    Báo cáo ảnh
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(undefined);
+                    setReport({
+                      targetType: 'user',
+                      targetId: message.senderId,
+                      label: 'Báo cáo người gửi',
+                    });
+                  }}
+                >
+                  Báo cáo người gửi
+                </button>
+              </>
+            )}
             {isText && onAi && (
               <>
                 <button
@@ -316,6 +369,15 @@ export function MessageActions({
           </div>,
           document.body,
         )}
+      {report && (
+        <ReportDialog
+          target={report}
+          onClose={() => {
+            setReport(undefined);
+            menuButton.current?.focus();
+          }}
+        />
+      )}
       {mode &&
         createPortal(
           <div

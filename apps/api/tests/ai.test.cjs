@@ -5,6 +5,9 @@ require('reflect-metadata');
 const { validate } = require('class-validator');
 const { AiService } = require('../dist/modules/ai/ai.service');
 const {
+  Notification,
+} = require('../dist/modules/database/entities/notification.entity');
+const {
   AiProviderService,
   validateAiChatResult,
   validateAiResult,
@@ -72,7 +75,16 @@ function fixture() {
     },
   };
   const manager = {
-    getRepository: () => {
+    getRepository: (entity) => {
+      if (entity === Notification) {
+        const builder = {
+          insert: () => builder,
+          values: () => builder,
+          orIgnore: () => builder,
+          execute: async () => ({}),
+        };
+        return { createQueryBuilder: () => builder };
+      }
       let selected = [];
       const builder = {
         leftJoinAndSelect: () => builder,

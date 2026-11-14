@@ -1,5 +1,6 @@
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { writeNotification } from '../notifications/notification-writer';
 import { DataSource, IsNull } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { pageResult } from '../../common/page.dto';
@@ -172,6 +173,27 @@ export class CallsService {
       .where('call_id = :callId', { callId: call.id })
       .andWhere("status IN ('invited', 'accepted')")
       .execute();
+    for (const participant of await this.participants(manager, call.id)) {
+      if (
+        participant.status !== 'missed' ||
+        participant.userId === call.initiatorId
+      )
+        continue;
+      await writeNotification(
+        manager,
+        participant.userId,
+        'call',
+        {
+          title:
+            call.type === 'video'
+              ? 'Bạn có cuộc gọi video nhỡ'
+              : 'Bạn có cuộc gọi thoại nhỡ',
+          conversationId: call.conversationId,
+          callId: call.id,
+        },
+        `missed_call:${call.id}`,
+      );
+    }
     return this.createHistoryMessage(manager, call);
   }
 
