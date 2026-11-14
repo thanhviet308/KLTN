@@ -5,6 +5,7 @@ import { presenceLabel, type Presence } from '../../hooks/usePresence';
 import { newestMessagesFirst, type Message } from '../../lib/chat-model';
 import type { Peer } from '../../lib/types';
 import { MessageMedia } from '../chat/ChatMedia';
+import { ReportButton } from '../reports/ReportDialog';
 import { SharedFileRow } from './SharedFileRow';
 
 /** Live (non-deleted) shared messages of one type in a conversation. */
@@ -129,6 +130,18 @@ export function ConversationSummaryPanel({
           </p>
         )}
       </section>
+      {peer && (
+        <section className="summary-section">
+          <h3>Quyền riêng tư & hỗ trợ</h3>
+          <ReportButton
+            target={{
+              targetType: 'user',
+              targetId: peer.id,
+              label: `Báo cáo ${peer.displayName}`,
+            }}
+          />
+        </section>
+      )}
     </aside>
   );
 }

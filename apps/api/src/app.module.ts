@@ -17,6 +17,7 @@ import { GamesModule } from './modules/games/games.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { WorkspaceModule } from './modules/workspace/workspace.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { ReportsModule } from './modules/reports/reports.module';
     NotesModule,
     NotificationsModule,
     ReportsModule,
+    WorkspaceModule,
   ],
 })
 export class AppModule {}

@@ -14,6 +14,9 @@ import {
   Max,
   Min,
   ValidateIf,
+  IsArray,
+  ArrayMaxSize,
+  ArrayUnique,
 } from 'class-validator';
 
 export class MessageReactionDto {
@@ -54,6 +57,12 @@ export class UploadMessageDto {
 }
 
 export class SendMessageDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  mentions?: string[];
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.toLowerCase() : value,
   )

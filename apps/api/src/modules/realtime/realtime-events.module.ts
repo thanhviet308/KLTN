@@ -22,6 +22,13 @@ export interface ChatEvent {
 export class RealtimeEvents {
   private readonly logger = new Logger(RealtimeEvents.name);
   private listener?: (event: ChatEvent) => void;
+  private accessListener?: (userId: string, status?: string) => void;
+  onAccessChange(listener: (userId: string, status?: string) => void) {
+    this.accessListener = listener;
+  }
+  accessChanged(userId: string, status?: string) {
+    this.accessListener?.(userId, status);
+  }
 
   listen(listener: (event: ChatEvent) => void) {
     this.listener = listener;
@@ -29,6 +36,7 @@ export class RealtimeEvents {
 
   close() {
     this.listener = undefined;
+    this.accessListener = undefined;
   }
 
   // Call only after commit. A delivery failure must not undo a durable write.

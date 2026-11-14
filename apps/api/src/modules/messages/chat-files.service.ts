@@ -1,7 +1,15 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -26,6 +34,11 @@ export class ChatFilesService {
 
   remove(key: string) {
     return rm(this.path(key), { force: true });
+  }
+  async copy(key: string) {
+    const id = randomUUID();
+    await copyFile(this.path(key), this.path(id));
+    return id;
   }
 
   async receive(request: Request, input: UploadMessageDto) {

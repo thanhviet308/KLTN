@@ -85,12 +85,30 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: #80543e;
+  font-size: 12.5px;
+}
+.report-trigger.is-compact {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 50%;
+}
+.chat-message.mine .message-tools.call-report-tools {
+  left: -40px;
+  right: auto;
+}
+.chat-message:not(.mine) .message-tools.call-report-tools {
+  right: -40px;
+  left: auto;
 }
 .report-trigger:hover {
   background: #f5e2d0;

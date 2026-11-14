@@ -7,6 +7,7 @@ import { ReportDialog, type ReportTarget } from '../reports/ReportDialog';
 export function MessageActions({
   message,
   mine,
+  isGroup,
   onUpdate,
   onReply,
   onReact,
@@ -14,12 +15,14 @@ export function MessageActions({
 }: {
   message: Message;
   mine: boolean;
+  isGroup?: boolean;
   onUpdate: (message: Message) => void;
   onReply: (message: Message) => void;
   onReact: () => void;
   onAi?: (kind: 'replies' | 'translate') => void;
 }) {
   const isText = !message.type || message.type === 'text';
+  const [pinNotice, setPinNotice] = useState('');
   const [report, setReport] = useState<ReportTarget>();
   const [mode, setMode] = useState<'forward' | 'edit' | 'recall'>();
   const [menu, setMenu] = useState<{ left: number; top: number }>();
@@ -54,7 +57,8 @@ export function MessageActions({
     const height =
       (mine && isText ? 136 : 56) +
       (isText && onAi ? 88 : 0) +
-      (!mine ? (message.type === 'image' ? 132 : 88) : 0);
+      (!mine ? (message.type === 'image' ? 132 : 88) : 0) +
+      (isGroup ? 44 : 0);
     setMenu({
       left: Math.max(8, Math.min(bounds.right - 180, window.innerWidth - 188)),
       top:
@@ -146,10 +150,10 @@ export function MessageActions({
       if (mode === 'forward') {
         const key = keys.current.get(target) ?? crypto.randomUUID();
         keys.current.set(target, key);
-        await api.authenticated(`/conversations/${target}/messages`, {
-          body: text,
-          clientMessageId: key,
-        });
+        await api.authenticated(
+          `/conversations/${message.conversationId}/messages/${message.id}/forward`,
+          { conversationId: target, clientMessageId: key },
+        );
       } else {
         const result = await api.authenticated<{ message: Message }>(
           `/conversations/${message.conversationId}/messages/${message.id}`,
@@ -315,6 +319,28 @@ export function MessageActions({
                 </button>
               </>
             )}
+            {isGroup && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={async () => {
+                  setMenu(undefined);
+                  try {
+                    await api.authenticated(
+                      `/conversations/${message.conversationId}/pins/${message.id}`,
+                      undefined,
+                      'PUT',
+                    );
+                    setError('');
+                    setPinNotice('Đã ghim tin nhắn.');
+                  } catch (e) {
+                    setPinNotice(api.errorMessage(e));
+                  }
+                }}
+              >
+                Ghim tin nhắn
+              </button>
+            )}
             {isText && onAi && (
               <>
                 <button
@@ -348,7 +374,7 @@ export function MessageActions({
                 Thu hồi
               </button>
             )}
-            {isText && (
+            {message.type !== 'call' && (
               <button
                 type="button"
                 role="menuitem"
@@ -369,6 +395,12 @@ export function MessageActions({
           </div>,
           document.body,
         )}
+      {pinNotice && (
+        <div role="status" className="workspace-mention-label">
+          {pinNotice}
+          <button onClick={() => setPinNotice('')}>Đóng</button>
+        </div>
+      )}
       {report && (
         <ReportDialog
           target={report}

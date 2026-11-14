@@ -125,6 +125,8 @@ export function Chat({
     { id: string; user: Peer; role: 'owner' | 'admin' | 'member' }[]
   >([]);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [title, setTitle] = useState(conversationName(conversation));
   const messagesRef = useRef<api.Message[]>([]);
   const messageList = useRef<FlatList<api.Message>>(null);
@@ -811,7 +813,7 @@ export function Chat({
             displayName: title,
             avatarUrl: conversation.peer?.avatarUrl,
           }}
-          size={42}
+          size={38}
         />
         <View style={styles.chatTitleBox}>
           <Text numberOfLines={1} style={styles.headerTitle}>
@@ -822,43 +824,82 @@ export function Chat({
               style={[styles.statusDot, connected && styles.statusDotOnline]}
             />
             <Text
+              numberOfLines={1}
               style={[styles.connection, connected && styles.connectionOnline]}
             >
               {connected ? 'Đã kết nối' : 'Đang kết nối lại…'}
             </Text>
           </View>
         </View>
-        {conversation.type === 'direct' &&
-          (['audio', 'video'] as const).map(type => (
-            <Pressable
-              key={type}
-              accessibilityRole="button"
-              accessibilityLabel={type === 'audio' ? 'Gọi thoại' : 'Gọi video'}
-              disabled={calls.busy || recording}
-              onPress={() => calls.start(conversation, type)}
-              style={[
-                styles.infoButton,
-                {
-                  minWidth: 44,
-                  minHeight: 44,
-                  opacity: calls.busy || recording ? 0.5 : 1,
-                },
-              ]}
-            >
-              <Text style={[styles.infoButtonText, { fontSize: 12 }]}>
-                {type === 'audio' ? 'Gọi' : 'Video'}
-              </Text>
-            </Pressable>
-          ))}
-        <Pressable
-          accessibilityLabel="Thông tin cuộc trò chuyện"
-          accessibilityRole="button"
-          onPress={() => setInfoOpen(true)}
-          style={styles.infoButton}
-        >
-          <Text style={styles.infoButtonText}>i</Text>
-        </Pressable>
+        <View style={styles.chatActionGroup}>
+          <Pressable
+            accessibilityLabel="Tìm trong cuộc trò chuyện"
+            accessibilityRole="button"
+            onPress={() => {
+              setSearchOpen(prev => !prev);
+              if (searchOpen) setSearchQuery('');
+            }}
+            style={styles.infoButton}
+          >
+            <Text style={styles.infoButtonText}>⌕</Text>
+          </Pressable>
+          {conversation.type === 'direct' &&
+            (['audio', 'video'] as const).map(type => (
+              <Pressable
+                key={type}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  type === 'audio' ? 'Gọi thoại' : 'Gọi video'
+                }
+                disabled={calls.busy || recording}
+                onPress={() => calls.start(conversation, type)}
+                style={[
+                  styles.infoButton,
+                  {
+                    paddingHorizontal: 8,
+                    opacity: calls.busy || recording ? 0.5 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.infoButtonText, { fontSize: 11.5 }]}>
+                  {type === 'audio' ? 'Gọi' : 'Video'}
+                </Text>
+              </Pressable>
+            ))}
+          <Pressable
+            accessibilityLabel="Thông tin cuộc trò chuyện"
+            accessibilityRole="button"
+            onPress={() => setInfoOpen(true)}
+            style={styles.infoButton}
+          >
+            <Text style={styles.infoButtonText}>i</Text>
+          </Pressable>
+        </View>
       </View>
+      {searchOpen && (
+        <View style={styles.chatSearchBar}>
+          <Text style={styles.searchIcon}>⌕</Text>
+          <TextInput
+            accessibilityLabel="Tìm tin nhắn trong cuộc trò chuyện"
+            autoFocus
+            onChangeText={setSearchQuery}
+            placeholder="Tìm trong cuộc trò chuyện…"
+            placeholderTextColor="#7c8e98"
+            style={styles.searchInput}
+            value={searchQuery}
+          />
+          <Pressable
+            accessibilityLabel="Đóng tìm kiếm"
+            onPress={() => {
+              setSearchOpen(false);
+              setSearchQuery('');
+            }}
+            style={styles.contextClose}
+          >
+            <Text style={styles.contextCloseText}>×</Text>
+          </Pressable>
+        </View>
+      )}
       {!!error && (
         <View style={styles.chatNotice}>
           <InlineNotice message={error} onRetry={() => void sync()} />
@@ -870,7 +911,15 @@ export function Chat({
         <FlatList
           ref={messageList}
           contentContainerStyle={styles.messageList}
-          data={messages}
+          data={
+            searchQuery.trim()
+              ? messages.filter(item =>
+                  (item.body ?? '')
+                    .toLocaleLowerCase('vi')
+                    .includes(searchQuery.trim().toLocaleLowerCase('vi')),
+                )
+              : messages
+          }
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           keyExtractor={item => item.id}
@@ -1022,15 +1071,15 @@ export function Chat({
           }}
         />
       )}
-      <Text style={styles.typingNote}>
-        {Object.entries(typing)
-          .filter(([, expiry]) => expiry > Date.now())
-          .map(([id]) => memberName(id))
-          .join(', ')}
-        {Object.values(typing).some(expiry => expiry > Date.now())
-          ? ' đang nhập…'
-          : ' '}
-      </Text>
+      {Object.values(typing).some(expiry => expiry > Date.now()) && (
+        <Text style={styles.typingNote}>
+          {Object.entries(typing)
+            .filter(([, expiry]) => expiry > Date.now())
+            .map(([id]) => memberName(id))
+            .join(', ')}{' '}
+          đang nhập…
+        </Text>
+      )}
       {(replyTo || editing) && (
         <View style={styles.composerContext}>
           <View style={styles.composerContextText}>

@@ -50,6 +50,9 @@ export class AiService {
         .andWhere('message.id IN (:...ids)', { ids })
         .andWhere("message.type = 'text' AND message.deletedAt IS NULL")
         .andWhere(
+          "EXISTS (SELECT 1 FROM users visible_sender WHERE visible_sender.id=message.sender_id AND visible_sender.status='active')",
+        )
+        .andWhere(
           `EXISTS (SELECT 1 FROM conversation_member_periods period
           WHERE period.conversation_id = message.conversation_id AND period.user_id = :actorId
           AND message.sequence > period.joined_after_sequence

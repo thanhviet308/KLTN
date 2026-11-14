@@ -171,19 +171,26 @@ export function ReportDialog({
   );
 }
 
-export function ReportButton({ target }: { target: ReportTarget }) {
+export function ReportButton({
+  target,
+  compact = false,
+}: {
+  target: ReportTarget;
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button
         type="button"
-        className="report-trigger"
+        className={`report-trigger${compact ? ' is-compact' : ''}`}
         title={target.label}
+        data-tooltip={compact ? target.label : undefined}
         aria-label={target.label}
         onClick={() => setOpen(true)}
       >
-        <Flag size={16} aria-hidden="true" />
-        <span>Báo cáo</span>
+        <Flag size={15} aria-hidden="true" />
+        {!compact && <span>Báo cáo</span>}
       </button>
       {open && <ReportDialog target={target} onClose={() => setOpen(false)} />}
     </>

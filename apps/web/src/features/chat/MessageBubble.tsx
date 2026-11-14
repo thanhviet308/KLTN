@@ -24,6 +24,7 @@ export interface Translation {
 interface MessageBubbleProps {
   message: Message;
   mine: boolean;
+  isGroup?: boolean;
   /** The next message is from the same sender within a few minutes. */
   continuesGroup: boolean;
   peers: Peer[];
@@ -52,6 +53,7 @@ interface MessageBubbleProps {
 export function MessageBubble({
   message,
   mine,
+  isGroup,
   continuesGroup,
   peers,
   names,
@@ -93,19 +95,23 @@ export function MessageBubble({
       className={`chat-message ${mine ? 'mine' : ''}${isCall ? ' call-event' : ''}${message.content?.callStatus === 'missed' ? ' missed-call' : ''}${continuesGroup ? ' continues-group' : ''}`}
     >
       {isCall && message.content?.callId && (
-        <ReportButton
-          target={{
-            targetType: 'call',
-            targetId: message.content.callId,
-            label: 'Báo cáo cuộc gọi',
-          }}
-        />
+        <div className="message-tools call-report-tools">
+          <ReportButton
+            compact
+            target={{
+              targetType: 'call',
+              targetId: message.content.callId,
+              label: 'Báo cáo cuộc gọi',
+            }}
+          />
+        </div>
       )}
       {!isCall && (
         <>
           <MessageActions
             message={message}
             mine={mine}
+            isGroup={isGroup}
             onUpdate={onUpdate}
             onReply={onReply}
             onReact={onReact}
@@ -139,10 +145,23 @@ export function MessageBubble({
         </span>
       )}
       <div
+        tabIndex={0}
         className={`message-body${isCall ? ' call-message-body' : ''}${
           gameInvite ? ' game-invite-message-body' : ''
         }`}
       >
+        {!message.deletedAt && message.content?.forwarded && (
+          <small className="workspace-mention-label">
+            Đã chuyển tiếp
+            <br />
+          </small>
+        )}
+        {!message.deletedAt && !!message.content?.mentions?.length && (
+          <div className="workspace-mention-label">
+            Nhắc đến:{' '}
+            {message.content.mentions.map((id) => `@${names(id)}`).join(', ')}
+          </div>
+        )}
         {message.deletedAt ? (
           'Tin nhắn đã thu hồi'
         ) : message.type && message.type !== 'text' ? (

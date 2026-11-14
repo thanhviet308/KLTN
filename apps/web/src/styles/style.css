@@ -7,6 +7,15 @@
 html {
   zoom: 1.06;
 }
+@media (max-width: 900px) {
+  :root {
+    --ui-zoom: 1;
+    --app-h: 100dvh;
+  }
+  html {
+    zoom: 1;
+  }
+}
 
 .home-shell {
   min-height: var(--app-h, 100dvh);
@@ -1756,14 +1765,27 @@ a:focus-visible {
 }
 @media (hover: none) {
   .message-tools {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    top: -32px;
+    z-index: 5;
+  }
+  .chat-message:hover .message-tools,
+  .chat-message:focus-within .message-tools,
+  .chat-message:active .message-tools,
+  .message-tools.menu-open {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-    top: -24px;
-    transform: scale(0.85);
   }
-  .chat-message {
-    margin-top: 28px;
+  .chat-message.mine .message-tools {
+    left: auto;
+    right: 0;
+  }
+  .chat-message:not(.mine) .message-tools {
+    left: 36px;
+    right: auto;
   }
 }
 

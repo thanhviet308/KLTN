@@ -2,8 +2,39 @@
 .home-shell .conversation-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
+}
+.home-shell .conversation-toolbar h2 {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+.home-shell .chat-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.home-shell .chat-header-title {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-shell .chat-header-title small {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-shell .chat-header-title .presence-status {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .home-shell .chat-call-actions {
   margin-left: auto;
@@ -1518,4 +1549,205 @@
 .home-shell .secondary,
 .home-shell .primary {
   font-size: 14px;
+}
+
+/* ---- Mobile Web Responsive Optimization (<= 680px) ---- */
+@media (max-width: 680px) {
+  .home-shell .home-header {
+    padding: 8px 12px 6px;
+    gap: 6px 10px;
+  }
+  .home-shell .home-nav {
+    height: 42px;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .home-shell .home-nav button {
+    height: 38px;
+    min-height: 38px;
+    padding: 0 10px;
+    flex-direction: row;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 11px;
+  }
+  .home-shell .home-nav .nav-label {
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .home-shell .home-layout {
+    padding: 6px;
+    gap: 6px;
+  }
+  .home-shell:has(.chat-home .messenger-layout.has-thread) .home-header {
+    display: none;
+  }
+  .home-shell:has(.chat-home .messenger-layout.has-thread) .home-layout {
+    padding: 0;
+  }
+  .home-shell:has(.chat-home .messenger-layout.has-thread)
+    .home-main.chat-home {
+    border: 0;
+    border-radius: 0;
+  }
+  .home-shell .thread-sidebar {
+    padding: 12px 10px;
+  }
+  .home-shell .thread-sidebar-heading {
+    margin-bottom: 10px;
+  }
+  .home-shell .thread-sidebar-heading h2 {
+    font-size: 21px;
+  }
+  .home-shell .thread-content {
+    padding: 0;
+  }
+  .home-shell .thread-content > .conversation-toolbar {
+    min-height: 56px;
+    padding: 8px 8px;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+  .home-shell .conversation-toolbar .chat-back {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .home-shell .chat-heading {
+    gap: 8px;
+  }
+  .home-shell .chat-header-avatar {
+    width: 35px;
+    height: 35px;
+    min-width: 35px;
+    font-size: 14px;
+  }
+  .home-shell .chat-header-title {
+    font-size: 14.5px;
+    line-height: 1.25;
+  }
+  .home-shell .chat-header-title small {
+    font-size: 11.5px;
+    margin-top: 2px;
+  }
+  .home-shell .chat-call-actions {
+    gap: 2px;
+  }
+  .home-shell .chat-call-actions .chat-info-button {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+    margin-left: 0;
+  }
+  .home-shell .chat-call-actions .chat-info-button svg {
+    width: 17px;
+    height: 17px;
+  }
+  .home-shell .chat-panel {
+    padding: 0 8px 8px;
+  }
+  .home-shell .message-timeline {
+    margin-inline: 0;
+    padding: 12px 2px 6px;
+  }
+  .home-shell .chat-message {
+    max-width: 86%;
+    margin-bottom: 8px;
+  }
+  .home-shell .message-body {
+    font-size: 14.5px;
+    line-height: 1.45;
+    padding: 8px 12px;
+  }
+  .home-shell .chat-composer-bar {
+    gap: 4px;
+    padding: 6px 0 0;
+    align-items: center;
+  }
+  .home-shell .composer-game {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+  }
+  .home-shell .chat-composer-bar .media-tools {
+    gap: 1px;
+    padding-bottom: 0;
+  }
+  .home-shell .chat-composer-bar .media-tools button {
+    width: 30px;
+    height: 30px;
+    padding: 3px;
+  }
+  .home-shell .workspace-mention-select {
+    width: 32px;
+    height: 32px;
+    padding: 0 4px;
+    font-size: 12px;
+  }
+  .home-shell .chat-composer-bar .message-composer {
+    gap: 4px;
+    padding: 4px 5px 4px 12px;
+    border-radius: 22px;
+  }
+  .home-shell .chat-composer-bar .message-composer textarea {
+    font-size: 14px;
+    height: 32px;
+    min-height: 32px;
+    padding: 6px 0;
+  }
+  .home-shell .chat-composer-bar .message-composer button,
+  .home-shell .chat-composer-bar .message-composer .accept {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    flex: 0 0 32px;
+    padding: 5px;
+  }
+  .home-shell .composer-emoji-picker {
+    right: 8px;
+    grid-template-columns: repeat(6, 34px);
+  }
+  .home-shell .home-main:not(.chat-home) {
+    padding: 14px 12px;
+  }
+  .home-shell .friends-hub-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .home-shell .friends-hub-tab {
+    padding: 10px;
+    gap: 8px;
+    border-radius: 13px;
+  }
+  .home-shell .friends-hub-tab-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+  }
+  .home-shell .friends-hub-tab-copy strong {
+    font-size: 13px;
+  }
+  .home-shell .friends-hub-tab-copy small {
+    font-size: 11px;
+  }
+  .home-shell .home-main:not(.chat-home) .people-list > li {
+    padding: 12px 14px;
+    gap: 10px 12px;
+  }
+  .home-shell .peer-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+    gap: 6px;
+  }
 }

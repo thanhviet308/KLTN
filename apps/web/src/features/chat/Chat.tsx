@@ -41,6 +41,7 @@ import { CaroGame, GAME_INFO, type CaroSession } from '../games/CaroGame';
 interface Draft {
   clientMessageId: string;
   body: string;
+  mentions?: string[];
   media?: MediaDraft;
   status: 'sending' | 'failed';
   error?: string;
@@ -71,6 +72,7 @@ export function Chat({
   initialLastReadSequence?: string | null;
   initialUnreadCount?: number;
 }) {
+  const [mentions, setMentions] = useState<string[]>([]);
   const draftKey = `${user.id}:${conversationId}`;
   const [cached] = useState(() => cachedHistory(draftKey));
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
@@ -278,6 +280,18 @@ export function Chat({
       reconnection: false,
     });
     socket.current = client;
+    client.on(
+      'account:visibility',
+      ({ userId, status }: { userId: string; status: string }) => {
+        if (status === 'blocked') {
+          messageCache.current = messageCache.current.filter(
+            (m) => m.senderId !== userId,
+          );
+          setMessages((old) => old.filter((m) => m.senderId !== userId));
+          setReplyTo((old) => (old?.senderId === userId ? undefined : old));
+        }
+      },
+    );
     async function sync() {
       if (syncing || Date.now() - lastSyncAt < 2000) {
         return;
@@ -609,7 +623,11 @@ export function Chat({
                   type: 'location',
                   location: draft.media.location,
                 }
-              : { clientMessageId: draft.clientMessageId, body: draft.body },
+              : {
+                  clientMessageId: draft.clientMessageId,
+                  body: draft.body,
+                  mentions: draft.mentions,
+                },
           );
       accept([result.message]);
     } catch (e) {
@@ -646,9 +664,11 @@ export function Chat({
     const draft: Draft = {
       clientMessageId: crypto.randomUUID(),
       body: content,
+      mentions: mentions.filter((id) => content.includes(`@${names(id)}`)),
       status: 'sending',
     };
     setBody('');
+    setMentions([]);
     setReplyTo(undefined);
     setError('');
     updateTyping(false);
@@ -885,6 +905,7 @@ export function Chat({
               <MessageBubble
                 message={message}
                 mine={mine}
+                isGroup={isGroup}
                 continuesGroup={continuesGroup}
                 peers={peers}
                 names={names}
@@ -893,7 +914,9 @@ export function Chat({
                 reactionRevision={reactionVersions[message.id] ?? 0}
                 reactionOpen={reactionTarget === message.id}
                 translation={translations[message.id]}
-                showStatus={lastSent}
+                showStatus={
+                  lastSent || (!!isGroup && message.senderId === user.id)
+                }
                 readers={readers}
                 delivered={delivered}
                 onUpdate={(updated) => accept([updated])}
@@ -997,6 +1020,33 @@ export function Chat({
             });
           }}
         />
+        {isGroup && (
+          <select
+            className="workspace-mention-select"
+            aria-label="Chọn thành viên để nhắc đến"
+            title="Nhắc đến thành viên (@)"
+            value=""
+            onChange={(event) => {
+              const id = event.target.value;
+              if (!id) return;
+              setMentions((old) => [...new Set([...old, id])].slice(0, 20));
+              setBody(
+                (old) =>
+                  `${old}${old && !old.endsWith(' ') ? ' ' : ''}@${names(id)} `,
+              );
+              composer.current?.focus();
+            }}
+          >
+            <option value="">@</option>
+            {peers
+              .filter((p) => p.id !== user.id)
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  @{p.displayName}
+                </option>
+              ))}
+          </select>
+        )}
         <form
           className="message-composer"
           noValidate

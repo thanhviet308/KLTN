@@ -349,7 +349,7 @@ export const login = async (email: string, password: string) =>
     await request<Session>('/auth/login', {
       email,
       password,
-      deviceName: 'Trình duyệt web',
+      deviceName: `${/Edg\//.test(navigator.userAgent) ? 'Edge' : /Firefox\//.test(navigator.userAgent) ? 'Firefox' : /Chrome\//.test(navigator.userAgent) ? 'Chrome' : 'Trình duyệt'} · ${/Android/.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/.test(navigator.userAgent) ? 'iOS' : /Windows/.test(navigator.userAgent) ? 'Windows' : /Macintosh/.test(navigator.userAgent) ? 'macOS' : 'Máy tính'}`,
     }),
   );
 export async function logout() {

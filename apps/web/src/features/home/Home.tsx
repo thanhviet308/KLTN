@@ -1,3 +1,4 @@
+import { SessionsPanel } from '../workspace/WorkspacePanels';
 import { useEffect, useRef, useState } from 'react';
 import * as api from '../../lib/api';
 import { Conversations } from '../conversations/Conversations';
@@ -72,6 +73,7 @@ export function Home({
   onExpired: () => void;
   onAdmin?: () => void;
 }) {
+  const [sessionsOpen, setSessionsOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('conversations');
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -279,6 +281,12 @@ export function Home({
   }
   return (
     <div className="home-shell">
+      {sessionsOpen && (
+        <SessionsPanel
+          onClose={() => setSessionsOpen(false)}
+          onExpired={onExpired}
+        />
+      )}
       <header className="home-header">
         <a href="/" className="brand">
           <span className="brand-icon">P</span> PingPong
@@ -377,6 +385,16 @@ export function Home({
           {accountOpen && (
             <div className="account-menu" role="menu" aria-label="Tài khoản">
               <div className="account-menu-name">{user.displayName}</div>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountOpen(false);
+                  setSessionsOpen(true);
+                }}
+              >
+                Thiết bị đăng nhập
+              </button>
               {onAdmin && (
                 <button
                   type="button"
@@ -986,13 +1004,6 @@ export function Home({
                       )}
                     </div>
                     <div className="peer-actions">
-                      <ReportButton
-                        target={{
-                          targetType: 'user',
-                          targetId: row.user.id,
-                          label: `Báo cáo ${row.user.displayName}`,
-                        }}
-                      />
                       {tab === 'search' ? (
                         <>
                           <button
@@ -1188,6 +1199,14 @@ export function Home({
                           </button>
                         </>
                       )}
+                      <ReportButton
+                        compact
+                        target={{
+                          targetType: 'user',
+                          targetId: row.user.id,
+                          label: `Báo cáo ${row.user.displayName}`,
+                        }}
+                      />
                     </div>
                   </li>
                 ))}

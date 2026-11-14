@@ -31,6 +31,15 @@ export function ReceiptPanel({
           {others.map((item) => (
             <li key={item.userId}>
               {names(item.userId)} · {item.readAt ? 'Đã đọc' : 'Đã nhận'}
+              {(item.readAt || item.deliveredAt) && (
+                <time>
+                  {' '}
+                  ·{' '}
+                  {new Date((item.readAt ?? item.deliveredAt)!).toLocaleString(
+                    'vi-VN',
+                  )}
+                </time>
+              )}
             </li>
           ))}
         </ul>

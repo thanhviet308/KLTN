@@ -75,9 +75,15 @@ export function ConversationList({
   }, [load]);
 
   const visibleItems = items.filter(item => {
-    const matchesQuery = conversationName(item)
-      .toLocaleLowerCase('vi')
-      .includes(query.trim().toLocaleLowerCase('vi'));
+    const normalizedQuery = query.trim().toLocaleLowerCase('vi');
+    const matchesQuery =
+      !normalizedQuery ||
+      conversationName(item)
+        .toLocaleLowerCase('vi')
+        .includes(normalizedQuery) ||
+      (item.lastMessage?.body ?? '')
+        .toLocaleLowerCase('vi')
+        .includes(normalizedQuery);
     const matchesCategory =
       category === 'all' ||
       (category === 'unread' && item.unreadCount > 0) ||
@@ -283,9 +289,9 @@ export function ConversationList({
         <View style={styles.searchBarCompact}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput
-            accessibilityLabel="Tìm cuộc trò chuyện"
+            accessibilityLabel="Tìm cuộc trò chuyện và tin nhắn"
             onChangeText={setQuery}
-            placeholder="Tìm cuộc trò chuyện"
+            placeholder="Tìm bạn bè, nhóm và tin nhắn…"
             placeholderTextColor="#7c8e98"
             style={styles.searchInput}
             value={query}

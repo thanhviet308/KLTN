@@ -398,6 +398,9 @@ export class CallsService {
             actorId,
           },
         )
+        .andWhere(
+          "EXISTS (SELECT 1 FROM users u WHERE u.id=call.initiator_id AND u.status='active')",
+        )
         .orderBy('call.createdAt', 'DESC')
         .addOrderBy('call.id', 'DESC')
         .setLock('pessimistic_write')

@@ -70,6 +70,10 @@ export class ChatGateway
 
   afterInit(server: Namespace) {
     this.server = server;
+    this.events.onAccessChange((userId, status) => {
+      void this.revalidate();
+      if (status) this.server.emit('account:visibility', { userId, status });
+    });
     server.use((socket, next) => {
       if (
         this.closing ||

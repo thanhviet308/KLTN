@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Req,
   Res,
   StreamableFile,
@@ -20,6 +21,8 @@ import type { User } from '../database/entities/user.entity';
 import type { Request, Response } from 'express';
 import { ChatFilesService } from './chat-files.service';
 import { MessagesService } from './messages.service';
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Runtime validation metadata.
+import { ForwardDto } from '../workspace/workspace.dto';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
 import {
   SendMessageDto,
@@ -36,6 +39,68 @@ const uuid = () => new ParseUUIDPipe({ version: '4' });
 
 @Controller('conversations/:conversationId')
 export class MessagesController {
+  @Post('messages/:messageId/forward')
+  async forward(
+    @CurrentUser() user: User,
+    @Param('conversationId', uuid()) id: string,
+    @Param('messageId', uuid()) messageId: string,
+    @Body() input: ForwardDto,
+  ) {
+    const { message } = await this.messages.get(user.id, id, messageId);
+    if (message.deletedAt || message.type === 'call')
+      throw new BadRequestException('Message cannot be forwarded');
+    const source = {
+      conversationId: id,
+      messageId,
+      body: message.body,
+      editedAt: message.editedAt?.toISOString() ?? null,
+    };
+    if (message.type === 'text' || message.type === 'location')
+      return this.messages.send(
+        user.id,
+        input.conversationId,
+        {
+          clientMessageId: input.clientMessageId,
+          type: message.type,
+          ...(message.type === 'text'
+            ? { body: message.body! }
+            : {
+                location: {
+                  latitude: message.content!.latitude!,
+                  longitude: message.content!.longitude!,
+                },
+              }),
+        },
+        undefined,
+        source,
+      );
+    const attachment = await this.messages.attachment(user.id, id, messageId);
+    await this.messages.authorizeUpload(user.id, input.conversationId);
+    const key = await this.files.copy(attachment.objectKey);
+    try {
+      const result = await this.messages.send(
+        user.id,
+        input.conversationId,
+        { clientMessageId: input.clientMessageId, type: 'text' },
+        {
+          id: key,
+          objectKey: key,
+          fileName: attachment.fileName,
+          mimeType: attachment.mimeType,
+          size: Number(attachment.size),
+          sha256: message.content!.sha256!,
+          type: message.type,
+        },
+        source,
+      );
+      if (result.message.content?.attachmentId !== key)
+        await this.files.remove(key);
+      return result;
+    } catch (error) {
+      await this.files.remove(key);
+      throw error;
+    }
+  }
   @Put('messages/:messageId/reaction')
   react(
     @CurrentUser() user: User,

@@ -1,3 +1,4 @@
+import { AdminUsers } from './AdminUsers';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDownToLine,
@@ -229,8 +230,9 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
           <div className="admin-demo-note">
             <ShieldCheck size={17} />
             <span>
-              Đang hiển thị dữ liệu mẫu. Các thay đổi chỉ áp dụng trong phiên
-              xem thử, chưa kết nối hệ thống thật.
+              {user
+                ? 'Quản lý người dùng và báo cáo sử dụng dữ liệu thật. Tổng quan và nhật ký là dữ liệu minh họa.'
+                : 'Đang hiển thị dữ liệu mẫu. Thay đổi chỉ áp dụng trong phiên xem thử.'}
             </span>
           </div>
           {section === 'overview' && (
@@ -381,7 +383,8 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
               </div>
             </>
           )}
-          {(section === 'overview' || section === 'users') && (
+          {section === 'users' && user?.role === 'admin' && <AdminUsers />}
+          {(section === 'overview' || (section === 'users' && !user)) && (
             <section className="admin-panel">
               <div className="admin-panel-heading">
                 <div>

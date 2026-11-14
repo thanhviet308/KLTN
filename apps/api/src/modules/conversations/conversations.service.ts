@@ -169,6 +169,23 @@ export class ConversationsService {
       .findOneBy({ conversationId: id, userId: actorId });
     if (!period || !member)
       fail(404, 'CONVERSATION_NOT_FOUND', 'Conversation not found');
+    const unavailable = await manager
+      .getRepository(User)
+      .createQueryBuilder('access_user')
+      .where('access_user.id IN (:...ids)', {
+        ids:
+          conversation.type === 'direct'
+            ? [
+                actorId,
+                conversation.directUserLowId,
+                conversation.directUserHighId,
+              ]
+            : [actorId],
+      })
+      .andWhere("access_user.status <> 'active'")
+      .getCount();
+    if (unavailable)
+      fail(404, 'CONVERSATION_NOT_FOUND', 'Conversation unavailable');
     return { conversation, member };
   }
 
@@ -320,6 +337,9 @@ export class ConversationsService {
         'period.conversationId = member.conversationId AND period.userId = member.userId AND period.leftAt IS NULL',
       )
       .where('member.userId = :actorId', { actorId })
+      .andWhere(
+        "(conversation.type <> 'direct' OR NOT EXISTS (SELECT 1 FROM users hidden_peer WHERE hidden_peer.id IN (conversation.direct_user_low_id,conversation.direct_user_high_id) AND hidden_peer.status <> 'active'))",
+      )
       .orderBy('conversation.updatedAt', 'DESC')
       .addOrderBy('member.conversationId', 'DESC')
       .take(input.limit + 1);
@@ -339,7 +359,7 @@ export class ConversationsService {
         FROM messages m
         JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
         WHERE m.conversation_id = ANY($1::uuid[]) AND m.sender_id <> $2
-          AND m.deleted_at IS NULL AND m.sequence > COALESCE(cm.last_read_sequence, 0)
+          AND EXISTS (SELECT 1 FROM users u WHERE u.id=m.sender_id AND u.status='active') AND m.deleted_at IS NULL AND m.sequence > COALESCE(cm.last_read_sequence, 0)
           AND EXISTS (
             SELECT 1 FROM conversation_member_periods p
             WHERE p.conversation_id = m.conversation_id AND p.user_id = $2
@@ -377,7 +397,7 @@ export class ConversationsService {
             ELSE NULL END AS body,
           m.created_at AS "createdAt", m.deleted_at AS "deletedAt"
         FROM messages m
-        WHERE m.conversation_id = requested.conversation_id
+        WHERE m.conversation_id = requested.conversation_id AND EXISTS (SELECT 1 FROM users u WHERE u.id=m.sender_id AND u.status='active')
           AND EXISTS (
             SELECT 1 FROM conversation_member_periods p
             WHERE p.conversation_id = m.conversation_id AND p.user_id = $2

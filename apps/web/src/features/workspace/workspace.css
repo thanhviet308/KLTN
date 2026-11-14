@@ -1,0 +1,129 @@
+.workspace-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: 85dvh;
+  overflow: auto;
+  border: 1px solid #d7d1c7;
+  border-radius: 20px;
+  padding: 24px;
+  background: #fffdf8;
+  color: #302d29;
+  box-shadow: 0 24px 80px #302d2933;
+}
+.workspace-dialog::backdrop {
+  background: #17151180;
+}
+.workspace-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.workspace-dialog h2 {
+  font-size: 22px;
+  margin: 0;
+}
+.workspace-dialog button,
+.workspace-toolbar button,
+.workspace-admin button {
+  min-height: 40px;
+  border: 1px solid #cfc6b8;
+  border-radius: 10px;
+  background: #f5efe5;
+  color: #302d29;
+  padding: 8px 14px;
+  cursor: pointer;
+  margin: 4px;
+}
+.workspace-dialog button:disabled,
+.workspace-admin button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.workspace-dialog input:not([type='checkbox']),
+.workspace-dialog textarea,
+.workspace-admin input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #b5ab9b;
+  border-radius: 8px;
+  font: inherit;
+  box-sizing: border-box;
+  background: white;
+  color: #302d29;
+}
+.workspace-dialog label {
+  display: block;
+  margin: 12px 0;
+}
+.workspace-dialog textarea {
+  min-height: 100px;
+}
+.workspace-card {
+  padding: 16px;
+  border: 1px solid #ded5c7;
+  border-radius: 12px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.workspace-message {
+  white-space: pre-wrap;
+}
+.workspace-choice {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+.workspace-choice span {
+  margin-left: auto;
+}
+.workspace-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #ded5c7;
+}
+.workspace-dialog [role='alert'],
+.workspace-admin [role='alert'] {
+  color: #9b2424;
+}
+.workspace-dialog :focus-visible,
+.workspace-toolbar :focus-visible {
+  outline: 3px solid #6d643e;
+  outline-offset: 2px;
+}
+.workspace-mention-select {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 36px;
+  padding: 0 6px;
+  border: 1px solid #e2d5c6;
+  border-radius: 10px;
+  background: #fffdf9;
+  color: #76553b;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.workspace-mention-select:hover {
+  background: #f4e6d5;
+}
+.workspace-mention-label {
+  font-size: 12px;
+  color: #61552e;
+}
+.workspace-search-heading {
+  margin: 14px 6px 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #8d7866;
+}
+@media (max-width: 600px) {
+  .workspace-dialog {
+    padding: 16px;
+  }
+}

@@ -57,6 +57,8 @@ export class Message {
   @Column({ type: 'varchar', length: 16, default: 'text' }) type!:
     'text' | 'image' | 'file' | 'voice' | 'location' | 'call';
   @Column({ type: 'jsonb', nullable: true }) content!: {
+    mentions?: string[];
+    forwarded?: boolean;
     latitude?: number;
     longitude?: number;
     attachmentId?: string;

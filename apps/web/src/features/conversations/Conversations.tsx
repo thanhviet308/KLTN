@@ -17,9 +17,11 @@ import { playMessageSound } from '../../lib/notification-sounds';
 import { MessageMedia } from '../chat/ChatMedia';
 import { SharedMediaDialog } from './SharedMediaDialog';
 import { SharedFileRow } from './SharedFileRow';
-import { Bell, BellOff, Sparkles } from 'lucide-react';
+import { Bell, BellOff, Pin, Search, Sparkles } from 'lucide-react';
+import { GroupTools, MessageSearch } from '../workspace/WorkspacePanels';
 import type { Peer, Page } from '../../lib/types';
 import {
+  conversationTitle,
   roles,
   visibleConversations,
   type Conversation,
@@ -51,6 +53,7 @@ export function Conversations({
   onToggleAiChat?: () => void;
 }) {
   const [items, setItems] = useState<Conversation[]>([]);
+  const [workspacePanel, setWorkspacePanel] = useState<'search' | 'group'>();
   const [directNames, setDirectNames] = useState<Record<string, string>>({});
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<Conversation>();
@@ -108,6 +111,51 @@ export function Conversations({
   const [creating, setCreating] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [filter, setFilter] = useState('');
+  const [searchedMessages, setSearchedMessages] = useState<
+    Pick<
+      Message,
+      'id' | 'conversationId' | 'senderId' | 'body' | 'createdAt' | 'sequence'
+    >[]
+  >([]);
+  const [searchingMessages, setSearchingMessages] = useState(false);
+  useEffect(() => {
+    const term = filter.trim();
+    if (!term) {
+      setSearchedMessages([]);
+      setSearchingMessages(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingMessages(true);
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ query: term, limit: '10' });
+      void api
+        .authenticated<{
+          items: Pick<
+            Message,
+            | 'id'
+            | 'conversationId'
+            | 'senderId'
+            | 'body'
+            | 'createdAt'
+            | 'sequence'
+          >[];
+        }>(`/messages/search?${params}`)
+        .then((res) => {
+          if (!cancelled) setSearchedMessages(res.items);
+        })
+        .catch(() => {
+          if (!cancelled) setSearchedMessages([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingMessages(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [filter]);
   const [category, setCategory] = useState<ConversationCategory | 'requests'>(
     'all',
   );
@@ -289,6 +337,16 @@ export function Conversations({
       },
     });
     inboxSocket.current = client;
+    client.on(
+      'account:visibility',
+      ({ userId, status }: { userId: string; status: string }) => {
+        if (status === 'blocked')
+          setSelected((old) =>
+            old?.type === 'direct' && old.peer?.id === userId ? undefined : old,
+          );
+        void list(undefined, true).catch(() => {});
+      },
+    );
     const subscribe = () => {
       if (!client.connected) return;
       for (const conversationId of conversationIds.current)
@@ -418,6 +476,17 @@ export function Conversations({
     filter,
     directNames,
   );
+  const matchingSidebarFriends = filter.trim()
+    ? friends.filter(
+        (peer) =>
+          peer.displayName
+            .toLocaleLowerCase('vi')
+            .includes(filter.toLocaleLowerCase('vi').trim()) &&
+          !visibleThreads.some(
+            (thread) => thread.type === 'direct' && thread.peer?.id === peer.id,
+          ),
+      )
+    : [];
   const incomingMessageRequestsCount = messageRequests.filter(
     (req) => req.direction !== 'outgoing',
   ).length;
@@ -548,8 +617,8 @@ export function Conversations({
         <div className="thread-search">
           <UiIcon name="search" size={18} />
           <input
-            aria-label="Tìm cuộc trò chuyện"
-            placeholder="Tìm cuộc trò chuyện"
+            aria-label="Tìm cuộc trò chuyện, bạn bè và tin nhắn"
+            placeholder="Tìm bạn bè, nhóm và tin nhắn…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
@@ -739,12 +808,99 @@ export function Conversations({
                 />
               ))}
             </ul>
+            {matchingSidebarFriends.length > 0 && (
+              <>
+                <p className="workspace-search-heading">Bạn bè</p>
+                <ul className="thread-list">
+                  {matchingSidebarFriends.map((peer) => (
+                    <li key={peer.id}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void startDirect(peer.id)}
+                      >
+                        <span className="peer-avatar presence-avatar">
+                          {presence[peer.id]?.online && (
+                            <span
+                              className="presence-dot"
+                              aria-label="Đang hoạt động"
+                            />
+                          )}
+                          <Avatar peer={peer} />
+                        </span>
+                        <span className="thread-summary">
+                          <strong>{peer.displayName}</strong>
+                          <div className="thread-preview-row">
+                            <small>
+                              {presenceLabel(presence[peer.id]) ||
+                                'Nhấn để bắt đầu trò chuyện'}
+                            </small>
+                          </div>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {filter.trim() &&
+              (searchingMessages || searchedMessages.length > 0) && (
+                <>
+                  <p className="workspace-search-heading">Tin nhắn phù hợp</p>
+                  {searchingMessages && !searchedMessages.length && (
+                    <p className="list-status" role="status">
+                      Đang tìm tin nhắn…
+                    </p>
+                  )}
+                  <ul className="thread-list">
+                    {searchedMessages.map((hit) => {
+                      const thread = items.find(
+                        (item) => item.id === hit.conversationId,
+                      );
+                      const title = thread
+                        ? conversationTitle(thread, directNames)
+                        : (friends.find((f) => f.id === hit.senderId)
+                            ?.displayName ?? 'Cuộc trò chuyện');
+                      return (
+                        <li key={hit.id}>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              void run(() => detail(hit.conversationId))
+                            }
+                          >
+                            <span className="peer-avatar">
+                              <Avatar
+                                peer={
+                                  thread?.peer ?? {
+                                    displayName: title,
+                                  }
+                                }
+                              />
+                            </span>
+                            <span className="thread-summary">
+                              <strong>{title}</strong>
+                              <div className="thread-preview-row">
+                                <small>{hit.body}</small>
+                              </div>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
             {!listLoading &&
               items.length > 0 &&
-              visibleThreads.length === 0 && (
+              visibleThreads.length === 0 &&
+              matchingSidebarFriends.length === 0 &&
+              !searchingMessages &&
+              searchedMessages.length === 0 && (
                 <p className="list-status">
                   {filter
-                    ? 'Không tìm thấy cuộc trò chuyện phù hợp.'
+                    ? 'Không tìm thấy cuộc trò chuyện, bạn bè hay tin nhắn phù hợp.'
                     : category === 'unread'
                       ? 'Bạn đã đọc hết tin nhắn.'
                       : 'Chưa có cuộc trò chuyện nhóm.'}
@@ -855,6 +1011,26 @@ export function Conversations({
                   <button
                     type="button"
                     className="chat-info-button"
+                    title="Tìm trong cuộc trò chuyện"
+                    aria-label="Tìm trong cuộc trò chuyện"
+                    onClick={() => setWorkspacePanel('search')}
+                  >
+                    <Search size={18} aria-hidden="true" />
+                  </button>
+                  {selected.type === 'group' && (
+                    <button
+                      type="button"
+                      className="chat-info-button"
+                      title="Ghim & bình chọn"
+                      aria-label="Ghim & bình chọn"
+                      onClick={() => setWorkspacePanel('group')}
+                    >
+                      <Pin size={18} aria-hidden="true" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="chat-info-button"
                     aria-label="Gọi thoại"
                     onClick={() =>
                       void callStart.current?.(selected.id, 'audio')
@@ -889,6 +1065,19 @@ export function Conversations({
             </div>
           )}
         </div>
+        {workspacePanel === 'search' && selected && (
+          <MessageSearch
+            conversationId={selected.id}
+            onClose={() => setWorkspacePanel(undefined)}
+          />
+        )}
+        {workspacePanel === 'group' && selected?.type === 'group' && (
+          <GroupTools
+            conversationId={selected.id}
+            userId={user.id}
+            onClose={() => setWorkspacePanel(undefined)}
+          />
+        )}
         {error && (
           <div className="message error" role="alert">
             {error}

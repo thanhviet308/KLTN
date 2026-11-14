@@ -20,6 +20,7 @@ import { pageResult } from '../../common/page.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
 import { MessageRateLimit } from './message-rate-limit';
 import { SpamDetectionService } from './spam-detection.service';
+import { writeNotification } from '../notifications/notification-writer';
 
 const MAX_SEQUENCE = 9223372036854775807n;
 function fail(status: number, code: string, message: string): never {
@@ -130,6 +131,9 @@ export class MessagesService {
     includeDeleted = false,
   ) {
     if (!includeDeleted) query.andWhere('message.deletedAt IS NULL');
+    query.andWhere(
+      "EXISTS (SELECT 1 FROM users visible_sender WHERE visible_sender.id = message.sender_id AND visible_sender.status = 'active')",
+    );
     return query.andWhere(
       `EXISTS (
       SELECT 1 FROM conversation_member_periods period
@@ -176,6 +180,12 @@ export class MessagesService {
       sha256: string;
       type: 'image' | 'file' | 'voice';
     },
+    source?: {
+      conversationId: string;
+      messageId: string;
+      body: string | null;
+      editedAt: string | null;
+    },
   ) {
     if (
       !media &&
@@ -191,7 +201,7 @@ export class MessagesService {
       fail(400, 'INVALID_PAYLOAD', 'Text cannot contain coordinates');
     const type = media?.type ?? input.type;
     const body = type === 'text' ? input.body! : null;
-    const content = media
+    const content: Message['content'] = media
       ? {
           attachmentId: media.id,
           fileName: media.fileName,
@@ -204,11 +214,37 @@ export class MessagesService {
             latitude: input.location!.latitude,
             longitude: input.location!.longitude,
           }
-        : null;
+        : input.mentions?.length
+          ? { mentions: [...input.mentions].sort() }
+          : source
+            ? { forwarded: true }
+            : null;
+    if (source && content) content.forwarded = true;
     this.rateLimit.take(actorId, 'send');
     const spamPrediction =
       type === 'text' && body ? await this.spamDetection.predict(body) : null;
     const result = await this.db.transaction(async (manager) => {
+      if (source) {
+        for (const id of [
+          ...new Set([source.conversationId, conversationId]),
+        ].sort())
+          await this.conversations.requireAccess(manager, id, actorId, true);
+        const original = await this.findVisible(
+          manager,
+          actorId,
+          source.conversationId,
+          source.messageId,
+        );
+        if (
+          (original.editedBody ?? original.body) !== source.body ||
+          (original.editedAt?.toISOString() ?? null) !== source.editedAt
+        )
+          fail(
+            409,
+            'FORWARD_SOURCE_CHANGED',
+            'Source changed; retry forwarding',
+          );
+      }
       // Key scope is sender across conversations, matching messages_client_id.
       await manager.query(
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
@@ -226,6 +262,17 @@ export class MessagesService {
         true,
       );
       const messages = manager.getRepository(Message);
+      if (input.mentions?.length) {
+        if (conversation.type !== 'group' || type !== 'text')
+          fail(400, 'MENTIONS_GROUP_ONLY', 'Mentions require a group text');
+        const targets: { id: string }[] = await manager.query(
+          `SELECT u.id FROM users u JOIN conversation_member_periods p ON p.user_id=u.id
+          WHERE p.conversation_id=$1 AND p.left_at IS NULL AND u.status='active' AND u.id=ANY($2::uuid[])`,
+          [conversationId, input.mentions],
+        );
+        if (targets.length !== input.mentions.length)
+          fail(400, 'MENTION_UNAVAILABLE', 'Mentioned member unavailable');
+      }
       const existing = await messages.findOneBy({
         senderId: actorId,
         clientMessageId: input.clientMessageId,
@@ -235,6 +282,8 @@ export class MessagesService {
           existing.conversationId !== conversationId ||
           existing.type !== type ||
           existing.body !== body ||
+          JSON.stringify(existing.content?.mentions ?? []) !==
+            JSON.stringify(content?.mentions ?? []) ||
           (media
             ? existing.content?.sha256 !== media.sha256 ||
               existing.content?.fileName !== media.fileName ||
@@ -350,6 +399,20 @@ export class MessagesService {
           uploadExpiresAt: new Date(Date.now() + 3600000),
           completedAt: new Date(),
         });
+      for (const userId of input.mentions ?? []) {
+        if (userId !== actorId)
+          await writeNotification(
+            manager,
+            userId,
+            'message',
+            {
+              title: 'Bạn được nhắc đến trong một nhóm',
+              conversationId,
+              messageId: message.id,
+            },
+            `mention:${message.id}`,
+          );
+      }
       await manager
         .getRepository(Conversation)
         .update(conversationId, { lastMessageSequence: sequence.toString() });
@@ -641,10 +704,16 @@ export class MessagesService {
           conversationId,
         });
       if (read && !receipt.readAt) {
-        receipt.readAt = new Date(
-          Math.max(Date.now(), receipt.deliveredAt.getTime()),
-        );
-        receipt = await receipts.save(receipt);
+        await receipts
+          .createQueryBuilder()
+          .update()
+          .set({ readAt: () => 'GREATEST(CURRENT_TIMESTAMP, delivered_at)' })
+          .where({ messageId: message.id, userId: actorId })
+          .execute();
+        receipt = await receipts.findOneByOrFail({
+          messageId: message.id,
+          userId: actorId,
+        });
       }
       if (
         read &&

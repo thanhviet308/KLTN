@@ -7,6 +7,8 @@ export interface Message {
   body: string | null;
   type?: 'text' | 'image' | 'file' | 'voice' | 'location' | 'call';
   content?: {
+    mentions?: string[];
+    forwarded?: boolean;
     attachmentId?: string;
     fileName?: string;
     mimeType?: string;
