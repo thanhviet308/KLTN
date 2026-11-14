@@ -16,6 +16,6 @@ import { SpamDetectionService } from './spam-detection.service';
     ChatFilesService,
     SpamDetectionService,
   ],
-  exports: [MessagesService],
+  exports: [MessagesService, ChatFilesService],
 })
 export class MessagesModule {}

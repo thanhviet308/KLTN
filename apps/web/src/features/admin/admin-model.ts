@@ -21,8 +21,9 @@ export const sections: {
   },
   {
     id: 'activity',
-    label: 'Nhật ký hoạt động',
-    description: 'Theo dõi các thao tác quản trị trong phiên xem thử.',
+    label: 'Audit & Tuân thủ',
+    description:
+      'Tra cứu audit_logs (chỉ đọc), export hồ sơ và chính sách lưu trữ.',
   },
 ];
 export interface AdminUser {

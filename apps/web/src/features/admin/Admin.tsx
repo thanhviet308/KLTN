@@ -1,5 +1,4 @@
-import { AdminUsers } from './AdminUsers';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -12,12 +11,22 @@ import {
   Flag,
   LayoutDashboard,
   MessageCircle,
+  PhoneCall,
   Search,
   ShieldCheck,
   Users,
   X,
 } from 'lucide-react';
+import * as api from '../../lib/api';
 import type { User } from '../../lib/api';
+import { AdminAuditCompliance } from './AdminAuditCompliance';
+import { AdminUsers } from './AdminUsers';
+import {
+  formatBytes,
+  formatDateTime,
+  type AdminDashboardData,
+  type AdminUserAccount,
+} from './admin-export';
 import {
   initialUsers,
   sections,
@@ -33,7 +42,17 @@ const icons = {
   reports: Flag,
   activity: ClipboardList,
 };
-const series = [32, 47, 38, 62, 51, 73, 64, 85, 69, 93, 82, 108, 96, 124];
+
+const demoSeries = [32, 47, 38, 62, 51, 73, 64, 85, 69, 93, 82, 108, 96, 124];
+type SeriesMetric = 'newUsers' | 'messages' | 'calls' | 'games';
+
+const metricLabels: Record<SeriesMetric, string> = {
+  newUsers: 'Đăng ký mới',
+  messages: 'Tin nhắn',
+  calls: 'Cuộc gọi',
+  games: 'Phiên trò chơi',
+};
+
 function chartDate(index: number, period: string) {
   return new Date(
     Date.UTC(2026, 10, 13 - Number(period) + index),
@@ -43,7 +62,14 @@ function chartDate(index: number, period: string) {
     timeZone: 'UTC',
   });
 }
+
+function formatShortIsoDate(isoDate: string) {
+  const [, m, d] = isoDate.split('-');
+  return d && m ? `${d}/${m}` : isoDate;
+}
+
 export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
+  const isAdmin = user?.role === 'admin';
   const readSection = (): AdminSection =>
     sections.find((s) => `#${s.id}` === location.hash)?.id ?? 'overview';
   const [section, setSection] = useState<AdminSection>(readSection);
@@ -53,11 +79,51 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
   const [filter, setFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [period, setPeriod] = useState('14');
+  const [seriesMetric, setSeriesMetric] = useState<SeriesMetric>('messages');
   const [logs, setLogs] = useState<{ text: string; time: string }[]>([]);
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<AdminUser | null>(null);
+
+  const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState('');
+  const [recentRealUsers, setRecentRealUsers] = useState<AdminUserAccount[]>(
+    [],
+  );
+
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+
+  const loadDashboard = useCallback(
+    async (days = period) => {
+      if (!isAdmin) return;
+      setDashboardLoading(true);
+      setDashboardError('');
+      try {
+        const [dash, recent] = await Promise.all([
+          api.authenticated<AdminDashboardData>(
+            `/admin/dashboard?days=${Number(days) || 14}`,
+          ),
+          api.authenticated<{ items: AdminUserAccount[] }>(
+            '/admin/users?limit=6',
+          ),
+        ]);
+        setDashboard(dash);
+        setPending(dash.totals.pendingReports);
+        setRecentRealUsers(recent.items);
+      } catch (e) {
+        setDashboardError(api.errorMessage(e));
+      } finally {
+        setDashboardLoading(false);
+      }
+    },
+    [isAdmin, period],
+  );
+
+  useEffect(() => {
+    void loadDashboard(period);
+  }, [loadDashboard, period]);
+
   useEffect(() => {
     const sync = () => {
       setSection(readSection());
@@ -67,15 +133,21 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
     window.addEventListener('hashchange', sync);
     return () => window.removeEventListener('hashchange', sync);
   }, []);
+
   useEffect(() => {
-    if (selected) dialog.current?.showModal();
-    else dialog.current?.close();
+    if (selected) {
+      if (!dialog.current?.open) dialog.current?.showModal();
+    } else if (dialog.current?.open) {
+      dialog.current.close();
+    }
   }, [selected]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(''), 4500);
     return () => clearTimeout(timer);
   }, [notice]);
+
   const current = sections.find((s) => s.id === section)!;
   const filtered = users.filter(
     (u) =>
@@ -90,6 +162,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
     (Math.min(page, pageCount) - 1) * pageSize,
     Math.min(page, pageCount) * pageSize,
   );
+
   function navigate(id: AdminSection) {
     location.hash = id;
     setSection(id);
@@ -98,6 +171,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
     setFilter('all');
     requestAnimationFrame(() => heading.current?.focus());
   }
+
   function record(text: string) {
     setLogs((old) => [
       {
@@ -110,7 +184,55 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
     ]);
     setNotice(`${text} — dữ liệu xem thử.`);
   }
-  function exportUsers() {
+
+  async function exportOverviewUsers() {
+    if (isAdmin) {
+      setDashboardLoading(true);
+      try {
+        const res = await api.authenticated<{ items: AdminUserAccount[] }>(
+          '/admin/users?limit=50',
+        );
+        const csv =
+          '\uFEFF' +
+          [
+            [
+              'ID',
+              'Tên hiển thị',
+              'Email',
+              'Vai trò',
+              'Trạng thái',
+              'Ngày tạo',
+            ],
+            ...res.items.map((u) => [
+              u.id,
+              u.displayName,
+              u.email,
+              u.role,
+              u.status,
+              u.createdAt,
+            ]),
+          ]
+            .map((row) =>
+              row.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(','),
+            )
+            .join('\r\n');
+        const url = URL.createObjectURL(
+          new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+        );
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'pingpong-users.csv';
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setNotice(`Đã xuất ${res.items.length} người dùng ra CSV.`);
+      } catch (e) {
+        setDashboardError(api.errorMessage(e));
+      } finally {
+        setDashboardLoading(false);
+      }
+      return;
+    }
+
     const csv =
       '\uFEFF' +
       [
@@ -135,6 +257,12 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     record('Đã xuất danh sách người dùng mẫu');
   }
+
+  const realSeries = dashboard?.series ?? [];
+  const realValues = realSeries.map((point) => point[seriesMetric]);
+  const realMax = Math.max(1, ...realValues);
+  const periodSum = realValues.reduce((sum, n) => sum + n, 0);
+
   return (
     <div className="admin-shell">
       <a className="admin-skip" href="#admin-content">
@@ -158,7 +286,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
           <ShieldCheck size={19} />
           <div>
             <strong>Không gian quản trị</strong>
-            <small>Quản lý cộng đồng</small>
+            <small>Quản lý hệ thống</small>
           </div>
           <span className="admin-space-dot" />
         </div>
@@ -210,7 +338,9 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
             Không gian quản trị <ChevronRight size={14} />
             <strong>{current.label}</strong>
           </div>
-          <span className="admin-preview-pill">Bản xem thử</span>
+          <span className="admin-preview-pill">
+            {isAdmin ? 'Hệ thống trực tiếp' : 'Bản xem thử'}
+          </span>
         </header>
         <main id="admin-content" className="admin-main">
           <div className="admin-page-heading">
@@ -222,7 +352,10 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
               </h1>
               <p>{current.description}</p>
             </div>
-            <button className="admin-button" onClick={exportUsers}>
+            <button
+              className="admin-button"
+              onClick={() => void exportOverviewUsers()}
+            >
               <ArrowDownToLine size={17} />
               Xuất người dùng
             </button>
@@ -230,48 +363,104 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
           <div className="admin-demo-note">
             <ShieldCheck size={17} />
             <span>
-              {user
-                ? 'Quản lý người dùng và báo cáo sử dụng dữ liệu thật. Tổng quan và nhật ký là dữ liệu minh họa.'
+              {isAdmin
+                ? 'Đang kết nối dữ liệu quản trị hệ thống trực tiếp từ PostgreSQL.'
                 : 'Đang hiển thị dữ liệu mẫu. Thay đổi chỉ áp dụng trong phiên xem thử.'}
             </span>
           </div>
+
           {section === 'overview' && (
             <>
+              {isAdmin && dashboardError && (
+                <div className="admin-inline-alert danger" role="alert">
+                  {dashboardError}
+                </div>
+              )}
               <div className="admin-metrics">
-                {[
-                  {
-                    title: 'Tổng người dùng',
-                    value: '2.846',
-                    change: '+12,8%',
-                    icon: Users,
-                    foot: 'so với kỳ trước',
-                    color: 'peach',
-                  },
-                  {
-                    title: 'Tin nhắn hôm nay',
-                    value: '18.294',
-                    change: '+8,2%',
-                    icon: MessageCircle,
-                    foot: 'so với hôm trước',
-                    color: 'sage',
-                  },
-                  {
-                    title: 'Nhóm trò chuyện',
-                    value: '326',
-                    change: '+6,4%',
-                    icon: LayoutDashboard,
-                    foot: 'so với kỳ trước',
-                    color: 'lilac',
-                  },
-                  {
-                    title: 'Báo cáo chờ xử lý',
-                    value: String(pending).padStart(2, '0'),
-                    change: 'Cần xem xét',
-                    icon: Flag,
-                    foot: 'giữ cộng đồng an toàn',
-                    color: 'sand',
-                  },
-                ].map((m) => (
+                {(isAdmin && dashboard
+                  ? [
+                      {
+                        title: 'Người dùng hệ thống',
+                        value: dashboard.users.total.toLocaleString('vi-VN'),
+                        change: `${dashboard.users.active} active`,
+                        icon: Users,
+                        foot: `· ${dashboard.users.blocked} khóa · ${dashboard.users.deleted} xóa · ${dashboard.users.admins} admin`,
+                        color: 'peach',
+                        warn: false,
+                      },
+                      {
+                        title: 'Tin nhắn & Nhóm',
+                        value:
+                          dashboard.totals.messagesToday.toLocaleString(
+                            'vi-VN',
+                          ),
+                        change: `${dashboard.totals.messagesPeriod.toLocaleString('vi-VN')} / ${dashboard.days}d`,
+                        icon: MessageCircle,
+                        foot: `· ${dashboard.totals.groupsTotal} nhóm chat`,
+                        color: 'sage',
+                        warn: false,
+                      },
+                      {
+                        title: 'Cuộc gọi & Trò chơi',
+                        value: `${dashboard.totals.callsPeriod} / ${dashboard.totals.gamesPeriod}`,
+                        change: `${dashboard.totals.uploadFilesTotal} tệp`,
+                        icon: PhoneCall,
+                        foot: `(${formatBytes(dashboard.totals.uploadBytesTotal)})`,
+                        color: 'lilac',
+                        warn: false,
+                      },
+                      {
+                        title: 'Báo cáo chờ xử lý',
+                        value: String(dashboard.totals.pendingReports).padStart(
+                          2,
+                          '0',
+                        ),
+                        change: 'Cần xem xét',
+                        icon: Flag,
+                        foot: 'giữ cộng đồng an toàn',
+                        color: 'sand',
+                        warn: true,
+                      },
+                    ]
+                  : [
+                      {
+                        title: 'Tổng người dùng',
+                        value: '2.846',
+                        change: '+12,8%',
+                        icon: Users,
+                        foot: 'so với kỳ trước',
+                        color: 'peach',
+                        warn: false,
+                      },
+                      {
+                        title: 'Tin nhắn hôm nay',
+                        value: '18.294',
+                        change: '+8,2%',
+                        icon: MessageCircle,
+                        foot: 'so với hôm trước',
+                        color: 'sage',
+                        warn: false,
+                      },
+                      {
+                        title: 'Nhóm trò chuyện',
+                        value: '326',
+                        change: '+6,4%',
+                        icon: LayoutDashboard,
+                        foot: 'so với kỳ trước',
+                        color: 'lilac',
+                        warn: false,
+                      },
+                      {
+                        title: 'Báo cáo chờ xử lý',
+                        value: String(pending).padStart(2, '0'),
+                        change: 'Cần xem xét',
+                        icon: Flag,
+                        foot: 'giữ cộng đồng an toàn',
+                        color: 'sand',
+                        warn: true,
+                      },
+                    ]
+                ).map((m) => (
                   <article className="admin-metric" key={m.title}>
                     <div>
                       <span>{m.title}</span>
@@ -279,18 +468,16 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                         <m.icon size={19} />
                       </span>
                     </div>
-                    <strong>{m.value}</strong>
+                    <strong>
+                      {isAdmin && dashboardLoading && !dashboard
+                        ? '…'
+                        : m.value}
+                    </strong>
                     <p>
                       <span
-                        className={
-                          m.title.startsWith('Báo')
-                            ? 'admin-warning'
-                            : 'admin-positive'
-                        }
+                        className={m.warn ? 'admin-warning' : 'admin-positive'}
                       >
-                        {!m.title.startsWith('Báo') && (
-                          <ArrowUpRight size={13} />
-                        )}
+                        {!m.warn && <ArrowUpRight size={13} />}
                         {m.change}
                       </span>{' '}
                       {m.foot}
@@ -302,55 +489,140 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                 <section className="admin-panel admin-chart">
                   <div className="admin-panel-heading">
                     <div>
-                      <h2>Nhịp sống cộng đồng</h2>
-                      <p>Lượt người dùng hoạt động mỗi ngày · dữ liệu mẫu</p>
+                      <h2>Nhịp sống hệ thống</h2>
+                      <p>
+                        {isAdmin
+                          ? `${metricLabels[seriesMetric]} theo ngày · ${period} ngày qua (dữ liệu thật)`
+                          : 'Lượt người dùng hoạt động mỗi ngày · dữ liệu mẫu'}
+                      </p>
                     </div>
-                    <select
-                      aria-label="Khoảng thời gian biểu đồ"
-                      value={period}
-                      onChange={(e) => setPeriod(e.target.value)}
-                    >
-                      <option value="14">14 ngày qua</option>
-                      <option value="7">7 ngày qua</option>
-                    </select>
+                    <div className="admin-chart-controls">
+                      {isAdmin && (
+                        <select
+                          aria-label="Chỉ số biểu đồ"
+                          value={seriesMetric}
+                          onChange={(e) =>
+                            setSeriesMetric(e.target.value as SeriesMetric)
+                          }
+                        >
+                          <option value="newUsers">Đăng ký mới</option>
+                          <option value="messages">Tin nhắn</option>
+                          <option value="calls">Cuộc gọi</option>
+                          <option value="games">Phiên trò chơi</option>
+                        </select>
+                      )}
+                      <select
+                        aria-label="Khoảng thời gian biểu đồ"
+                        value={period}
+                        onChange={(e) => setPeriod(e.target.value)}
+                      >
+                        <option value="7">7 ngày qua</option>
+                        <option value="14">14 ngày qua</option>
+                        {isAdmin && <option value="30">30 ngày qua</option>}
+                      </select>
+                    </div>
                   </div>
                   <div className="admin-chart-key">
                     <span />
-                    Người dùng hoạt động
+                    {isAdmin
+                      ? `${metricLabels[seriesMetric]} (${periodSum.toLocaleString('vi-VN')} trong ${period} ngày)`
+                      : 'Người dùng hoạt động'}
                   </div>
                   <div className="admin-plot">
-                    <div className="admin-y-axis">
-                      <span>1.500</span>
-                      <span>1.000</span>
-                      <span>500</span>
-                      <span>0</span>
-                    </div>
-                    <div className="admin-bars">
-                      {series.slice(-Number(period)).map((value, i) => (
-                        <div className="admin-bar-column" key={i}>
-                          <button
-                            className={
-                              i === Number(period) - 1
-                                ? 'admin-bar latest'
-                                : 'admin-bar'
-                            }
-                            style={{ height: `${value / 1.4}%` }}
-                            aria-label={`Ngày ${chartDate(i, period)}: ${value * 10} người hoạt động`}
-                            title={`${value * 10} người hoạt động`}
-                          >
-                            <span>{value * 10}</span>
-                          </button>
-                          <small>{chartDate(i, period)}</small>
+                    {isAdmin ? (
+                      <>
+                        <div className="admin-y-axis">
+                          <span>{realMax}</span>
+                          <span>{Math.ceil((realMax * 2) / 3)}</span>
+                          <span>{Math.ceil(realMax / 3)}</span>
+                          <span>0</span>
                         </div>
-                      ))}
-                    </div>
+                        <div className="admin-bars">
+                          {realSeries.map((point, i) => {
+                            const val = point[seriesMetric];
+                            const pct =
+                              realMax > 0
+                                ? Math.max(
+                                    val > 0 ? 8 : 3,
+                                    (val / realMax) * 100,
+                                  )
+                                : 3;
+                            return (
+                              <div
+                                className="admin-bar-column"
+                                key={point.date}
+                              >
+                                <button
+                                  type="button"
+                                  className={
+                                    i === realSeries.length - 1
+                                      ? 'admin-bar latest'
+                                      : 'admin-bar'
+                                  }
+                                  style={{ height: `${pct}%` }}
+                                  aria-label={`Ngày ${formatShortIsoDate(point.date)}: ${val} ${metricLabels[seriesMetric]}`}
+                                  title={`${point.date}: ${val} ${metricLabels[seriesMetric]}`}
+                                >
+                                  <span>{val}</span>
+                                </button>
+                                {(realSeries.length <= 15 ||
+                                  i % 3 === 0 ||
+                                  i === realSeries.length - 1) && (
+                                  <small>
+                                    {formatShortIsoDate(point.date)}
+                                  </small>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="admin-y-axis">
+                          <span>1.500</span>
+                          <span>1.000</span>
+                          <span>500</span>
+                          <span>0</span>
+                        </div>
+                        <div className="admin-bars">
+                          {demoSeries.slice(-Number(period)).map((value, i) => (
+                            <div className="admin-bar-column" key={i}>
+                              <button
+                                className={
+                                  i === Number(period) - 1
+                                    ? 'admin-bar latest'
+                                    : 'admin-bar'
+                                }
+                                style={{ height: `${value / 1.4}%` }}
+                                aria-label={`Ngày ${chartDate(i, period)}: ${value * 10} người hoạt động`}
+                                title={`${value * 10} người hoạt động`}
+                              >
+                                <span>{value * 10}</span>
+                              </button>
+                              <small>{chartDate(i, period)}</small>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="admin-chart-footer">
                     <span>
-                      <span className="admin-positive">↗ 12,8%</span> tăng
-                      trưởng trong kỳ
+                      <span className="admin-positive">
+                        {isAdmin
+                          ? `Σ ${periodSum.toLocaleString('vi-VN')}`
+                          : '↗ 12,8%'}
+                      </span>{' '}
+                      {isAdmin
+                        ? `${metricLabels[seriesMetric]} trong ${period} ngày qua`
+                        : 'tăng trưởng trong kỳ'}
                     </span>
-                    <span>Ví dụ minh họa</span>
+                    <span>
+                      {isAdmin
+                        ? 'PostgreSQL Realtime Aggregate'
+                        : 'Ví dụ minh họa'}
+                    </span>
                   </div>
                 </section>
                 <section className="admin-panel admin-safety">
@@ -383,8 +655,83 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
               </div>
             </>
           )}
-          {section === 'users' && user?.role === 'admin' && <AdminUsers />}
-          {(section === 'overview' || (section === 'users' && !user)) && (
+
+          {section === 'users' && isAdmin && (
+            <AdminUsers
+              currentUserId={user?.id}
+              onAuditChanged={() => void loadDashboard(period)}
+            />
+          )}
+
+          {section === 'overview' && isAdmin && (
+            <section className="admin-panel">
+              <div className="admin-panel-heading">
+                <div>
+                  <h2>
+                    Tài khoản trong hệ thống{' '}
+                    <span className="admin-total">
+                      {dashboard?.users.total ?? recentRealUsers.length}
+                    </span>
+                  </h2>
+                  <p>
+                    Xem nhanh danh sách và truy cập đầy đủ công cụ quản trị.
+                  </p>
+                </div>
+                <button
+                  className="admin-text-button"
+                  onClick={() => navigate('users')}
+                >
+                  Quản lý tất cả
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+              <div className="admin-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">NGƯỜI DÙNG</th>
+                      <th scope="col">VAI TRÒ</th>
+                      <th scope="col">TRẠNG THÁI</th>
+                      <th scope="col">NGÀY TẠO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentRealUsers.map((u) => (
+                      <tr key={u.id}>
+                        <td>
+                          <div className="admin-person">
+                            <span className="admin-avatar peach">
+                              {u.displayName.slice(0, 1).toUpperCase()}
+                            </span>
+                            <div>
+                              <strong>{u.displayName}</strong>
+                              <small>{u.email}</small>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          {u.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}
+                        </td>
+                        <td>
+                          <span className={`admin-status ${u.status}`}>
+                            <i />
+                            {u.status === 'active'
+                              ? 'Hoạt động'
+                              : u.status === 'blocked'
+                                ? 'Đã khóa'
+                                : 'Đã xóa mềm'}
+                          </span>
+                        </td>
+                        <td>{formatDateTime(u.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {!isAdmin && (section === 'overview' || section === 'users') && (
             <section className="admin-panel">
               <div className="admin-panel-heading">
                 <div>
@@ -528,49 +875,57 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
               </div>
             </section>
           )}
+
           {section === 'reports' && (
             <ReportQueue user={user} onCount={setPending} />
           )}
-          {section === 'activity' && (
-            <section className="admin-panel">
-              <div className="admin-panel-heading">
-                <div>
-                  <h2>Lịch sử trong phiên</h2>
-                  <p>Các thao tác thử nghiệm sẽ xuất hiện tại đây.</p>
+
+          {section === 'activity' &&
+            (isAdmin ? (
+              <AdminAuditCompliance
+                onRetentionApplied={() => void loadDashboard(period)}
+              />
+            ) : (
+              <section className="admin-panel">
+                <div className="admin-panel-heading">
+                  <div>
+                    <h2>Lịch sử trong phiên</h2>
+                    <p>Các thao tác thử nghiệm sẽ xuất hiện tại đây.</p>
+                  </div>
+                  <ClipboardList size={21} />
                 </div>
-                <ClipboardList size={21} />
-              </div>
-              {!logs.length ? (
-                <div className="admin-empty">
-                  <ClipboardList size={32} />
-                  <h3>Chưa có hoạt động</h3>
-                  <p>Thử quản lý người dùng hoặc xem xét một báo cáo.</p>
-                  <button
-                    className="admin-button"
-                    onClick={() => navigate('users')}
-                  >
-                    Đến quản lý người dùng
-                    <ArrowRight size={16} />
-                  </button>
-                </div>
-              ) : (
-                <ol className="admin-log">
-                  {logs.map((log, i) => (
-                    <li key={i}>
-                      <span>
-                        <Check size={16} />
-                      </span>
-                      <div>
-                        <strong>{log.text}</strong>
-                        <small>Thao tác trên dữ liệu mẫu</small>
-                      </div>
-                      <time>{log.time}</time>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-          )}
+                {!logs.length ? (
+                  <div className="admin-empty">
+                    <ClipboardList size={32} />
+                    <h3>Chưa có hoạt động</h3>
+                    <p>Thử quản lý người dùng hoặc xem xét một báo cáo.</p>
+                    <button
+                      className="admin-button"
+                      onClick={() => navigate('users')}
+                    >
+                      Đến quản lý người dùng
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <ol className="admin-log">
+                    {logs.map((log, i) => (
+                      <li key={i}>
+                        <span>
+                          <Check size={16} />
+                        </span>
+                        <div>
+                          <strong>{log.text}</strong>
+                          <small>Thao tác trên dữ liệu mẫu</small>
+                        </div>
+                        <time>{log.time}</time>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+            ))}
+
           <footer className="admin-footer">
             <span>PingPong Admin</span>
             <span>Kết nối gần hơn. Quản lý dễ hơn.</span>

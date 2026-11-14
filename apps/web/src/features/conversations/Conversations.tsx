@@ -1511,6 +1511,26 @@ export function Conversations({
         user={user}
         onExpired={onExpired}
         registerStart={registerCallStart}
+        conversationMeta={Object.fromEntries([
+          ...items.map((item) => [
+            item.id,
+            {
+              title: conversationTitle(item, directNames),
+              peer: item.peer ?? null,
+            },
+          ]),
+          ...(selected
+            ? [
+                [
+                  selected.id,
+                  {
+                    title: heading ?? conversationTitle(selected, directNames),
+                    peer: selectedPeer ?? selected.peer ?? null,
+                  },
+                ] as const,
+              ]
+            : []),
+        ])}
       />
     </section>
   );

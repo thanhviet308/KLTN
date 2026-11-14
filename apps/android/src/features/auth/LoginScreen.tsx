@@ -143,7 +143,7 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.loginPage}
     >
       <ScrollView

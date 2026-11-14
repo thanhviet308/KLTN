@@ -400,4 +400,204 @@ test('review enforces ownership and terminal states; resolution notifies the rep
     code('REPORT_CLOSED'),
   );
   assert.equal(state.notifications.length, 1);
+  assert.ok(
+    state.queries.some((sql) => sql.includes('INSERT INTO audit_logs')),
+  );
+});
+
+const {
+  AccountsService,
+} = require('../dist/modules/workspace/accounts.service');
+const {
+  AccountRoleDto,
+  AccountStatusDto,
+  AdminAuditLogsDto,
+  AdminDashboardDto,
+  AdminUsersDto,
+  RetentionPolicyDto,
+} = require('../dist/modules/workspace/workspace.dto');
+
+test('admin workspace DTOs validate dashboard, filters, roles, audit logs and retention inputs', async () => {
+  assert.equal(
+    (await validate(plainToInstance(AdminDashboardDto, { days: '14' }))).length,
+    0,
+  );
+  assert.ok(
+    (await validate(plainToInstance(AdminDashboardDto, { days: 0 }))).length,
+  );
+  assert.equal(
+    (
+      await validate(
+        plainToInstance(AdminUsersDto, {
+          query: 'minh',
+          status: 'deleted',
+          role: 'admin',
+        }),
+      )
+    ).length,
+    0,
+  );
+  assert.equal(
+    (await validate(plainToInstance(AccountStatusDto, { status: 'deleted' })))
+      .length,
+    0,
+  );
+  assert.equal(
+    (await validate(plainToInstance(AccountRoleDto, { role: 'admin' }))).length,
+    0,
+  );
+  assert.ok(
+    (await validate(plainToInstance(AccountRoleDto, { role: 'superadmin' })))
+      .length,
+  );
+  assert.equal(
+    (
+      await validate(
+        plainToInstance(AdminAuditLogsDto, {
+          actorId: '10000000-0000-4000-8000-000000000001',
+          targetType: 'user',
+          action: 'user.blocked',
+          from: '2026-11-01',
+          to: '2026-11-14',
+        }),
+      )
+    ).length,
+    0,
+  );
+  assert.ok(
+    (
+      await validate(
+        plainToInstance(RetentionPolicyDto, { days: 0, scope: 'both' }),
+      )
+    ).length,
+  );
+  assert.equal(
+    (
+      await validate(
+        plainToInstance(RetentionPolicyDto, { days: 90, scope: 'both' }),
+      )
+    ).length,
+    0,
+  );
+});
+
+test('accounts admin methods enforce admin role, self-protection and compliance auditing', async () => {
+  const events = { accessChanged() {}, publish() {} };
+  const queries = [];
+  const audits = [];
+  const targetUser = {
+    id: '10000000-0000-4000-8000-000000000002',
+    email: 'user@example.com',
+    displayName: 'User',
+    role: 'user',
+    status: 'active',
+    lastActiveAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  const manager = {
+    query: async (sql, params) => {
+      queries.push({ sql, params });
+      if (sql.includes('UPDATE messages') && sql.includes('RETURNING')) {
+        return [
+          {
+            id: '10000000-0000-4000-8000-000000000099',
+            conversationId: 'conv-1',
+            senderId: targetUser.id,
+            clientMessageId: 'cli-1',
+            sequence: '1',
+            type: 'text',
+            createdAt: new Date(),
+            editedAt: null,
+            deletedAt: new Date(),
+          },
+        ];
+      }
+      return [];
+    },
+    getRepository: (entity) => {
+      if (entity === User)
+        return {
+          findOne: async () => ({ ...targetUser }),
+          update: async () => ({}),
+        };
+      return {
+        insert: async (row) => {
+          audits.push(row);
+          return {};
+        },
+      };
+    },
+  };
+  const db = {
+    query: async (sql) => {
+      if (sql.includes('FROM users'))
+        return [{ total: 10, active: 8, blocked: 1, deleted: 1, admins: 2 }];
+      if (sql.includes('messagesToday'))
+        return [
+          {
+            messagesToday: 42,
+            messagesPeriod: 300,
+            callsPeriod: 12,
+            gamesPeriod: 9,
+            groupsTotal: 5,
+            pendingReports: 3,
+            uploadFilesTotal: 7,
+            uploadBytesTotal: '2048',
+          },
+        ];
+      return [
+        { date: '2026-11-14', newUsers: 2, messages: 42, calls: 4, games: 3 },
+      ];
+    },
+    getRepository: manager.getRepository,
+    transaction: (work) => work(manager),
+  };
+  const filesRemoved = [];
+  const service = new AccountsService(db, events, {
+    remove: async (k) => filesRemoved.push(k),
+  });
+  const nonAdmin = { id: 'user-1', role: 'user' };
+  const adminUser = {
+    id: '10000000-0000-4000-8000-000000000001',
+    email: 'admin@example.com',
+    role: 'admin',
+  };
+
+  await assert.rejects(
+    service.dashboard(nonAdmin, { days: 14 }),
+    code('ADMIN_REQUIRED'),
+  );
+  await assert.rejects(
+    service.role(adminUser, adminUser.id, 'user'),
+    code('CANNOT_CHANGE_SELF_ROLE'),
+  );
+  await assert.rejects(
+    service.applyRetention(nonAdmin, { days: 30, scope: 'both' }),
+    code('ADMIN_REQUIRED'),
+  );
+
+  const dash = await service.dashboard(adminUser, { days: 7 });
+  assert.equal(dash.days, 7);
+  assert.equal(dash.users.active, 8);
+  assert.equal(dash.totals.callsPeriod, 12);
+
+  const promoted = await service.role(adminUser, targetUser.id, 'admin');
+  assert.equal(promoted.role, 'admin');
+  assert.equal(audits[0].action, 'user.role_updated');
+
+  await service.deleteContent(
+    adminUser,
+    'message',
+    '10000000-0000-4000-8000-000000000099',
+  );
+  assert.ok(queries.some((q) => q.sql.includes('INSERT INTO audit_logs')));
+
+  const retention = await service.applyRetention(adminUser, {
+    days: 90,
+    scope: 'both',
+  });
+  assert.equal(retention.days, 90);
+  assert.equal(retention.deletedMessages, 1);
+  assert.equal(audits.at(-1).action, 'compliance.retention');
 });

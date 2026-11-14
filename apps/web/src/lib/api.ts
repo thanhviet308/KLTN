@@ -468,6 +468,16 @@ export function errorMessage(error: unknown) {
         'Quan hệ bạn bè đã thay đổi. Hãy tải lại danh sách.',
       FRIEND_REQUEST_FORBIDDEN:
         'Bạn không thể thực hiện thao tác này với lời mời.',
+      ADMIN_REQUIRED: 'Bạn cần quyền quản trị viên để thực hiện thao tác này.',
+      CANNOT_BLOCK_SELF:
+        'Bạn không thể tự khóa hoặc xóa tài khoản quản trị đang đăng nhập.',
+      CANNOT_CHANGE_SELF_ROLE:
+        'Bạn không thể tự gỡ quyền quản trị viên của chính mình.',
+      ADMIN_ACCOUNT_PROTECTED:
+        'Tài khoản quản trị viên được bảo vệ. Hãy gỡ quyền Admin trước khi khóa hoặc xóa.',
+      USER_NOT_FOUND: 'Không tìm thấy tài khoản người dùng.',
+      INVALID_CONTENT_TARGET: 'Loại nội dung cần xóa không hợp lệ.',
+      INVALID_CURSOR: 'Phân trang không hợp lệ. Hãy tải lại danh sách.',
     };
     if (messages[error.code]) return messages[error.code];
     if (error.code === 'AUTH_BUSY')

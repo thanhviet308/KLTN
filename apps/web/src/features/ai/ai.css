@@ -565,13 +565,23 @@
   cursor: default;
 }
 @media (max-width: 600px) {
+  .ai-dialog .ai-setting {
+    flex-wrap: wrap;
+    white-space: normal;
+    gap: 8px;
+  }
+  .ai-dialog .ai-setting select {
+    flex: 1 1 140px;
+    min-width: 140px;
+  }
   .ai-chatbox-root,
   .ai-chatbox-root.above-composer {
-    right: 16px;
-    bottom: 72px;
+    left: 10px;
+    right: 10px;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   }
   .ai-chatbox-panel {
-    width: calc(100vw - 32px);
-    height: min(480px, calc(var(--app-h, 100dvh) - 140px));
+    width: 100%;
+    height: min(460px, calc(var(--app-h, 100dvh) - 84px));
   }
 }

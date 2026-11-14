@@ -277,6 +277,28 @@ test(
         0,
       );
       await accounts.status(admin, owner.id, 'active');
+      const dash = await accounts.dashboard(admin, { days: 7 });
+      assert.ok(dash.users.active >= 5);
+      assert.equal(dash.series.length, 7);
+      const overview = await accounts.userOverview(admin, owner.id);
+      assert.ok(overview.friends.length >= 2);
+      assert.ok(overview.conversations.length >= 2);
+      await accounts.role(admin, outsider.id, 'admin');
+      await accounts.role(admin, outsider.id, 'user');
+      await accounts.status(admin, outsider.id, 'deleted');
+      const logs = await accounts.auditLogs(admin, {
+        targetType: 'user',
+        targetId: owner.id,
+        limit: 20,
+      });
+      assert.ok(logs.items.some((l) => l.action === 'user.blocked'));
+      const exported = await accounts.exportUserLog(admin, owner.id);
+      assert.equal(exported.user.id, owner.id);
+      const retention = await accounts.applyRetention(admin, {
+        days: 3650,
+        scope: 'both',
+      });
+      assert.equal(retention.days, 3650);
       await messages.remove(owner.id, conversationId, message.id);
       assert.equal(
         (await workspace.pins(peer.id, conversationId)).items.length,

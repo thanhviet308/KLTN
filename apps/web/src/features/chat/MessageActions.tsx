@@ -59,12 +59,16 @@ export function MessageActions({
       (isText && onAi ? 88 : 0) +
       (!mine ? (message.type === 'image' ? 132 : 88) : 0) +
       (isGroup ? 44 : 0);
+    const vw = window.visualViewport?.width ?? window.innerWidth;
+    const vh = window.visualViewport?.height ?? window.innerHeight;
     setMenu({
-      left: Math.max(8, Math.min(bounds.right - 180, window.innerWidth - 188)),
-      top:
+      left: Math.max(8, Math.min(bounds.right - 180, vw - 188)),
+      top: Math.max(
+        8,
         bounds.top > height + 18
           ? bounds.top - height - 8
-          : Math.min(bounds.bottom + 8, window.innerHeight - height - 8),
+          : Math.min(bounds.bottom + 8, vh - height - 8),
+      ),
     });
   }
   const [busy, setBusy] = useState(false);

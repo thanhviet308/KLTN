@@ -8,7 +8,7 @@ import { styles } from '../styles';
 export function Centered({ label }: { label: string }) {
   return (
     <View style={styles.centered}>
-      <ActivityIndicator color="#087f72" />
+      <ActivityIndicator color="#b75020" />
       <Text style={styles.muted}>{label}</Text>
     </View>
   );

@@ -1,6 +1,6 @@
 .report-dialog {
   width: min(480px, calc(100vw - 32px));
-  max-height: calc(100dvh - 40px);
+  max-height: calc(var(--app-h, 100dvh) - 32px);
   overflow-y: auto;
   box-sizing: border-box;
   border: 1px solid #e8dfd3;
@@ -109,6 +109,16 @@
 .chat-message:not(.mine) .message-tools.call-report-tools {
   right: -40px;
   left: auto;
+}
+@media (hover: none), (max-width: 680px) {
+  .chat-message.mine .message-tools.call-report-tools {
+    left: auto;
+    right: 0;
+  }
+  .chat-message:not(.mine) .message-tools.call-report-tools {
+    right: auto;
+    left: 36px;
+  }
 }
 .report-trigger:hover {
   background: #f5e2d0;

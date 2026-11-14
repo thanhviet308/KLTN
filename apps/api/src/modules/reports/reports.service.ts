@@ -237,6 +237,20 @@ export class ReportsService {
           ? null
           : new Date(Math.max(Date.now(), row.createdAt.getTime()));
       await repository.save(row);
+      await manager.query(
+        'INSERT INTO audit_logs (actor_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5::jsonb)',
+        [
+          user.id,
+          `report.${input.status}`,
+          'report',
+          row.id,
+          JSON.stringify({
+            reportTargetType: row.targetType ?? null,
+            reportTargetId: row.targetId ?? null,
+            resolution: row.resolution,
+          }),
+        ],
+      );
       if (row.reviewedAt)
         await writeNotification(
           manager,

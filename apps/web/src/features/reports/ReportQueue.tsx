@@ -163,12 +163,48 @@ function ReportReview({
       setBusy(false);
     }
   }
+  async function deleteContentAndResolve() {
+    if (lock.current) return;
+    if (resolution.trim().length > 0 && resolution.trim().length < 3) {
+      setError('Nhập kết luận tối thiểu 3 ký tự.');
+      return;
+    }
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      await api.authenticated(
+        `/admin/content/${row.targetType}/${row.targetId}`,
+        undefined,
+        'DELETE',
+      );
+      await api.authenticated(
+        `/admin/reports/${row.id}`,
+        {
+          status: 'resolved',
+          resolution:
+            resolution.trim().length >= 3
+              ? resolution.trim()
+              : 'Đã xóa nội dung vi phạm',
+        },
+        'PATCH',
+      );
+      await onDone();
+    } catch (cause) {
+      setError(reportError(cause));
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
   if (row.status === 'resolved' || row.status === 'dismissed')
     return <p>Kết luận: {row.resolution}</p>;
   if (row.reporterId === userId)
     return <p>Cần quản trị viên khác xử lý báo cáo do bạn gửi.</p>;
   if (row.reviewerId && row.reviewerId !== userId)
     return <p>Đang được quản trị viên khác xử lý.</p>;
+  const canDeleteContent =
+    row.targetType === 'message' || row.targetType === 'attachment';
   return (
     <div className="report-review-form">
       <label htmlFor={`resolution-${row.id}`}>Kết luận xử lý</label>
@@ -187,6 +223,15 @@ function ReportReview({
           onClick={() => void review('reviewing')}
         >
           Nhận xem xét
+        </button>
+      )}
+      {canDeleteContent && (
+        <button
+          className="admin-button danger"
+          disabled={busy}
+          onClick={() => void deleteContentAndResolve()}
+        >
+          Xóa nội dung vi phạm &amp; Xử lý
         </button>
       )}
       <button

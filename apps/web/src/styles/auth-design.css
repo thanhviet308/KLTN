@@ -391,7 +391,11 @@
     display: flex;
     flex-direction: column;
     gap: 0;
-    padding: 90px 24px 30px;
+    padding: calc(76px + env(safe-area-inset-top, 0px)) 20px
+      calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  .page input {
+    font-size: 16px;
   }
   .page .brand {
     left: 24px;

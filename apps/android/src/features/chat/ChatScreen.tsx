@@ -5,6 +5,7 @@ import {
   AppState,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -116,7 +117,8 @@ export function Chat({
   const [error, setError] = useState('');
   const [replyTo, setReplyTo] = useState<api.Message>();
   const [editing, setEditing] = useState<api.Message>();
-  const [reactionTarget, setReactionTarget] = useState<string>();
+  const [actionTarget, setActionTarget] = useState<api.Message>();
+  const [mediaSheetOpen, setMediaSheetOpen] = useState(false);
   const [reactions, setReactions] = useState<
     Record<string, { emoji: string; count: number; reacted: boolean }[]>
   >({});
@@ -127,10 +129,14 @@ export function Chat({
   const [infoOpen, setInfoOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchedHits, setSearchedHits] = useState<api.Message[]>([]);
+  const [searchingServer, setSearchingServer] = useState(false);
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const [title, setTitle] = useState(conversationName(conversation));
   const messagesRef = useRef<api.Message[]>([]);
   const messageList = useRef<FlatList<api.Message>>(null);
   const hasPositionedList = useRef(false);
+  const nearBottomRef = useRef(true);
   const socketRef = useRef<ReturnType<typeof io> | undefined>(undefined);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -600,24 +606,63 @@ export function Chat({
     }
   }
 
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (!term) {
+      setSearchedHits([]);
+      setSearchingServer(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingServer(true);
+    const timer = setTimeout(() => {
+      void api
+        .authenticated<{
+          items: Pick<
+            api.Message,
+            | 'id'
+            | 'conversationId'
+            | 'senderId'
+            | 'body'
+            | 'createdAt'
+            | 'sequence'
+          >[];
+        }>(
+          `/messages/search?conversationId=${encodeURIComponent(conversation.id)}&query=${encodeURIComponent(term)}&limit=30`,
+        )
+        .then(res => {
+          if (cancelled) return;
+          setSearchedHits(
+            res.items.map(hit => ({
+              id: hit.id,
+              conversationId: hit.conversationId,
+              senderId: hit.senderId,
+              clientMessageId: hit.id,
+              sequence: hit.sequence,
+              type: 'text',
+              body: hit.body,
+              createdAt: hit.createdAt,
+              editedAt: null,
+              deletedAt: null,
+            })),
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setSearchedHits([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingServer(false);
+        });
+    }, 280);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [conversation.id, searchQuery]);
+
   function showMediaMenu() {
     if (sending || recording) return;
-    Alert.alert('Gửi nội dung', undefined, [
-      {
-        text: 'Ảnh từ thư viện',
-        onPress: () => void chooseImage().catch(fail),
-      },
-      {
-        text: 'Tệp đính kèm',
-        onPress: () => void chooseFile().catch(fail),
-      },
-      { text: 'Vị trí hiện tại', onPress: () => void shareLocation() },
-      {
-        text: 'Tin nhắn thoại',
-        onPress: () => void startRecording().catch(fail),
-      },
-      { text: 'Đóng', style: 'cancel' },
-    ]);
+    setMediaSheetOpen(true);
   }
 
   async function downloadMedia(message: api.Message) {
@@ -701,59 +746,8 @@ export function Chat({
 
   function showActions(message: api.Message) {
     if (message.deletedAt || message.type === 'call') return;
-    const mine = message.senderId === user.id;
-    Alert.alert('Thao tác tin nhắn', messageLabel(message).slice(0, 120), [
-      mine && message.type === 'text'
-        ? {
-            text: 'Chỉnh sửa',
-            onPress: () => {
-              setEditing(message);
-              setReplyTo(undefined);
-              setBody(message.body ?? '');
-            },
-          }
-        : {
-            text: 'Trả lời',
-            onPress: () => {
-              setReplyTo(message);
-              setEditing(undefined);
-            },
-          },
-      mine
-        ? {
-            text: 'Thu hồi',
-            style: 'destructive',
-            onPress: () =>
-              Alert.alert(
-                'Thu hồi tin nhắn?',
-                'Nội dung sẽ không còn hiển thị với các thành viên.',
-                [
-                  { text: 'Hủy', style: 'cancel' },
-                  {
-                    text: 'Thu hồi',
-                    style: 'destructive',
-                    onPress: () =>
-                      void api
-                        .authenticated<{ message: api.Message }>(
-                          `/conversations/${conversation.id}/messages/${message.id}`,
-                          undefined,
-                          'DELETE',
-                        )
-                        .then(result => accept([result.message]))
-                        .catch(fail),
-                  },
-                ],
-              ),
-          }
-        : {
-            text: 'Cảm xúc',
-            onPress: () => {
-              setReactionTarget(message.id);
-              void loadReactions(message.id);
-            },
-          },
-      { text: 'Đóng', style: 'cancel' },
-    ]);
+    setActionTarget(message);
+    void loadReactions(message.id);
   }
 
   async function react(messageId: string, emoji: string) {
@@ -768,7 +762,7 @@ export function Chat({
         existing?.emoji === emoji ? 'DELETE' : 'PUT',
       );
       setReactions(previous => ({ ...previous, [messageId]: result.items }));
-      setReactionTarget(undefined);
+      setActionTarget(undefined);
     } catch (next) {
       fail(next);
     }
@@ -789,9 +783,19 @@ export function Chat({
       />
     );
 
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase('vi');
+  const displayedMessages = normalizedSearch
+    ? mergeMessages(
+        messages.filter(item =>
+          (item.body ?? '').toLocaleLowerCase('vi').includes(normalizedSearch),
+        ),
+        searchedHits,
+      )
+    : messages;
+
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.page}
     >
       <View style={styles.chatHeader}>
@@ -813,9 +817,13 @@ export function Chat({
             displayName: title,
             avatarUrl: conversation.peer?.avatarUrl,
           }}
-          size={38}
+          size={36}
         />
-        <View style={styles.chatTitleBox}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setInfoOpen(true)}
+          style={styles.chatTitleBox}
+        >
           <Text numberOfLines={1} style={styles.headerTitle}>
             {title}
           </Text>
@@ -827,10 +835,10 @@ export function Chat({
               numberOfLines={1}
               style={[styles.connection, connected && styles.connectionOnline]}
             >
-              {connected ? 'Đã kết nối' : 'Đang kết nối lại…'}
+              {connected ? 'Đang hoạt động' : 'Đang kết nối…'}
             </Text>
           </View>
-        </View>
+        </Pressable>
         <View style={styles.chatActionGroup}>
           <Pressable
             accessibilityLabel="Tìm trong cuộc trò chuyện"
@@ -843,29 +851,23 @@ export function Chat({
           >
             <Text style={styles.infoButtonText}>⌕</Text>
           </Pressable>
-          {conversation.type === 'direct' &&
-            (['audio', 'video'] as const).map(type => (
-              <Pressable
-                key={type}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  type === 'audio' ? 'Gọi thoại' : 'Gọi video'
-                }
-                disabled={calls.busy || recording}
-                onPress={() => calls.start(conversation, type)}
-                style={[
-                  styles.infoButton,
-                  {
-                    paddingHorizontal: 8,
-                    opacity: calls.busy || recording ? 0.5 : 1,
-                  },
-                ]}
-              >
-                <Text style={[styles.infoButtonText, { fontSize: 11.5 }]}>
-                  {type === 'audio' ? 'Gọi' : 'Video'}
-                </Text>
-              </Pressable>
-            ))}
+          {(['audio', 'video'] as const).map(type => (
+            <Pressable
+              key={type}
+              accessibilityRole="button"
+              accessibilityLabel={type === 'audio' ? 'Gọi thoại' : 'Gọi video'}
+              disabled={calls.busy || recording}
+              onPress={() => calls.start(conversation, type)}
+              style={[
+                styles.infoButton,
+                (calls.busy || recording) && styles.disabled,
+              ]}
+            >
+              <Text style={styles.infoButtonText}>
+                {type === 'audio' ? '📞' : '📹'}
+              </Text>
+            </Pressable>
+          ))}
           <Pressable
             accessibilityLabel="Thông tin cuộc trò chuyện"
             accessibilityRole="button"
@@ -883,11 +885,14 @@ export function Chat({
             accessibilityLabel="Tìm tin nhắn trong cuộc trò chuyện"
             autoFocus
             onChangeText={setSearchQuery}
-            placeholder="Tìm trong cuộc trò chuyện…"
-            placeholderTextColor="#7c8e98"
+            placeholder="Tìm tin nhắn trong cuộc trò chuyện…"
+            placeholderTextColor="#8c7662"
             style={styles.searchInput}
             value={searchQuery}
           />
+          {searchingServer && (
+            <ActivityIndicator color="#b75020" size="small" />
+          )}
           <Pressable
             accessibilityLabel="Đóng tìm kiếm"
             onPress={() => {
@@ -908,168 +913,177 @@ export function Chat({
       {loading ? (
         <Centered label="Đang tải tin nhắn…" />
       ) : (
-        <FlatList
-          ref={messageList}
-          contentContainerStyle={styles.messageList}
-          data={
-            searchQuery.trim()
-              ? messages.filter(item =>
-                  (item.body ?? '')
-                    .toLocaleLowerCase('vi')
-                    .includes(searchQuery.trim().toLocaleLowerCase('vi')),
-                )
-              : messages
-          }
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
-          keyExtractor={item => item.id}
-          ListHeaderComponent={
-            older ? (
-              <Pressable
-                disabled={loadingOlder}
-                onPress={() => void loadOlderMessages()}
-                style={styles.loadOlder}
-              >
-                {loadingOlder ? (
-                  <ActivityIndicator color="#087f72" size="small" />
-                ) : (
-                  <Text style={styles.loadOlderText}>Xem tin nhắn cũ</Text>
-                )}
-              </Pressable>
-            ) : undefined
-          }
-          onContentSizeChange={() => {
-            if (!loadingOlder)
-              messageList.current?.scrollToEnd({
-                animated: hasPositionedList.current,
-              });
-            hasPositionedList.current = true;
-          }}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.emptyChat}>
-              <View style={styles.emptySymbol}>
-                <Text style={styles.emptySymbolText}>P</Text>
-              </View>
-              <Text style={styles.emptyTitle}>Bắt đầu trò chuyện</Text>
-              <Text style={styles.empty}>
-                Gửi một lời chào để bắt đầu kết nối.
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => {
-            const mine = item.senderId === user.id;
-            return (
-              <View style={[styles.messageRow, mine && styles.messageRowMine]}>
-                {!mine && conversation.type === 'group' && (
-                  <Text style={styles.messageSender}>
-                    {memberName(item.senderId)}
-                  </Text>
-                )}
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={messageList}
+            contentContainerStyle={styles.messageList}
+            data={displayedMessages}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            keyExtractor={item => item.id}
+            ListHeaderComponent={
+              older && !normalizedSearch ? (
                 <Pressable
-                  accessibilityHint="Nhấn giữ để xem thao tác"
-                  accessibilityRole="button"
-                  delayLongPress={350}
-                  onLongPress={() => showActions(item)}
-                  onPress={() => {
-                    if (!item.deletedAt) {
-                      setReactionTarget(
-                        reactionTarget === item.id ? undefined : item.id,
-                      );
-                      if (reactionTarget !== item.id)
-                        void loadReactions(item.id);
-                    }
-                  }}
-                  style={[
-                    styles.bubble,
-                    mine ? styles.bubbleMine : styles.bubblePeer,
-                  ]}
+                  disabled={loadingOlder}
+                  onPress={() => void loadOlderMessages()}
+                  style={styles.loadOlder}
                 >
-                  <MessageMedia
-                    loading={!!mediaLoading[item.id]}
-                    localPath={mediaPaths[item.id]}
-                    message={item}
-                    mine={mine}
-                    onLoad={() => void downloadMedia(item)}
-                    onOpen={() => void openMedia(item)}
-                    onPlay={() => void playVoice(item).catch(fail)}
-                    playing={playingMessage === item.id}
-                  />
-                  {(item.type === 'text' || !!item.deletedAt) && (
-                    <Text
-                      style={[
-                        styles.messageText,
-                        mine && styles.messageTextMine,
-                        !!item.deletedAt && styles.deletedMessage,
-                      ]}
-                    >
-                      {messageLabel(item)}
+                  {loadingOlder ? (
+                    <ActivityIndicator color="#b75020" size="small" />
+                  ) : (
+                    <Text style={styles.loadOlderText}>Xem tin nhắn cũ</Text>
+                  )}
+                </Pressable>
+              ) : undefined
+            }
+            onScroll={event => {
+              const { contentOffset, contentSize, layoutMeasurement } =
+                event.nativeEvent;
+              const distanceFromBottom =
+                contentSize.height -
+                (contentOffset.y + layoutMeasurement.height);
+              const isNear = distanceFromBottom < 120;
+              nearBottomRef.current = isNear;
+              if (showScrollDown === isNear) setShowScrollDown(!isNear);
+            }}
+            scrollEventThrottle={32}
+            onContentSizeChange={() => {
+              if (
+                !loadingOlder &&
+                !normalizedSearch &&
+                (!hasPositionedList.current || nearBottomRef.current)
+              ) {
+                messageList.current?.scrollToEnd({
+                  animated: hasPositionedList.current,
+                });
+              }
+              hasPositionedList.current = true;
+            }}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.emptyChat}>
+                <View style={styles.emptySymbol}>
+                  <Text style={styles.emptySymbolText}>
+                    {normalizedSearch ? '⌕' : 'P'}
+                  </Text>
+                </View>
+                <Text style={styles.emptyTitle}>
+                  {normalizedSearch
+                    ? 'Không tìm thấy tin nhắn'
+                    : 'Bắt đầu trò chuyện'}
+                </Text>
+                <Text style={styles.empty}>
+                  {normalizedSearch
+                    ? 'Thử nhập từ khóa khác để tìm trong cuộc trò chuyện.'
+                    : 'Gửi một lời chào để bắt đầu kết nối.'}
+                </Text>
+              </View>
+            }
+            renderItem={({ item }) => {
+              const mine = item.senderId === user.id;
+              return (
+                <View
+                  style={[styles.messageRow, mine && styles.messageRowMine]}
+                >
+                  {!mine && conversation.type === 'group' && (
+                    <Text style={styles.messageSender}>
+                      {memberName(item.senderId)}
                     </Text>
                   )}
-                  <View style={styles.messageTimeRow}>
-                    {!!item.editedAt && !item.deletedAt && (
+                  <Pressable
+                    accessibilityHint="Nhấn giữ để bày tỏ cảm xúc hoặc thao tác"
+                    accessibilityRole="button"
+                    delayLongPress={280}
+                    onLongPress={() => showActions(item)}
+                    style={[
+                      styles.bubble,
+                      mine ? styles.bubbleMine : styles.bubblePeer,
+                    ]}
+                  >
+                    <MessageMedia
+                      loading={!!mediaLoading[item.id]}
+                      localPath={mediaPaths[item.id]}
+                      message={item}
+                      mine={mine}
+                      onLoad={() => void downloadMedia(item)}
+                      onOpen={() => void openMedia(item)}
+                      onPlay={() => void playVoice(item).catch(fail)}
+                      playing={playingMessage === item.id}
+                    />
+                    {(item.type === 'text' || !!item.deletedAt) && (
                       <Text
                         style={[
-                          styles.editedLabel,
+                          styles.messageText,
+                          mine && styles.messageTextMine,
+                          !!item.deletedAt && styles.deletedMessage,
+                        ]}
+                      >
+                        {messageLabel(item)}
+                      </Text>
+                    )}
+                    <View style={styles.messageTimeRow}>
+                      {!!item.editedAt && !item.deletedAt && (
+                        <Text
+                          style={[
+                            styles.editedLabel,
+                            mine && styles.bubbleTimeMine,
+                          ]}
+                        >
+                          đã sửa
+                        </Text>
+                      )}
+                      <Text
+                        style={[
+                          styles.bubbleTime,
                           mine && styles.bubbleTimeMine,
                         ]}
                       >
-                        đã sửa
+                        {shortTime(item.createdAt)}
                       </Text>
-                    )}
-                    <Text
-                      style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}
+                    </View>
+                  </Pressable>
+                  {!!reactions[item.id]?.length && (
+                    <View
+                      style={[
+                        styles.reactionSummary,
+                        mine && styles.reactionSummaryMine,
+                      ]}
                     >
-                      {shortTime(item.createdAt)}
-                    </Text>
-                  </View>
-                </Pressable>
-                {!!reactions[item.id]?.length && (
-                  <View
-                    style={[
-                      styles.reactionSummary,
-                      mine && styles.reactionSummaryMine,
-                    ]}
-                  >
-                    {reactions[item.id].map(reaction => (
-                      <Pressable
-                        key={reaction.emoji}
-                        onPress={() => void react(item.id, reaction.emoji)}
-                        style={[
-                          styles.reactionChip,
-                          reaction.reacted && styles.reactionChipActive,
-                        ]}
-                      >
-                        <Text style={styles.reactionChipText}>
-                          {reaction.emoji} {reaction.count}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-                {reactionTarget === item.id && (
-                  <View
-                    style={[
-                      styles.reactionPicker,
-                      mine && styles.reactionPickerMine,
-                    ]}
-                  >
-                    {['👍', '❤️', '😂', '😮', '😢', '😡'].map(emoji => (
-                      <Pressable
-                        key={emoji}
-                        accessibilityLabel={`Bày tỏ ${emoji}`}
-                        onPress={() => void react(item.id, emoji)}
-                        style={styles.reactionOption}
-                      >
-                        <Text style={styles.reactionEmoji}>{emoji}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              </View>
-            );
-          }}
-        />
+                      {reactions[item.id].map(reaction => (
+                        <Pressable
+                          key={reaction.emoji}
+                          onPress={() => void react(item.id, reaction.emoji)}
+                          style={[
+                            styles.reactionChip,
+                            reaction.reacted && styles.reactionChipActive,
+                          ]}
+                        >
+                          <Text style={styles.reactionChipText}>
+                            {reaction.emoji} {reaction.count}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              );
+            }}
+          />
+          {showScrollDown && !normalizedSearch && (
+            <Pressable
+              accessibilityLabel="Cuộn xuống tin nhắn mới nhất"
+              accessibilityRole="button"
+              onPress={() => {
+                nearBottomRef.current = true;
+                setShowScrollDown(false);
+                messageList.current?.scrollToEnd({ animated: true });
+              }}
+              style={styles.scrollDownFab}
+            >
+              <Text style={styles.scrollDownFabText}>↓ Tin mới</Text>
+            </Pressable>
+          )}
+        </View>
       )}
       {Object.values(typing).some(expiry => expiry > Date.now()) && (
         <Text style={styles.typingNote}>
@@ -1149,6 +1163,19 @@ export function Chat({
                 <Text style={styles.attachButtonText}>＋</Text>
               </Pressable>
             )}
+            {!editing && !body.trim() && (
+              <Pressable
+                accessibilityLabel="Ghi âm tin nhắn thoại"
+                accessibilityRole="button"
+                disabled={sending}
+                onPress={() => void startRecording().catch(fail)}
+                style={styles.attachButton}
+              >
+                <Text style={[styles.attachButtonText, { fontSize: 16 }]}>
+                  🎤
+                </Text>
+              </Pressable>
+            )}
             <TextInput
               accessibilityLabel="Nội dung tin nhắn"
               editable={!sending}
@@ -1160,8 +1187,8 @@ export function Chat({
                 updateTyping(!!value.trim());
               }}
               onBlur={() => updateTyping(false)}
-              placeholder={editing ? 'Sửa tin nhắn…' : 'Viết tin nhắn…'}
-              placeholderTextColor="#7c8e98"
+              placeholder={editing ? 'Sửa tin nhắn…' : 'Nhắn tin…'}
+              placeholderTextColor="#8c7662"
               style={styles.composerInput}
               textAlignVertical="center"
               value={body}
@@ -1174,7 +1201,10 @@ export function Chat({
                 disabled: sending || !body.trim(),
               }}
               disabled={sending || !body.trim()}
-              onPress={() => void send()}
+              onPress={() => {
+                nearBottomRef.current = true;
+                void send();
+              }}
               style={({ pressed }) => [
                 styles.sendButton,
                 pressed && styles.pressed,
@@ -1195,6 +1225,182 @@ export function Chat({
           </Text>
         )}
       </View>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={!!actionTarget}
+        onRequestClose={() => setActionTarget(undefined)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setActionTarget(undefined)}
+        >
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            {actionTarget && (
+              <>
+                <View style={styles.reactionPicker}>
+                  {['👍', '❤️', '😂', '😮', '😢', '😡'].map(emoji => (
+                    <Pressable
+                      key={emoji}
+                      accessibilityLabel={`Bày tỏ ${emoji}`}
+                      onPress={() => void react(actionTarget.id, emoji)}
+                      style={styles.reactionOption}
+                    >
+                      <Text style={styles.reactionEmoji}>{emoji}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text numberOfLines={2} style={styles.sheetSubtitle}>
+                  {messageLabel(actionTarget)}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setReplyTo(actionTarget);
+                    setEditing(undefined);
+                    setActionTarget(undefined);
+                  }}
+                  style={styles.sheetOption}
+                >
+                  <View style={styles.sheetOptionIcon}>
+                    <Text style={styles.sheetOptionIconText}>↩</Text>
+                  </View>
+                  <Text style={styles.sheetOptionText}>Trả lời tin nhắn</Text>
+                </Pressable>
+                {actionTarget.senderId === user.id &&
+                  actionTarget.type === 'text' && (
+                    <Pressable
+                      onPress={() => {
+                        setEditing(actionTarget);
+                        setReplyTo(undefined);
+                        setBody(actionTarget.body ?? '');
+                        setActionTarget(undefined);
+                      }}
+                      style={styles.sheetOption}
+                    >
+                      <View style={styles.sheetOptionIcon}>
+                        <Text style={styles.sheetOptionIconText}>✎</Text>
+                      </View>
+                      <Text style={styles.sheetOptionText}>
+                        Chỉnh sửa tin nhắn
+                      </Text>
+                    </Pressable>
+                  )}
+                {actionTarget.senderId === user.id && (
+                  <Pressable
+                    onPress={() => {
+                      const target = actionTarget;
+                      setActionTarget(undefined);
+                      Alert.alert(
+                        'Thu hồi tin nhắn?',
+                        'Nội dung sẽ không còn hiển thị với các thành viên.',
+                        [
+                          { text: 'Hủy', style: 'cancel' },
+                          {
+                            text: 'Thu hồi',
+                            style: 'destructive',
+                            onPress: () =>
+                              void api
+                                .authenticated<{ message: api.Message }>(
+                                  `/conversations/${conversation.id}/messages/${target.id}`,
+                                  undefined,
+                                  'DELETE',
+                                )
+                                .then(result => accept([result.message]))
+                                .catch(fail),
+                          },
+                        ],
+                      );
+                    }}
+                    style={styles.sheetOption}
+                  >
+                    <View
+                      style={[
+                        styles.sheetOptionIcon,
+                        styles.sheetOptionIconDanger,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.sheetOptionIconText,
+                          styles.sheetOptionIconTextDanger,
+                        ]}
+                      >
+                        ×
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.sheetOptionText,
+                        styles.sheetOptionTextDanger,
+                      ]}
+                    >
+                      Thu hồi tin nhắn
+                    </Text>
+                  </Pressable>
+                )}
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={mediaSheetOpen}
+        onRequestClose={() => setMediaSheetOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setMediaSheetOpen(false)}
+        >
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Đính kèm & chia sẻ</Text>
+            <Text style={styles.sheetSubtitle}>
+              Chọn nội dung bạn muốn gửi vào cuộc trò chuyện
+            </Text>
+            {[
+              {
+                icon: '🖼',
+                label: 'Ảnh từ thư viện',
+                act: () => void chooseImage().catch(fail),
+              },
+              {
+                icon: '📎',
+                label: 'Tệp đính kèm (tối đa 100 MB)',
+                act: () => void chooseFile().catch(fail),
+              },
+              {
+                icon: '📍',
+                label: 'Chia sẻ vị trí hiện tại',
+                act: () => void shareLocation(),
+              },
+              {
+                icon: '🎤',
+                label: 'Ghi âm tin nhắn thoại',
+                act: () => void startRecording().catch(fail),
+              },
+            ].map(option => (
+              <Pressable
+                key={option.label}
+                onPress={() => {
+                  setMediaSheetOpen(false);
+                  option.act();
+                }}
+                style={styles.sheetOption}
+              >
+                <View style={styles.sheetOptionIcon}>
+                  <Text style={styles.sheetOptionIconText}>{option.icon}</Text>
+                </View>
+                <Text style={styles.sheetOptionText}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

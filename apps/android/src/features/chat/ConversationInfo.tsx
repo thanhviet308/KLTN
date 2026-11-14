@@ -41,7 +41,8 @@ export function ConversationInfo({
 }) {
   const [rename, setRename] = useState(currentTitle);
   const [friends, setFriends] = useState<Peer[]>([]);
-  const [addUserId, setAddUserId] = useState('');
+  const [friendFilter, setFriendFilter] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -92,6 +93,11 @@ export function ConversationInfo({
 
   const availableFriends = friends.filter(
     friend => !members.some(member => member.user.id === friend.id),
+  );
+  const filteredFriends = availableFriends.filter(friend =>
+    friend.displayName
+      .toLocaleLowerCase('vi')
+      .includes(friendFilter.trim().toLocaleLowerCase('vi')),
   );
 
   return (
@@ -167,36 +173,91 @@ export function ConversationInfo({
         )}
         {manager && availableFriends.length > 0 && (
           <View style={styles.infoCard}>
-            <Text style={styles.infoSectionTitle}>Thêm thành viên</Text>
+            <View style={styles.pickerHeading}>
+              <Text style={styles.infoSectionTitle}>Thêm thành viên</Text>
+              <Text style={styles.pickerCount}>
+                {selectedIds.length} đã chọn
+              </Text>
+            </View>
+            {availableFriends.length > 4 && (
+              <View style={styles.searchBarCompact}>
+                <Text style={styles.searchIcon}>⌕</Text>
+                <TextInput
+                  accessibilityLabel="Lọc bạn bè để thêm vào nhóm"
+                  onChangeText={setFriendFilter}
+                  placeholder="Tìm bạn bè…"
+                  placeholderTextColor="#8c7662"
+                  style={styles.searchInput}
+                  value={friendFilter}
+                />
+              </View>
+            )}
             <View style={styles.addMemberList}>
-              {availableFriends.map(friend => (
-                <Pressable
-                  key={friend.id}
-                  onPress={() => setAddUserId(friend.id)}
-                  style={[
-                    styles.addMemberOption,
-                    addUserId === friend.id && styles.addMemberOptionActive,
-                  ]}
-                >
-                  <Avatar peer={friend} size={34} />
-                  <Text style={styles.addMemberName}>{friend.displayName}</Text>
-                </Pressable>
-              ))}
+              {filteredFriends.map(friend => {
+                const checked = selectedIds.includes(friend.id);
+                return (
+                  <Pressable
+                    key={friend.id}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked }}
+                    onPress={() =>
+                      setSelectedIds(prev =>
+                        checked
+                          ? prev.filter(id => id !== friend.id)
+                          : [...prev, friend.id],
+                      )
+                    }
+                    style={[
+                      styles.addMemberOption,
+                      checked && styles.addMemberOptionActive,
+                    ]}
+                  >
+                    <Avatar peer={friend} size={34} />
+                    <Text style={styles.addMemberName}>
+                      {friend.displayName}
+                    </Text>
+                    <View
+                      style={[
+                        styles.checkbox,
+                        checked && styles.checkboxChecked,
+                      ]}
+                    >
+                      <Text style={styles.checkboxText}>
+                        {checked ? '✓' : ''}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
             <Pressable
-              disabled={busy || !addUserId}
+              disabled={busy || !selectedIds.length}
               onPress={() =>
-                void run(async () => {
-                  await api.authenticated(
-                    `/conversations/${conversation.id}/members`,
-                    { userId: addUserId },
-                  );
-                  setAddUserId('');
-                }, 'Đã thêm thành viên.')
+                void run(
+                  async () => {
+                    for (const id of selectedIds) {
+                      await api.authenticated(
+                        `/conversations/${conversation.id}/members`,
+                        { userId: id },
+                      );
+                    }
+                    setSelectedIds([]);
+                  },
+                  selectedIds.length > 1
+                    ? `Đã thêm ${selectedIds.length} thành viên.`
+                    : 'Đã thêm thành viên.',
+                )
               }
-              style={styles.compactPrimary}
+              style={[
+                styles.compactPrimary,
+                (busy || !selectedIds.length) && styles.disabled,
+              ]}
             >
-              <Text style={styles.compactPrimaryText}>Thêm vào nhóm</Text>
+              <Text style={styles.compactPrimaryText}>
+                {selectedIds.length > 1
+                  ? `Thêm ${selectedIds.length} thành viên`
+                  : 'Thêm vào nhóm'}
+              </Text>
             </Pressable>
           </View>
         )}

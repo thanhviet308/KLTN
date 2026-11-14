@@ -7,6 +7,7 @@ export type Peer = {
   id: string;
   displayName: string;
   avatarUrl?: string | null;
+  friendshipStatus?: 'none' | 'friends' | 'incoming' | 'outgoing';
 };
 export type PersonRow = { id: string; user: Peer };
 export type Presence = { online: boolean; lastActiveAt: string | null };

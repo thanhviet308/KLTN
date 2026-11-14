@@ -3,43 +3,59 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  RefreshControl,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import * as api from '../../api';
 import { Avatar, InlineNotice, ScreenIntro } from '../../components/Common';
-import type { PersonRow } from '../../presence';
+import type { Peer, PersonRow } from '../../presence';
 import { styles } from '../../styles';
 
-export function SearchPeopleScreen({ onExpired }: { onExpired: () => void }) {
+export function SearchPeopleScreen({
+  onExpired,
+  onOpen,
+  onGoRequests,
+}: {
+  onExpired: () => void;
+  onOpen?: (conversation: api.Conversation) => void;
+  onGoRequests?: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<PersonRow[]>([]);
   const [sent, setSent] = useState(new Set<string>());
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
 
-  async function search() {
+  async function search(isRefresh = false) {
     const value = query.trim();
     if (value.length < 2 || value.length > 100) {
-      setError('Nhập tên hiển thị từ 2 đến 100 ký tự.');
+      if (!isRefresh) setError('Nhập tên hiển thị từ 2 đến 100 ký tự.');
       return;
     }
-    setLoading(true);
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
     setError('');
     try {
-      const page = await api.authenticated<api.Page<PersonRow>>(
+      const page = await api.authenticated<api.Page<PersonRow | Peer>>(
         `/users?query=${encodeURIComponent(value)}&limit=50`,
       );
-      setRows(page.items);
+      setRows(
+        page.items.map(item =>
+          'user' in item ? item : { id: item.id, user: item },
+        ),
+      );
       setSearched(true);
     } catch (next) {
       if (next instanceof api.ApiError && next.status === 401) onExpired();
       else setError(api.errorMessage(next));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -59,9 +75,26 @@ export function SearchPeopleScreen({ onExpired }: { onExpired: () => void }) {
     }
   }
 
+  async function openDirect(row: PersonRow) {
+    if (!onOpen) return;
+    setBusyId(row.user.id);
+    setError('');
+    try {
+      const result = await api.authenticated<{
+        conversation: api.Conversation;
+      }>('/conversations', { type: 'direct', recipientId: row.user.id });
+      onOpen(result.conversation);
+    } catch (next) {
+      if (next instanceof api.ApiError && next.status === 401) onExpired();
+      else setError(api.errorMessage(next));
+    } finally {
+      setBusyId('');
+    }
+  }
+
   return (
     <View style={styles.screen}>
-      <ScreenIntro title="Tìm bạn" caption="Tìm theo tên hiển thị" />
+      <ScreenIntro title="Tìm bạn" caption="Tìm theo tên hiển thị hoặc email" />
       <View style={styles.searchBar}>
         <Text style={styles.searchIcon}>⌕</Text>
         <TextInput
@@ -74,7 +107,7 @@ export function SearchPeopleScreen({ onExpired }: { onExpired: () => void }) {
           }}
           onSubmitEditing={() => void search()}
           placeholder="Nhập ít nhất 2 ký tự"
-          placeholderTextColor="#7c8e98"
+          placeholderTextColor="#8c7662"
           returnKeyType="search"
           style={styles.searchInput}
           value={query}
@@ -100,6 +133,16 @@ export function SearchPeopleScreen({ onExpired }: { onExpired: () => void }) {
         contentContainerStyle={styles.peopleList}
         data={rows}
         keyExtractor={row => row.id}
+        refreshControl={
+          searched ? (
+            <RefreshControl
+              colors={['#b75020']}
+              refreshing={refreshing}
+              onRefresh={() => void search(true)}
+              tintColor="#b75020"
+            />
+          ) : undefined
+        }
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <View style={styles.emptySymbol}>
@@ -116,25 +159,56 @@ export function SearchPeopleScreen({ onExpired }: { onExpired: () => void }) {
           </View>
         }
         renderItem={({ item }) => {
-          const invited = sent.has(item.user.id);
+          const status = sent.has(item.user.id)
+            ? 'outgoing'
+            : (item.user.friendshipStatus ?? 'none');
           return (
             <View style={styles.personRow}>
               <Avatar peer={item.user} />
-              <Text numberOfLines={2} style={styles.personName}>
-                {item.user.displayName}
-              </Text>
-              <Pressable
-                disabled={invited || !!busyId}
-                onPress={() => void invite(item)}
-                style={[
-                  styles.smallPrimary,
-                  invited && styles.smallButtonDisabled,
-                ]}
-              >
-                <Text style={styles.smallPrimaryText}>
-                  {invited ? 'Đã gửi' : 'Kết bạn'}
+              <View style={styles.personIdentity}>
+                <Text numberOfLines={2} style={styles.personName}>
+                  {item.user.displayName}
                 </Text>
-              </Pressable>
+                <Text style={styles.personPresence}>
+                  {status === 'friends'
+                    ? 'Đã là bạn bè'
+                    : status === 'incoming'
+                      ? 'Đã gửi lời mời cho bạn'
+                      : status === 'outgoing'
+                        ? 'Đang chờ xác nhận'
+                        : 'Người dùng PingPong'}
+                </Text>
+              </View>
+              {status === 'friends' ? (
+                <Pressable
+                  disabled={!!busyId}
+                  onPress={() => void openDirect(item)}
+                  style={styles.smallPrimary}
+                >
+                  <Text style={styles.smallPrimaryText}>Nhắn tin</Text>
+                </Pressable>
+              ) : status === 'incoming' ? (
+                <Pressable
+                  disabled={!!busyId}
+                  onPress={onGoRequests}
+                  style={styles.smallSecondary}
+                >
+                  <Text style={styles.smallSecondaryText}>Xem lời mời</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  disabled={status === 'outgoing' || !!busyId}
+                  onPress={() => void invite(item)}
+                  style={[
+                    styles.smallPrimary,
+                    status === 'outgoing' && styles.smallButtonDisabled,
+                  ]}
+                >
+                  <Text style={styles.smallPrimaryText}>
+                    {status === 'outgoing' ? 'Đã gửi' : 'Kết bạn'}
+                  </Text>
+                </Pressable>
+              )}
             </View>
           );
         }}

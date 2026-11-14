@@ -27,6 +27,33 @@ export function App() {
     return () => window.removeEventListener('popstate', syncRoute);
   }, []);
 
+  // Sync --app-h with visualViewport on mobile so the virtual keyboard never clips the header or composer.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const syncViewport = () => {
+      if (window.innerWidth <= 900) {
+        document.documentElement.style.setProperty(
+          '--app-h',
+          `${Math.round(vv.height)}px`,
+        );
+        if (vv.offsetTop > 0) window.scrollTo(0, 0);
+      } else {
+        document.documentElement.style.removeProperty('--app-h');
+      }
+    };
+    syncViewport();
+    vv.addEventListener('resize', syncViewport);
+    vv.addEventListener('scroll', syncViewport);
+    window.addEventListener('resize', syncViewport);
+    return () => {
+      vv.removeEventListener('resize', syncViewport);
+      vv.removeEventListener('scroll', syncViewport);
+      window.removeEventListener('resize', syncViewport);
+      document.documentElement.style.removeProperty('--app-h');
+    };
+  }, []);
+
   useEffect(() => {
     async function restore() {
       if (adminPreview) {

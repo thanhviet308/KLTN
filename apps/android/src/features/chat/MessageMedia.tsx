@@ -89,7 +89,7 @@ export function MessageMedia({
         }
         style={[styles.mediaCard, mine && styles.mediaCardMine]}
       >
-        <Text style={styles.mediaIcon}>⌖</Text>
+        <Text style={[styles.mediaIcon, mine && styles.mediaIconMine]}>⌖</Text>
         <View style={styles.mediaCardText}>
           <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
             Vị trí được chia sẻ
@@ -117,7 +117,7 @@ export function MessageMedia({
         style={styles.mediaLoading}
       >
         {loading ? (
-          <ActivityIndicator color={mine ? 'white' : '#087f72'} />
+          <ActivityIndicator color={mine ? 'white' : '#b75020'} />
         ) : null}
         <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
           {loading ? 'Đang tải ảnh…' : 'Chạm để tải ảnh'}
@@ -133,9 +133,11 @@ export function MessageMedia({
         style={[styles.mediaCard, mine && styles.mediaCardMine]}
       >
         {loading ? (
-          <ActivityIndicator color={mine ? 'white' : '#087f72'} />
+          <ActivityIndicator color={mine ? 'white' : '#b75020'} />
         ) : (
-          <Text style={styles.mediaIcon}>{playing ? '■' : '▶'}</Text>
+          <Text style={[styles.mediaIcon, mine && styles.mediaIconMine]}>
+            {playing ? '■' : '▶'}
+          </Text>
         )}
         <View style={styles.mediaCardText}>
           <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
@@ -155,9 +157,9 @@ export function MessageMedia({
       style={[styles.mediaCard, mine && styles.mediaCardMine]}
     >
       {loading ? (
-        <ActivityIndicator color={mine ? 'white' : '#087f72'} />
+        <ActivityIndicator color={mine ? 'white' : '#b75020'} />
       ) : (
-        <Text style={styles.mediaIcon}>↓</Text>
+        <Text style={[styles.mediaIcon, mine && styles.mediaIconMine]}>↓</Text>
       )}
       <View style={styles.mediaCardText}>
         <Text

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalTrack, RemoteTrack, Room } from 'livekit-client';
 import { io, type Socket } from 'socket.io-client';
+import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
 import * as api from '../../lib/api';
-import { UiIcon } from '../../components/UiIcon';
+import { Avatar } from '../../components/Avatar';
 import { startIncomingCallRingtone } from '../../lib/notification-sounds';
+import type { Peer } from '../../lib/types';
 
 type CallStatus =
   'ringing' | 'active' | 'ended' | 'rejected' | 'missed' | 'cancelled';
@@ -36,12 +38,35 @@ interface MediaTrack {
   kind: 'audio' | 'video';
 }
 
+export interface CallConversationMeta {
+  title: string;
+  peer?: Peer | null;
+}
+
 export type StartCall = (
   conversationId: string,
   type: 'audio' | 'video',
 ) => Promise<void>;
 
-function AttachedTrack({ item }: { item: MediaTrack }) {
+function formatDuration(seconds: number) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  const hrs = Math.floor(mins / 60);
+  if (hrs > 0) {
+    return `${String(hrs).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function AttachedTrack({
+  item,
+  pipBottom,
+  onTogglePipPosition,
+}: {
+  item: MediaTrack;
+  pipBottom?: boolean;
+  onTogglePipPosition?: () => void;
+}) {
   const holder = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = item.track.attach();
@@ -58,8 +83,10 @@ function AttachedTrack({ item }: { item: MediaTrack }) {
   }, [item]);
   return (
     <div
-      className={`call-track ${item.kind}${item.local ? ' local' : ''}`}
+      className={`call-track ${item.kind}${item.local ? ' local' : ''}${item.local && pipBottom ? ' pip-bottom' : ''}`}
       ref={holder}
+      onClick={item.local ? onTogglePipPosition : undefined}
+      title={item.local ? 'Chạm để đổi vị trí khung hình của bạn' : undefined}
     />
   );
 }
@@ -99,10 +126,12 @@ export function CallExperience({
   user,
   onExpired,
   registerStart,
+  conversationMeta = {},
 }: {
   user: api.User;
   onExpired: () => void;
   registerStart: (start: StartCall | undefined) => void;
+  conversationMeta?: Record<string, CallConversationMeta>;
 }) {
   const [call, setCall] = useState<Call>();
   const [room, setRoom] = useState<Room>();
@@ -111,9 +140,24 @@ export function CallExperience({
   const [error, setError] = useState('');
   const [microphone, setMicrophone] = useState(true);
   const [camera, setCamera] = useState(true);
+  const [pipBottom, setPipBottom] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const socket = useRef<Socket | undefined>(undefined);
   const currentCall = useRef<Call | undefined>(undefined);
   const roomRef = useRef<Room | undefined>(undefined);
+
+  useEffect(() => {
+    if (!room) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [room]);
 
   const closeMedia = useCallback(async () => {
     const activeRoom = roomRef.current;
@@ -428,113 +472,168 @@ export function CallExperience({
         </button>
       </div>
     ) : null;
+
   const remoteVideoCount = tracks.filter(
     (item) => item.kind === 'video' && !item.local,
   ).length;
+  const hasAnyVideo = tracks.some((item) => item.track.kind === 'video');
+  const meta = conversationMeta[call.conversationId];
+  const callTitle =
+    meta?.title ||
+    (incoming
+      ? `Cuộc gọi ${call.type === 'video' ? 'video' : 'thoại'} đến`
+      : call.type === 'video'
+        ? 'Cuộc gọi video'
+        : 'Cuộc gọi thoại');
+  const avatarPeer: Pick<Peer, 'displayName' | 'avatarUrl'> = meta?.peer ?? {
+    displayName: callTitle,
+  };
+  const statusSubtitle = room
+    ? `${call.type === 'video' ? 'Video' : 'Thoại'} · ${formatDuration(elapsedSeconds)}`
+    : incoming
+      ? `Cuộc gọi ${call.type === 'video' ? 'video' : 'thoại'} đến…`
+      : 'Đang đổ chuông…';
+
   return (
     <div className="call-overlay" role="dialog" aria-modal="true">
-      <section className={`call-window${room ? ' connected' : ''}`}>
-        <header>
-          <div>
-            <strong>
-              {incoming
-                ? `Cuộc gọi ${call.type === 'video' ? 'video' : 'thoại'} đến`
-                : call.type === 'video'
-                  ? 'Cuộc gọi video'
-                  : 'Cuộc gọi thoại'}
-            </strong>
-            <small>
-              {room
-                ? 'Đã kết nối'
-                : incoming
-                  ? 'Một thành viên đang gọi cho bạn'
-                  : 'Đang chờ người nhận…'}
-            </small>
+      <section
+        className={`call-window${room ? ' connected' : ' ringing'}${call.type === 'video' ? ' video-mode' : ' audio-mode'}${remoteVideoCount > 0 ? ' has-remote-video' : ''}`}
+      >
+        <header className="call-topbar">
+          <div className="call-peer-pill">
+            <span className="call-peer-avatar" aria-hidden="true">
+              <Avatar peer={avatarPeer} />
+            </span>
+            <div className="call-peer-copy">
+              <strong>{callTitle}</strong>
+              <small>
+                {room && <span className="call-live-dot" aria-hidden="true" />}
+                {statusSubtitle}
+              </small>
+            </div>
           </div>
         </header>
-        {error && <p className="message error">{error}</p>}
-        {room && (
+
+        {error && <p className="message error call-inline-error">{error}</p>}
+
+        {room ? (
           <div
             className={`call-stage${call.type === 'audio' ? ' audio' : ''}${call.type === 'video' && remoteVideoCount <= 1 ? ' one-to-one' : ''}${remoteVideoCount ? ' has-remote' : ''}`}
           >
             {tracks.map((item) => (
-              <AttachedTrack key={item.key} item={item} />
+              <AttachedTrack
+                key={item.key}
+                item={item}
+                pipBottom={pipBottom}
+                onTogglePipPosition={() => setPipBottom((prev) => !prev)}
+              />
             ))}
-            {!tracks.some((item) => item.track.kind === 'video') && (
-              <div className="call-audio-placeholder" aria-hidden="true">
-                ♪
+            {(call.type === 'audio' ||
+              !hasAnyVideo ||
+              remoteVideoCount === 0) && (
+              <div className="call-hero-center">
+                <div className="call-avatar-pulse">
+                  <span className="call-avatar-xl" aria-hidden="true">
+                    <Avatar peer={avatarPeer} />
+                  </span>
+                </div>
+                <strong className="call-hero-name">{callTitle}</strong>
+                <span className="call-hero-status">
+                  {call.status === 'ringing'
+                    ? 'Đang chờ người nhận trả lời…'
+                    : formatDuration(elapsedSeconds)}
+                </span>
               </div>
             )}
           </div>
+        ) : (
+          <div className="call-stage call-waiting-stage">
+            <div className="call-hero-center">
+              <div className="call-avatar-pulse is-ringing">
+                <span className="call-avatar-xl" aria-hidden="true">
+                  <Avatar peer={avatarPeer} />
+                </span>
+              </div>
+              <strong className="call-hero-name">{callTitle}</strong>
+              <span className="call-hero-status">
+                {incoming
+                  ? `Đang gọi ${call.type === 'video' ? 'video' : 'thoại'} cho bạn…`
+                  : 'Đang kết nối cuộc gọi…'}
+              </span>
+            </div>
+          </div>
         )}
+
         <footer className="call-controls">
-          {incoming ? (
-            <>
-              <button
-                className="call-control reject"
-                disabled={busy}
-                onClick={() => void transition('reject')}
-                aria-label="Từ chối cuộc gọi"
-                title="Từ chối"
-              >
-                <UiIcon name="phone" size={24} />
-              </button>
-              <button
-                className="call-control accept"
-                disabled={busy}
-                onClick={() => void transition('accept')}
-                aria-label="Nhận cuộc gọi"
-                title="Nhận cuộc gọi"
-              >
-                <UiIcon name="phone" size={24} />
-              </button>
-            </>
-          ) : (
-            <>
-              {!room && call.status === 'active' && (
+          <div className="call-controls-dock">
+            {incoming ? (
+              <>
                 <button
-                  className="call-control accept rejoin"
+                  className="call-control reject"
                   disabled={busy}
-                  onClick={() => void rejoin()}
+                  onClick={() => void transition('reject')}
+                  aria-label="Từ chối cuộc gọi"
+                  title="Từ chối"
                 >
-                  Tham gia lại
+                  <PhoneOff size={24} />
                 </button>
-              )}
-              <button
-                className={`call-control${microphone ? '' : ' disabled'}`}
-                disabled={!room || busy}
-                onClick={() => void toggleMicrophone()}
-                aria-label={microphone ? 'Tắt mic' : 'Bật mic'}
-                title={microphone ? 'Tắt mic' : 'Bật mic'}
-              >
-                <UiIcon name="microphone" size={24} />
-              </button>
-              {call.type === 'video' && (
                 <button
-                  className={`call-control${camera ? '' : ' disabled'}`}
-                  disabled={!room || busy}
-                  onClick={() => void toggleCamera()}
-                  aria-label={camera ? 'Tắt camera' : 'Bật camera'}
-                  title={camera ? 'Tắt camera' : 'Bật camera'}
+                  className="call-control accept"
+                  disabled={busy}
+                  onClick={() => void transition('accept')}
+                  aria-label="Nhận cuộc gọi"
+                  title="Nhận cuộc gọi"
                 >
-                  <UiIcon name="video" size={24} />
+                  <Phone size={24} />
                 </button>
-              )}
-              <button
-                className="call-control reject"
-                disabled={busy}
-                onClick={() =>
-                  void transition(
-                    call.initiatorId === user.id ? 'end' : 'leave',
-                  )
-                }
-                aria-label="Kết thúc cuộc gọi"
-                title="Kết thúc"
-              >
-                <UiIcon name="phone" size={24} />
-              </button>
-            </>
-          )}
+              </>
+            ) : (
+              <>
+                {!room && call.status === 'active' && (
+                  <button
+                    className="call-control accept rejoin"
+                    disabled={busy}
+                    onClick={() => void rejoin()}
+                  >
+                    Tham gia lại
+                  </button>
+                )}
+                <button
+                  className={`call-control${microphone ? '' : ' is-muted'}`}
+                  disabled={!room || busy}
+                  onClick={() => void toggleMicrophone()}
+                  aria-label={microphone ? 'Tắt mic' : 'Bật mic'}
+                  title={microphone ? 'Tắt mic' : 'Bật mic'}
+                >
+                  {microphone ? <Mic size={22} /> : <MicOff size={22} />}
+                </button>
+                {call.type === 'video' && (
+                  <button
+                    className={`call-control${camera ? '' : ' is-muted'}`}
+                    disabled={!room || busy}
+                    onClick={() => void toggleCamera()}
+                    aria-label={camera ? 'Tắt camera' : 'Bật camera'}
+                    title={camera ? 'Tắt camera' : 'Bật camera'}
+                  >
+                    {camera ? <Video size={22} /> : <VideoOff size={22} />}
+                  </button>
+                )}
+                <button
+                  className="call-control reject"
+                  disabled={busy}
+                  onClick={() =>
+                    void transition(
+                      call.initiatorId === user.id ? 'end' : 'leave',
+                    )
+                  }
+                  aria-label="Kết thúc cuộc gọi"
+                  title="Kết thúc"
+                >
+                  <PhoneOff size={22} />
+                </button>
+              </>
+            )}
+          </div>
         </footer>
       </section>
     </div>

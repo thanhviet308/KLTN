@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, Text, View } from 'react-native';
+import {
+  Alert,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  Text,
+  View,
+} from 'react-native';
 import * as api from '../../api';
 import {
   Avatar,
@@ -31,26 +38,32 @@ export function PeopleScreen({
   );
   const [rows, setRows] = useState<PersonRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const path =
-        section === 'friends'
-          ? '/friends'
-          : `/friend-requests?direction=${section}`;
-      setRows(await allPages<PersonRow>(path));
-    } catch (next) {
-      if (next instanceof api.ApiError && next.status === 401) onExpired();
-      else setError(api.errorMessage(next));
-    } finally {
-      setLoading(false);
-    }
-  }, [onExpired, section]);
+  const load = useCallback(
+    async (refresh = false) => {
+      if (refresh) setRefreshing(true);
+      else setLoading(true);
+      setError('');
+      try {
+        const path =
+          section === 'friends'
+            ? '/friends'
+            : `/friend-requests?direction=${section}`;
+        setRows(await allPages<PersonRow>(path));
+      } catch (next) {
+        if (next instanceof api.ApiError && next.status === 401) onExpired();
+        else setError(api.errorMessage(next));
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [onExpired, section],
+  );
 
   useEffect(() => {
     void load();
@@ -147,6 +160,14 @@ export function PeopleScreen({
           contentContainerStyle={styles.peopleList}
           data={rows}
           keyExtractor={row => row.id}
+          refreshControl={
+            <RefreshControl
+              colors={['#b75020']}
+              refreshing={refreshing}
+              onRefresh={() => void load(true)}
+              tintColor="#b75020"
+            />
+          }
           ListEmptyComponent={
             <View style={styles.emptyCard}>
               <View style={styles.emptySymbol}>

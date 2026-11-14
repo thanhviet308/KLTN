@@ -980,7 +980,7 @@ export function Chat({
           onCancel={() => setReplyTo(undefined)}
         />
       )}
-      <div className="chat-composer-bar">
+      <div className={`chat-composer-bar${body.trim() ? ' has-draft' : ''}`}>
         <button
           className={`composer-game${
             currentGame &&

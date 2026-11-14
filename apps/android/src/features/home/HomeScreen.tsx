@@ -81,7 +81,13 @@ export function Home({
             presence={presence}
           />
         )}
-        {tab === 'search' && <SearchPeopleScreen onExpired={onExpired} />}
+        {tab === 'search' && (
+          <SearchPeopleScreen
+            onExpired={onExpired}
+            onOpen={onOpen}
+            onGoRequests={() => setTab('people')}
+          />
+        )}
         {tab === 'account' && (
           <AccountScreen
             user={user}
