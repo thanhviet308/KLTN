@@ -1,4 +1,5 @@
 import { Avatar } from '../../components/Avatar';
+import { Gamepad2, Users, Zap, Clock3, Play } from 'lucide-react';
 import {
   parseGameInviteBody,
   type Message,
@@ -167,12 +168,15 @@ export function MessageBubble({
         ) : message.type && message.type !== 'text' ? (
           <MessageMedia message={message} />
         ) : gameInvite ? (
-          <div className="game-chat-invite-card">
+          <div className={`game-chat-invite-card${mine ? ' is-mine' : ''}`}>
             <div className="game-chat-invite-header">
               <span className="game-chat-invite-kicker">
-                {gameMeta?.groupOnly
-                  ? '🎉 TRÒ CHƠI NHÓM'
-                  : '🎮 THÁCH ĐẤU TRÒ CHƠI'}
+                {gameMeta?.groupOnly ? (
+                  <Users size={14} aria-hidden="true" />
+                ) : (
+                  <Gamepad2 size={14} aria-hidden="true" />
+                )}
+                {gameMeta?.groupOnly ? 'Nhóm' : 'Mời chơi'}
               </span>
               {gameMeta && (
                 <span className="game-chat-invite-badge">{gameMeta.badge}</span>
@@ -182,7 +186,7 @@ export function MessageBubble({
               {gameMeta?.name ?? 'Trò chơi trực tuyến'}
             </strong>
             <p className="game-chat-invite-desc">
-              {gameMeta?.description ?? gameInvite.text}
+              {gameMeta?.subtitle ?? gameInvite.text}
             </p>
             <div className="game-chat-invite-footer">
               {isThisGame && currentGame.status === 'invited' && !mine ? (
@@ -197,7 +201,7 @@ export function MessageBubble({
                     }
                   }}
                 >
-                  ⚡ Chấp nhận & Vào chơi ngay
+                  <Zap size={16} aria-hidden="true" /> Chấp nhận & chơi
                 </button>
               ) : (
                 <button
@@ -205,11 +209,16 @@ export function MessageBubble({
                   className="game-chat-invite-btn"
                   onClick={() => onOpenGame?.()}
                 >
+                  {isThisGame && currentGame.status === 'invited' ? (
+                    <Clock3 size={16} aria-hidden="true" />
+                  ) : (
+                    <Play size={16} aria-hidden="true" />
+                  )}
                   {isThisGame && currentGame.status === 'invited'
-                    ? '⏳ Mở phòng chờ'
+                    ? 'Phòng chờ'
                     : isThisGame && currentGame.status === 'active'
-                      ? '🔥 Vào bàn chơi ngay'
-                      : '🎮 Mở bàn chơi'}
+                      ? 'Vào bàn chơi'
+                      : 'Mở bàn chơi'}
                 </button>
               )}
             </div>

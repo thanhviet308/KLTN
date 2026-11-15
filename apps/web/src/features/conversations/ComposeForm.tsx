@@ -4,6 +4,7 @@ import type { Peer } from '../../lib/types';
 
 export function ComposeForm({
   type,
+  onTypeChange,
   busy,
   title,
   onTitle,
@@ -18,6 +19,7 @@ export function ComposeForm({
   onCancel,
 }: {
   type: 'direct' | 'group';
+  onTypeChange?: (type: 'direct' | 'group') => void;
   busy: boolean;
   title: string;
   onTitle: (value: string) => void;
@@ -42,12 +44,41 @@ export function ComposeForm({
     >
       <fieldset disabled={busy}>
         <div className="compose-intro">
-          <span className="compose-icon" aria-hidden="true">
-            <UiIcon
-              name={type === 'direct' ? 'compose' : 'friends'}
-              size={24}
-            />
-          </span>
+          <div className="compose-intro-top">
+            <span className="compose-icon" aria-hidden="true">
+              <UiIcon
+                name={type === 'direct' ? 'compose' : 'friends'}
+                size={24}
+              />
+            </span>
+            {onTypeChange && (
+              <div
+                className="compose-mode-tabs"
+                role="tablist"
+                aria-label="Kiểu cuộc trò chuyện"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={type === 'direct'}
+                  className={type === 'direct' ? 'is-active' : undefined}
+                  onClick={() => onTypeChange('direct')}
+                >
+                  Nhắn riêng
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={type === 'group'}
+                  className={type === 'group' ? 'is-active' : undefined}
+                  onClick={() => onTypeChange('group')}
+                >
+                  <UiIcon name="friends" size={16} />
+                  <span>Tạo nhóm</span>
+                </button>
+              </div>
+            )}
+          </div>
           <h3>
             {type === 'direct'
               ? 'Bạn muốn nhắn tin cho ai?'

@@ -24,6 +24,11 @@
   color: #b75020;
 }
 
+.composer-game > svg {
+  width: 23px;
+  height: 23px;
+}
+
 .composer-game.has-open-game {
   background: #fbe7d7;
   border-color: #ebc5a7;
@@ -2820,40 +2825,55 @@
    ============================================================================ */
 
 .message-body.game-invite-message-body {
-  padding: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message-body.game-invite-message-body .workspace-mention-label {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f6eee3;
+  color: #7a5c44;
 }
 
 .game-chat-invite-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: min(220px, 100%);
-  max-width: 320px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: linear-gradient(145deg, #fffdf9 0%, #f8efe4 100%);
-  border: 1.5px solid #e2cbb0;
+  gap: 4px;
+  min-width: 184px;
+  max-width: 244px;
+  padding: 9px 12px;
+  border-radius: 16px 16px 16px 5px;
+  background: #fffdf9;
+  border: 1px solid #e6d7c6;
   color: #2f2014;
-  box-shadow: 0 6px 16px rgba(62, 36, 17, 0.08);
   text-align: left;
 }
 
 .game-chat-invite-card.is-mine {
-  background: linear-gradient(145deg, #fffaf3 0%, #f4e5d2 100%);
-  border-color: #d7b793;
+  background: linear-gradient(155deg, #fff9f2 0%, #faebd9 100%);
+  border-color: #dfbc98;
+  border-radius: 16px 16px 5px 16px;
 }
 
 .game-chat-invite-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .game-chat-invite-kicker {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #a64b1e;
 }
@@ -2863,26 +2883,30 @@
   align-items: center;
   flex-shrink: 0;
   white-space: nowrap;
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
   background: #f0dfcc;
   color: #7d3c18;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
 }
 
 .game-chat-invite-title {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 13.5px;
+  font-weight: 700;
   color: #2c1d11;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 .game-chat-invite-desc {
   margin: 0;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: #5e4835;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #6b523e;
 }
 
 .game-chat-invite-footer {
@@ -2891,20 +2915,29 @@
 }
 
 .game-chat-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   width: 100%;
-  min-height: 36px;
-  padding: 7px 14px;
-  border-radius: 10px;
+  min-height: 30px;
+  padding: 5px 12px;
+  border-radius: 9px;
   border: 1px solid #c96833;
   background: linear-gradient(180deg, #c95c25 0%, #a84516 100%);
   color: #fffaf4;
-  font-size: 12.5px;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 3px 10px rgba(168, 69, 22, 0.24);
+  box-shadow: 0 2px 6px rgba(168, 69, 22, 0.18);
   transition:
     transform 0.12s ease,
     filter 0.12s ease;
+}
+
+.game-chat-invite-btn svg,
+.game-chat-invite-kicker svg {
+  flex-shrink: 0;
 }
 
 .game-chat-invite-btn.is-accept {

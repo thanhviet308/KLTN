@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import './conversation-actions.css';
 import { io, type Socket } from 'socket.io-client';
 import * as api from '../../lib/api';
 import { Chat } from '../chat/Chat';
@@ -32,6 +33,7 @@ import { ActiveFriends, type FriendNote } from './ActiveFriends';
 import { ConversationSummaryPanel } from './ConversationSummaryPanel';
 import { ComposeForm } from './ComposeForm';
 import { ThreadListItem } from './ThreadListItem';
+import { ConversationCustomization } from './ConversationCustomization';
 
 export function Conversations({
   user,
@@ -174,6 +176,52 @@ export function Conversations({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  function applyCustomization(conversation: Conversation) {
+    const merge = (previous: Conversation): Conversation => {
+      if (
+        previous.id !== conversation.id ||
+        Date.parse(previous.updatedAt ?? previous.createdAt) >
+          Date.parse(conversation.updatedAt ?? conversation.createdAt)
+      )
+        return previous;
+      return {
+        ...previous,
+        background: conversation.background,
+        nicknames: conversation.nicknames,
+        updatedAt: conversation.updatedAt,
+      };
+    };
+    setSelected((previous) => (previous ? merge(previous) : previous));
+    setItems((previous) => previous.map(merge));
+  }
+  useEffect(() => {
+    if (!active || !selected?.id || busy) return;
+    const id = selected.id;
+    let cancelled = false;
+    let loading = false;
+    const refresh = async () => {
+      if (loading || document.visibilityState !== 'visible') return;
+      loading = true;
+      try {
+        const result = await api.authenticated<{ conversation: Conversation }>(
+          `/conversations/${id}`,
+        );
+        if (!cancelled) applyCustomization(result.conversation);
+      } catch {
+        // Existing conversation/message flows handle session and access errors.
+      } finally {
+        loading = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [active, selected?.id, busy]);
   const [confirmation, setConfirmation] = useState<{
     text: string;
     path: string;
@@ -507,8 +555,9 @@ export function Conversations({
   const heading = selected
     ? selected.type === 'group'
       ? selected.title
-      : (members.find((member) => member.user.id !== user.id)?.user
-          .displayName ?? 'Trò chuyện riêng')
+      : ((selectedPeer && selected.nicknames?.[selectedPeer.id]) ??
+        selectedPeer?.displayName ??
+        'Trò chuyện riêng')
     : 'Hội thoại';
   async function loadFriends() {
     const [rows, notePage, reqPage] = await Promise.all([
@@ -584,16 +633,21 @@ export function Conversations({
       await Promise.all([detail(result.conversation.id), list()]);
     });
   }
-  function compose(kind: 'direct' | 'group') {
+  function applyComposeMode(kind: 'direct' | 'group') {
     setType(kind);
+    setChosen([]);
+    setTitle('');
+    setError('');
+    setNotice('');
+    requestKey.current = undefined;
+  }
+  function compose(kind: 'direct' | 'group') {
+    applyComposeMode(kind);
     setCreating(true);
     setSelected(undefined);
     setShowInfo(false);
-    setChosen([]);
     setFriendFilter('');
-    setTitle('');
     setConfirmation(undefined);
-    requestKey.current = undefined;
     void run(loadFriends);
   }
   return (
@@ -605,11 +659,12 @@ export function Conversations({
         <div className="thread-sidebar-heading">
           <h2>Đoạn chat</h2>
           <button
+            type="button"
             className="secondary accept"
-            aria-label="Nhắn tin mới"
-            title="Nhắn tin mới"
+            aria-label="Tin nhắn mới hoặc tạo nhóm"
+            title="Tin nhắn mới hoặc tạo nhóm"
             disabled={busy}
-            onClick={() => compose('direct')}
+            onClick={() => compose(category === 'group' ? 'group' : 'direct')}
           >
             <UiIcon name="compose" />
           </button>
@@ -676,13 +731,6 @@ export function Conversations({
           ))}
         </div>
         <div className="thread-tools">
-          <button
-            className="retry"
-            disabled={busy}
-            onClick={() => compose('group')}
-          >
-            Tạo nhóm
-          </button>
           <button
             className="retry"
             disabled={busy}
@@ -1096,6 +1144,7 @@ export function Conversations({
         {creating && !selected && (
           <ComposeForm
             type={type}
+            onTypeChange={applyComposeMode}
             busy={busy}
             title={title}
             onTitle={setTitle}
@@ -1137,7 +1186,12 @@ export function Conversations({
             isGroup={selected.type === 'group'}
             onMessagesChange={setSharedMessages}
             user={user}
-            peers={members.map((member) => member.user)}
+            peers={members.map((member) => ({
+              ...member.user,
+              displayName:
+                selected.nicknames?.[member.id] ?? member.user.displayName,
+            }))}
+            background={selected.background}
             active={active}
             initialLastReadSequence={selected.membership.lastReadSequence}
             initialUnreadCount={selected.unreadCount ?? 0}
@@ -1205,6 +1259,20 @@ export function Conversations({
               ← Quay lại trò chuyện
             </button>
             <h2>Thông tin cuộc trò chuyện</h2>
+            <ConversationCustomization
+              key={selected.id}
+              conversation={selected}
+              members={members}
+              busy={busy}
+              onSave={(path, body) =>
+                run(async () => {
+                  const result = await api.authenticated<{
+                    conversation: Conversation;
+                  }>(`/conversations/${selected.id}/${path}`, body, 'PATCH');
+                  applyCustomization(result.conversation);
+                }, 'Đã cập nhật tùy chỉnh đoạn chat.')
+              }
+            />
             <p className="intro">
               {isGroup
                 ? `${members.length}/50 thành viên · ${roles[selected.membership.role]}`
@@ -1305,7 +1373,8 @@ export function Conversations({
                   </span>
                   <div>
                     <strong>
-                      {member.user.displayName}
+                      {selected.nicknames?.[member.id] ??
+                        member.user.displayName}
                       {member.user.id === user.id ? ' (bạn)' : ''}
                     </strong>
                     <p className="hint">

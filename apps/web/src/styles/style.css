@@ -1829,7 +1829,7 @@ a:focus-visible {
   gap: 3px;
   position: absolute;
   right: 8px;
-  top: calc(100% - 5px);
+  bottom: 0;
   z-index: 1;
 }
 .reaction-badges button {
@@ -1852,7 +1852,9 @@ a:focus-visible {
   background: #edf5e7;
 }
 .chat-message:has(.reaction-badges) {
-  margin-bottom: 24px;
+  /* Keep reactions inside the message's box. Theme/group margins may shrink,
+     but cannot remove the space reserved here for the reaction row. */
+  padding-bottom: 26px;
 }
 .reaction-error {
   color: #993c31;
@@ -2732,6 +2734,9 @@ a:focus-visible {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+}
+.account-menu button svg {
+  flex-shrink: 0;
 }
 .account-menu button:hover,
 .account-menu button:focus-visible {

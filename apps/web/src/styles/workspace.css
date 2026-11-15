@@ -772,6 +772,13 @@
 .compose-intro {
   margin-bottom: 24px;
 }
+.compose-intro-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .compose-icon {
   display: grid;
   place-items: center;
@@ -780,6 +787,40 @@
   background: #e8f5f1;
   color: #087f72;
   border-radius: 15px;
+  flex-shrink: 0;
+}
+.compose-mode-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #f2f6f8;
+  border: 1px solid #e5ebee;
+}
+.compose-mode-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #5d7079;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.compose-mode-tabs button:hover:not(:disabled) {
+  color: #192d35;
+  background: rgb(255 255 255 / 65%);
+}
+.compose-mode-tabs button.is-active {
+  background: #fff;
+  color: #087f72;
+  box-shadow: 0 1px 4px rgb(25 45 53 / 8%);
 }
 .compose-card .compose-intro h3 {
   margin: 18px 0 8px;
@@ -1047,15 +1088,18 @@
 .thread-sidebar-heading {
   padding: 0 6px;
   margin-bottom: 14px;
+  flex-wrap: nowrap;
 }
 .thread-sidebar-heading h2 {
   font-size: 22px;
   letter-spacing: -0.8px;
   color: var(--ink);
+  min-width: 0;
 }
 .thread-sidebar-heading > button {
   width: 38px;
   height: 38px;
+  flex-shrink: 0;
   background: var(--accent);
   color: white;
   border-radius: 12px;
@@ -1808,6 +1852,9 @@
   border: 0;
   border-radius: 12px;
 }
+.location-map.is-selectable {
+  cursor: crosshair;
+}
 .location-map-wrapper {
   position: relative;
 }
@@ -1894,4 +1941,14 @@
   background: #eff5f5;
   border-radius: 14px;
   margin-top: 16px;
+}
+.location-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.location-pending button:not(.location-share) {
+  background: #fff;
+  border: 1px solid #d2e0e0;
 }

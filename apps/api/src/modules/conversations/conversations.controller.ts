@@ -21,6 +21,8 @@ import {
   AddConversationMemberDto,
   UpdateConversationMemberDto,
   TransferOwnershipDto,
+  ConversationBackgroundDto,
+  ConversationNicknameDto,
 } from './conversations.dto';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Runtime DTO metadata for validation.
 import { PageDto } from '../../common/page.dto';
@@ -66,6 +68,34 @@ export class ConversationsController {
     @Query() input: PageDto,
   ) {
     return this.conversations.members(user.id, id.toLowerCase(), input);
+  }
+
+  @Patch(':id/background')
+  background(
+    @CurrentUser() user: User,
+    @Param('id', uuid()) id: string,
+    @Body() input: ConversationBackgroundDto,
+  ) {
+    return this.conversations.background(
+      user.id,
+      id.toLowerCase(),
+      input.background,
+    );
+  }
+
+  @Patch(':id/members/:userId/nickname')
+  nickname(
+    @CurrentUser() user: User,
+    @Param('id', uuid()) id: string,
+    @Param('userId', uuid()) userId: string,
+    @Body() input: ConversationNicknameDto,
+  ) {
+    return this.conversations.nickname(
+      user.id,
+      id.toLowerCase(),
+      userId.toLowerCase(),
+      input.nickname,
+    );
   }
 
   @Post(':id/members')

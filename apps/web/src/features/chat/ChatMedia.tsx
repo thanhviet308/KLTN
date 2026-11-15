@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { UiIcon } from '../../components/UiIcon';
 import { LocationMap } from './LocationMap';
+import {
+  decodeVoiceDuration,
+  validVoiceDuration,
+  voiceTimeline,
+} from './voice-timeline';
 import * as api from '../../lib/api';
 import type { Message } from '../../lib/chat-model';
 import {
@@ -9,7 +14,9 @@ import {
   prepareChatUploadFile,
 } from './image-upload';
 import {
+  DEFAULT_MAP_LOCATION,
   formatGeolocationError,
+  getGeolocationAttemptOptions,
   isEmbeddedInAppBrowser,
 } from './location-helper';
 
@@ -35,6 +42,8 @@ export function MediaTools({
   const [location, setLocation] = useState<MediaDraft['location']>();
   const [locationOpen, setLocationOpen] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [manualLocation, setManualLocation] = useState(false);
   const locationDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = locationDialog.current;
@@ -84,6 +93,7 @@ export function MediaTools({
     setRecording(false);
     setBusy(false);
     setLocation(undefined);
+    setManualLocation(false);
     setLocationOpen(false);
   }, [disabled]);
   const send = async (draft: MediaDraft) => {
@@ -199,12 +209,22 @@ export function MediaTools({
     }
   }
   function locate() {
+    const version = ++generation.current;
+    clearTimeout(locationWatchdog.current);
+    setLocationDenied(false);
     if (!navigator.geolocation) {
-      onError('Trình duyệt không hỗ trợ vị trí.');
+      setLocation(undefined);
+      setManualLocation(false);
+      setLocationError(
+        'Trình duyệt không hỗ trợ lấy vị trí tự động. Bạn vẫn có thể chọn vị trí trực tiếp trên bản đồ.',
+      );
+      setLocationOpen(true);
+      void import('leaflet').catch(() => {});
       return;
     }
     const embedded = isEmbeddedInAppBrowser(navigator.userAgent);
     clearTimeout(locationWatchdog.current);
+    setManualLocation(false);
     setLocation(undefined);
     setLocationError('');
     setLocationOpen(true);
@@ -214,27 +234,56 @@ export function MediaTools({
       setLocationError(
         formatGeolocationError({ embedded, secureContext: false }),
       );
+      void import('leaflet').catch(() => {});
       return;
     }
 
     setBusy(true);
     // Fetch the code in parallel with geolocation, without requesting map tiles.
     void import('leaflet').catch(() => {});
-    const version = ++generation.current;
+    const policyDocument = document as Document & {
+      permissionsPolicy?: { allowsFeature: (feature: string) => boolean };
+      featurePolicy?: { allowsFeature: (feature: string) => boolean };
+    };
+    const policy =
+      policyDocument.permissionsPolicy ?? policyDocument.featurePolicy;
+    const policyAllowed = policy?.allowsFeature('geolocation');
+    if (policyAllowed === false) {
+      setBusy(false);
+      setLocationError(formatGeolocationError({ embedded, policyAllowed }));
+      return;
+    }
+    let permissionState: PermissionState | undefined;
+    let lastFailure: { code?: number; browserMessage?: string } | undefined;
+    // Query alongside the request: do not await and lose the button's user gesture.
+    try {
+      void navigator.permissions
+        ?.query({ name: 'geolocation' })
+        .then((status) => {
+          if (!alive.current || version !== generation.current) return;
+          permissionState = status.state;
+          if (lastFailure)
+            setLocationError(
+              formatGeolocationError({
+                ...lastFailure,
+                embedded,
+                permissionState,
+                policyAllowed,
+              }),
+            );
+        })
+        .catch(() => {});
+    } catch {
+      /* Older browsers may not support querying this permission. */
+    }
     const requestPosition = (highAccuracy: boolean) => {
       let settled = false;
-      const timeoutMs = highAccuracy
-        ? embedded
-          ? 6000
-          : 9000
-        : embedded
-          ? 5500
-          : 7500;
-      const failAttempt = (code?: number) => {
+      const attempt = getGeolocationAttemptOptions(embedded, highAccuracy);
+      const failAttempt = (code?: number, browserMessage?: string) => {
         if (settled || !alive.current || version !== generation.current) return;
         settled = true;
         clearTimeout(locationWatchdog.current);
-        // If coarse/network location fails or stalls, try GPS once before giving up.
+        // If coarse/network location fails or stalls, try high-accuracy once before giving up.
         if (code !== 1 && !highAccuracy) {
           locationWatchdog.current = setTimeout(() => {
             if (alive.current && version === generation.current)
@@ -243,11 +292,16 @@ export function MediaTools({
           return;
         }
         setBusy(false);
+        setLocationDenied(code === 1);
+        lastFailure = { code, browserMessage };
         setLocationError(
           formatGeolocationError({
             code,
             embedded,
             secureContext: window.isSecureContext,
+            permissionState,
+            policyAllowed,
+            browserMessage,
           }),
         );
       };
@@ -255,7 +309,7 @@ export function MediaTools({
       // Guard against WebViews that silently ignore getCurrentPosition without calling error().
       locationWatchdog.current = setTimeout(() => {
         failAttempt(3);
-      }, timeoutMs + 1500);
+      }, attempt.watchdogMs);
 
       try {
         navigator.geolocation.getCurrentPosition(
@@ -265,16 +319,17 @@ export function MediaTools({
             settled = true;
             clearTimeout(locationWatchdog.current);
             setBusy(false);
+            setManualLocation(false);
             setLocation({
               latitude: position.coords.latitude,
               longitude: position.coords.longitude,
             });
           },
-          (error) => failAttempt(error.code),
+          (error) => failAttempt(error.code, error.message),
           {
-            timeout: timeoutMs,
-            maximumAge: highAccuracy ? 60000 : 300000,
-            enableHighAccuracy: highAccuracy,
+            timeout: attempt.timeoutMs,
+            maximumAge: attempt.maximumAgeMs,
+            enableHighAccuracy: attempt.enableHighAccuracy,
           },
         );
       } catch {
@@ -283,11 +338,20 @@ export function MediaTools({
     };
     requestPosition(false);
   }
+  function pickLocationManually() {
+    generation.current++;
+    clearTimeout(locationWatchdog.current);
+    setBusy(false);
+    setLocationError('');
+    setManualLocation(true);
+    setLocation(DEFAULT_MAP_LOCATION);
+  }
   function closeLocation() {
     generation.current++;
     clearTimeout(locationWatchdog.current);
     setLocationOpen(false);
     setLocation(undefined);
+    setManualLocation(false);
     setBusy(false);
   }
   return (
@@ -411,8 +475,14 @@ export function MediaTools({
                 <LocationMap
                   latitude={location.latitude}
                   longitude={location.longitude}
+                  zoom={manualLocation ? 12 : 16}
+                  onSelect={setLocation}
                 />
-                <p>Kiểm tra vị trí trên bản đồ trước khi chia sẻ.</p>
+                <p>
+                  {manualLocation
+                    ? 'Nhấp hoặc chạm vào bản đồ để đặt ghim vị trí muốn chia sẻ.'
+                    : 'Kiểm tra hoặc chạm vào bản đồ để điều chỉnh vị trí trước khi chia sẻ.'}
+                </p>
                 <small>
                   {location.latitude.toFixed(5)},{' '}
                   {location.longitude.toFixed(5)}
@@ -428,12 +498,25 @@ export function MediaTools({
               </>
             ) : (
               <div className="location-pending" role="status">
-                {locationError ||
-                  'Đang lấy vị trí… Nếu được hỏi, hãy cho phép truy cập vị trí.'}
+                <span>
+                  {locationError ||
+                    'Đang lấy vị trí… Hãy cho phép truy cập khi trình duyệt hỏi. Nếu không thấy hộp thoại, kiểm tra biểu tượng vị trí ở bên phải thanh địa chỉ.'}
+                </span>
                 {locationError && (
-                  <button type="button" onClick={locate}>
-                    Thử lại
-                  </button>
+                  <div className="location-pending-actions">
+                    <button type="button" onClick={locate}>
+                      {locationDenied
+                        ? 'Đã bật quyền, kiểm tra lại'
+                        : 'Thử lại'}
+                    </button>
+                    <button
+                      type="button"
+                      className="location-share"
+                      onClick={pickLocationManually}
+                    >
+                      Chọn trên bản đồ
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -482,6 +565,32 @@ function VoicePlayer({
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const durationRequest = useRef<AbortController | null>(null);
+  const decodedDuration = useRef(0);
+  useEffect(() => () => durationRequest.current?.abort(), []);
+
+  function syncDuration() {
+    const element = audio.current;
+    if (!element) return;
+    if (validVoiceDuration(element.duration)) {
+      setDuration(decodedDuration.current || element.duration);
+      return;
+    }
+    if (!element.src || durationRequest.current) return;
+    const controller = new AbortController();
+    durationRequest.current = controller;
+    void decodeVoiceDuration(element.src, controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted && audio.current === element && value) {
+          decodedDuration.current = value;
+          setDuration(value);
+        }
+      })
+      .catch(() => {
+        // Playback still works when decoding is unsupported. Keep the seek
+        // control unavailable until the media element learns its duration.
+      });
+  }
   async function toggle() {
     if (!audio.current || loading) return;
     if (playing) {
@@ -495,8 +604,15 @@ function VoicePlayer({
       if (!source || !audio.current) return;
       // Keep source assignment imperative: a React src update after loading
       // would restart the element and interrupt the pending play() promise.
-      if (audio.current.getAttribute('src') !== source)
+      if (audio.current.getAttribute('src') !== source) {
+        durationRequest.current?.abort();
+        durationRequest.current = null;
+        decodedDuration.current = 0;
+        setCurrent(0);
+        setDuration(0);
         audio.current.src = source;
+      }
+      if (audio.current.ended) audio.current.currentTime = 0;
       await audio.current.play();
     } catch (cause) {
       if (audio.current)
@@ -511,23 +627,26 @@ function VoicePlayer({
   }
   const time = (value: number) =>
     `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
+  const timeline = voiceTimeline(current, duration);
   return (
     <div className="voice-player">
       <audio
         ref={audio}
         preload="metadata"
-        onLoadedMetadata={() => {
-          const value = audio.current?.duration;
-          if (value && Number.isFinite(value)) setDuration(value);
-        }}
-        onDurationChange={() => {
-          const value = audio.current?.duration;
-          if (value && Number.isFinite(value)) setDuration(value);
-        }}
+        onLoadedMetadata={syncDuration}
+        onDurationChange={syncDuration}
         onTimeUpdate={() => setCurrent(audio.current?.currentTime ?? 0)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          const element = audio.current;
+          if (element) {
+            setCurrent(element.currentTime);
+            if (!validVoiceDuration(duration) && element.currentTime > 0)
+              setDuration(element.currentTime);
+          }
+        }}
         onError={() => setError('Không phát được bản ghi âm.')}
       />
       <button
@@ -573,17 +692,20 @@ function VoicePlayer({
         type="range"
         aria-label="Vị trí phát bản ghi âm"
         min={0}
-        max={duration || 1}
+        max={timeline.max}
         step={0.1}
-        value={Math.min(current, duration || 1)}
-        disabled={!duration}
+        value={timeline.value}
+        disabled={!timeline.known}
+        aria-valuetext={`${time(timeline.elapsed)} / ${timeline.known ? time(duration) : 'Đang xác định thời lượng'}`}
         onChange={(event) => {
-          if (audio.current)
+          if (audio.current) {
             audio.current.currentTime = Number(event.target.value);
+            setCurrent(audio.current.currentTime);
+          }
         }}
       />
       <span className="voice-time">
-        {time(playing || current > 0 ? current : duration)}
+        {time(timeline.elapsed)} / {timeline.known ? time(duration) : '--:--'}
       </span>
       {error && (
         <small className="voice-error" role="alert">

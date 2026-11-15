@@ -29,6 +29,8 @@ export class ConversationsService {
       id: conversation.id,
       type: conversation.type,
       title: conversation.title,
+      background: conversation.background ?? 'default',
+      nicknames: conversation.nicknames ?? {},
       creatorId: conversation.creatorId,
       directUserLowId: conversation.directUserLowId,
       directUserHighId: conversation.directUserHighId,
@@ -484,6 +486,52 @@ export class ConversationsService {
       this.requireGroup(conversation);
       this.requireManager(member);
       conversation.title = title;
+      return {
+        conversation: this.view(
+          await manager.getRepository(Conversation).save(conversation),
+          member,
+        ),
+      };
+    });
+  }
+
+  async background(actorId: string, id: string, background: string) {
+    return this.db.transaction(async (manager) => {
+      const { conversation, member } = await this.requireAccess(
+        manager,
+        id,
+        actorId,
+        true,
+      );
+      conversation.background = background;
+      return {
+        conversation: this.view(
+          await manager.getRepository(Conversation).save(conversation),
+          member,
+        ),
+      };
+    });
+  }
+
+  async nickname(
+    actorId: string,
+    id: string,
+    userId: string,
+    nickname: string,
+  ) {
+    return this.db.transaction(async (manager) => {
+      const { conversation, member } = await this.requireAccess(
+        manager,
+        id,
+        actorId,
+        true,
+      );
+      await this.requireAccess(manager, id, userId, true);
+      // The conversation lock serializes edits to different members' nicknames.
+      const nicknames = { ...conversation.nicknames };
+      if (nickname) nicknames[userId] = nickname;
+      else delete nicknames[userId];
+      conversation.nicknames = nicknames;
       return {
         conversation: this.view(
           await manager.getRepository(Conversation).save(conversation),

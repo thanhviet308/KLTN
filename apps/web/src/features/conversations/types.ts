@@ -10,6 +10,8 @@ export interface Member {
 }
 
 export interface Conversation {
+  background?: string;
+  nicknames?: Record<string, string>;
   unreadCount?: number;
   lastMessage?: {
     id: string;
@@ -46,7 +48,13 @@ export function conversationTitle(
   item: Conversation,
   directNames: Record<string, string>,
 ) {
-  return item.title ?? directNames[item.id] ?? FALLBACK_TITLE;
+  return (
+    item.title ??
+    (item.peer && item.nicknames?.[item.peer.id]) ??
+    item.peer?.displayName ??
+    directNames[item.id] ??
+    FALLBACK_TITLE
+  );
 }
 
 /** Applies the category and text filters, newest conversation first. */

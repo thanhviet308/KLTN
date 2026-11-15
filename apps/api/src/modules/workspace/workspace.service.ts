@@ -158,14 +158,13 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
   ) {
     await this.messages.get(actorId, conversationId, messageId);
     return this.db.transaction(async (manager) => {
-      const { member } = await this.conversations.requireAccess(
+      const { conversation } = await this.conversations.requireAccess(
         manager,
         conversationId,
         actorId,
         true,
       );
-      if (!['admin', 'owner'].includes(member.role))
-        fail('GROUP_MANAGER_REQUIRED', 403);
+      if (conversation.type !== 'group') fail('CONVERSATION_IMMUTABLE', 400);
       if (remove)
         await manager.query(
           'DELETE FROM message_pins WHERE message_id=$1 AND conversation_id=$2',

@@ -56,6 +56,13 @@
   border-color: #e8dfd3;
   box-shadow: none;
 }
+.home-shell .chat-message.mine .message-body.game-invite-message-body,
+.home-shell .chat-message:not(.mine) .message-body.game-invite-message-body {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .home-shell .chat-summary-panel {
   display: none;
 }
@@ -678,6 +685,22 @@
   background: #f6e6d5;
   color: #b75020;
 }
+.home-shell .compose-mode-tabs {
+  background: #f3eee6;
+  border-color: #e7ddd0;
+}
+.home-shell .compose-mode-tabs button {
+  color: #7c6f63;
+}
+.home-shell .compose-mode-tabs button:hover:not(:disabled) {
+  color: var(--ink);
+  background: rgb(255 253 249 / 70%);
+}
+.home-shell .compose-mode-tabs button.is-active {
+  background: #fffdf9;
+  color: #b75020;
+  box-shadow: 0 1px 4px rgb(58 42 29 / 10%);
+}
 .home-shell .compose-intro p,
 .home-shell .compose-list-label,
 .home-shell .compose-peer-name small,
@@ -947,6 +970,10 @@
 .home-shell .location-preview button {
   background: #f6eee3;
   color: #5e4130;
+}
+.home-shell .location-pending button:not(.location-share) {
+  background: #fffdf9;
+  border: 1px solid #dccab6;
 }
 .home-shell .location-preview button:hover:not(:disabled) {
   background: #eddcc9;
@@ -1494,19 +1521,19 @@
   font-size: 11.5px;
 }
 .home-shell .game-chat-invite-desc {
-  font-size: 13.5px;
+  font-size: 12px;
 }
 .home-shell .game-chat-invite-title {
-  font-size: 16.5px;
+  font-size: 14px;
 }
 .home-shell .game-chat-invite-btn {
-  font-size: 13.5px;
+  font-size: 12px;
 }
 .home-shell .game-chat-invite-kicker {
-  font-size: 11px;
+  font-size: 10px;
 }
 .home-shell .game-chat-invite-badge {
-  font-size: 11.5px;
+  font-size: 10px;
 }
 @media (min-width: 1360px) {
   .home-shell .summary-profile h2 {
@@ -1793,6 +1820,16 @@
   .home-shell .call-message {
     min-width: 148px;
     gap: 9px;
+  }
+  .home-shell .game-chat-invite-card {
+    min-width: 172px;
+    max-width: 222px;
+    padding: 8px 10px;
+    gap: 3px;
+  }
+  .home-shell .game-chat-invite-btn {
+    min-height: 28px;
+    padding: 4px 10px;
   }
   .home-shell .typing-note {
     margin: 2px 14px 4px;

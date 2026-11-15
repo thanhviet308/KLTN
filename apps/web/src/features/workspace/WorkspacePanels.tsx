@@ -379,7 +379,7 @@ export function GroupTools({
       {error && <p role="alert">{error}</p>}
       {loading && <p role="status">Đang tải…</p>}
       <h3>Tin nhắn đã ghim</h3>
-      <p>Chủ nhóm và quản trị viên có thể ghim hoặc bỏ ghim tin nhắn.</p>
+      <p>Mọi thành viên trong nhóm đều có thể ghim hoặc bỏ ghim tin nhắn.</p>
       {!loading && !pins.length && <p>Chưa có tin được ghim.</p>}
       {pins.map((m) => (
         <article className="workspace-card" key={m.id}>

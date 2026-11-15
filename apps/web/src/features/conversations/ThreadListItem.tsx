@@ -64,7 +64,7 @@ export function ThreadListItem({
           <div className="thread-preview-row">
             <small>
               {item.lastMessage
-                ? `${item.lastMessage.senderId === currentUserId ? 'Bạn: ' : item.type === 'group' ? `${item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${messageSummary(item.lastMessage)}`
+                ? `${item.lastMessage.senderId === currentUserId ? 'Bạn: ' : item.type === 'group' ? `${item.nicknames?.[item.lastMessage.senderId] ?? item.lastMessage.senderName ?? 'Thành viên'}: ` : ''}${messageSummary(item.lastMessage)}`
                 : 'Hãy gửi lời chào 👋'}
             </small>
           </div>

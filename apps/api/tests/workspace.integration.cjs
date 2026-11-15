@@ -110,14 +110,22 @@ test(
       );
       assert.ok(indexed.tokens.every((t) => /^[a-f0-9]{64}$/.test(t)));
       await assert.rejects(
-        workspace.pin(peer.id, conversationId, message.id, false),
-        code('GROUP_MANAGER_REQUIRED'),
+        workspace.pin(outsider.id, conversationId, message.id, false),
+        code('CONVERSATION_NOT_FOUND'),
       );
-      await workspace.pin(owner.id, conversationId, message.id, false);
+      await workspace.pin(peer.id, conversationId, message.id, false);
       assert.equal(
         (await workspace.pins(peer.id, conversationId)).items.length,
         1,
       );
+      await workspace.pin(peer.id, conversationId, message.id, true);
+      assert.equal(
+        (await workspace.pins(owner.id, conversationId)).items.length,
+        0,
+      );
+      await workspace.pin(owner.id, conversationId, message.id, false);
+      await workspace.pin(peer.id, conversationId, message.id, true);
+      await workspace.pin(peer.id, conversationId, message.id, false);
       const pollInput = {
         clientRequestId: randomUUID(),
         question: 'Chọn lịch?',

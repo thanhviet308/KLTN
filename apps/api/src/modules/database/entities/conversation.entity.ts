@@ -42,6 +42,10 @@ export class Conversation {
   })
   creationFingerprint!: string | null;
   @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ type: 'varchar', length: 24, default: 'default' })
+  background!: string;
+  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  nicknames!: Record<string, string>;
   @Column({ type: 'varchar', length: 16 }) type!: 'direct' | 'group';
   @Column({ type: 'varchar', length: 200, nullable: true }) title!:
     string | null;

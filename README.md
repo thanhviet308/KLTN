@@ -32,6 +32,12 @@ Local đã được tạo lại tại `127.0.0.1:5432`, database `realtime_chat`
 Web hỗ trợ quên mật khẩu qua mã email, đặt mật khẩu mới và thu hồi các phiên cũ.
 Cần chạy migration `PasswordReset1793577600000`; xem [hướng dẫn và kiểm thử](apps/api/tests/password-reset.md).
 
+Web hỗ trợ biệt danh từng thành viên và 6 nền đoạn chat tại **Thông tin cuộc trò chuyện → Tùy chỉnh đoạn chat**.
+Các tùy chỉnh áp dụng chung cho mọi thành viên, lưu riêng theo cuộc trò chuyện; thành viên hiện tại có thể thay đổi hoặc khôi phục mặc định.
+Chạy migration `ConversationCustomization1794355200000` trước khi khởi động API mới (`npm run db:migrate`).
+Đoạn chat đang mở cập nhật tùy chỉnh mỗi 15 giây hoặc khi quay lại cửa sổ; danh sách hội thoại cập nhật theo chu kỳ sẵn có.
+Kiểm thử tính năng: `npm run test:chat-customization`.
+
 Web có trợ lý AI tóm tắt hội thoại, gợi ý trả lời và dịch tin nhắn. Cấu hình
 `GEMINI_API_KEY`, `GEMINI_MODEL` trên backend; xem [hướng dẫn AI](apps/api/tests/ai.md).
 

@@ -3,6 +3,7 @@ dist
 coverage
 package-lock.json
 docs/
+report_work/
 apps/android/android/.cxx/
 apps/android/android/app/.cxx/
 apps/android/android/build/

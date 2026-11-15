@@ -52,6 +52,7 @@ export function Chat({
   isGroup,
   user,
   peers,
+  background = 'default',
   onExpired,
   onLatestMessage,
   active = true,
@@ -64,6 +65,7 @@ export function Chat({
   isGroup?: boolean;
   user: api.User;
   peers: Peer[];
+  background?: string;
   onExpired: () => void;
   onLatestMessage?: (message: Message) => void;
   active?: boolean;
@@ -834,6 +836,7 @@ export function Chat({
       )}
       <div
         className="message-timeline"
+        data-chat-background={background}
         ref={list}
         {...timelineHandlers}
         aria-label="Tin nhắn"

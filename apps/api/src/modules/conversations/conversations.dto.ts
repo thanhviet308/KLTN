@@ -71,6 +71,20 @@ export class UpdateConversationDto {
   title!: string;
 }
 
+export class ConversationBackgroundDto {
+  @IsIn(['default', 'ocean', 'mint', 'sunset', 'rose', 'sand'])
+  background!: string;
+}
+
+export class ConversationNicknameDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @Length(0, 50)
+  nickname!: string;
+}
+
 export class AddConversationMemberDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.toLowerCase() : value,

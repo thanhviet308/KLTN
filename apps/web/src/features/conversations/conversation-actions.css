@@ -1,0 +1,32 @@
+.home-shell .thread-sidebar-heading {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.home-shell .thread-sidebar-heading h2 {
+  margin-right: auto;
+}
+.home-shell .thread-sidebar-heading > .thread-create-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  min-height: 44px;
+  height: auto;
+  padding: 10px 12px;
+  border: 1px solid #dfc6af;
+  border-radius: 12px;
+  background: #f8ebdf;
+  color: #85401f;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+}
+.home-shell .thread-sidebar-heading > .thread-create-group:hover {
+  background: #f0ddcc;
+}
+.home-shell .thread-sidebar-heading > .thread-create-group:focus-visible {
+  outline: 2px solid #85401f;
+  outline-offset: 3px;
+}

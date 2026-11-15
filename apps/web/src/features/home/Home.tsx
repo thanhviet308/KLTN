@@ -1,6 +1,7 @@
 import { UnfriendDialog } from './UnfriendDialog';
 import { SessionsPanel } from '../workspace/WorkspacePanels';
 import { useEffect, useRef, useState } from 'react';
+import { LogOut, MonitorSmartphone, ShieldCheck, UserCog } from 'lucide-react';
 import * as api from '../../lib/api';
 import { Conversations } from '../conversations/Conversations';
 import { AiChatbox } from '../ai/AiChatbox';
@@ -394,6 +395,11 @@ export function Home({
                   setSessionsOpen(true);
                 }}
               >
+                <MonitorSmartphone
+                  size={18}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
                 Thiết bị đăng nhập
               </button>
               {onAdmin && (
@@ -405,7 +411,7 @@ export function Home({
                     onAdmin();
                   }}
                 >
-                  <UiIcon name="profile" size={18} />
+                  <ShieldCheck size={18} strokeWidth={1.8} aria-hidden="true" />
                   Quản lý admin
                 </button>
               )}
@@ -419,7 +425,7 @@ export function Home({
                   setAccountOpen(false);
                 }}
               >
-                <UiIcon name="profile" />
+                <UserCog size={18} strokeWidth={1.8} aria-hidden="true" />
                 Tài khoản của tôi
               </button>
               <button
@@ -431,17 +437,7 @@ export function Home({
                   void action(onLogout, '', false);
                 }}
               >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path d="M9 4H4v16h5M9 12h12m-4-4 4 4-4 4" />
-                </svg>
+                <LogOut size={18} strokeWidth={1.8} aria-hidden="true" />
                 Đăng xuất
               </button>
             </div>

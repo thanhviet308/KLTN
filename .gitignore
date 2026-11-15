@@ -31,3 +31,7 @@ deploy/vps/backups/
 # Private chat attachments
 /storage/
 /apps/api/storage/
+
+# Local thesis report and working files
+/report_work/
+/1150080163_NguyenThanhViet_DATN.docx
