@@ -34,24 +34,54 @@ let expiresAt = 0;
 let pendingRefresh: Promise<Session> | undefined;
 let sessionGeneration = 0;
 let sessionUserId: string | undefined;
-let nextRequestAt = 0;
+let blockedUntil = 0;
+let nextBackgroundAt = 0;
+let scheduledPriority = 0;
 let requestTimer: ReturnType<typeof setTimeout> | undefined;
 const requestQueue: {
   priority: number;
   run: () => void;
 }[] = [];
 
-// Pace starts across JSON, receipts, reactions and files together. Foreground
-// actions can pass queued background work, so sending never waits behind history.
+// Foreground requests and media/history loads start immediately unless paused
+// by a server/proxy 429; background receipts/reactions are paced at 250ms and
+// yield to foreground work.
 function drainRequests() {
-  if (requestTimer || !requestQueue.length) return;
-  const delay = Math.max(0, nextRequestAt - Date.now());
+  if (!requestQueue.length) return;
+  const priority = Math.min(...requestQueue.map((item) => item.priority));
+  const now = Date.now();
+  if (requestTimer) {
+    if (priority < 2 && scheduledPriority >= 2 && now >= blockedUntil) {
+      clearTimeout(requestTimer);
+      requestTimer = undefined;
+    } else {
+      return;
+    }
+  }
+  const delay = Math.max(
+    0,
+    blockedUntil - now,
+    priority >= 2 ? nextBackgroundAt - now : 0,
+  );
+  scheduledPriority = priority;
   requestTimer = setTimeout(() => {
     requestTimer = undefined;
-    const priority = Math.min(...requestQueue.map((item) => item.priority));
-    const index = requestQueue.findIndex((item) => item.priority === priority);
+    if (!requestQueue.length) return;
+    const nextPriority = Math.min(...requestQueue.map((item) => item.priority));
+    const current = Date.now();
+    const wait = Math.max(
+      blockedUntil - current,
+      nextPriority >= 2 ? nextBackgroundAt - current : 0,
+    );
+    if (wait > 0) {
+      drainRequests();
+      return;
+    }
+    const index = requestQueue.findIndex(
+      (item) => item.priority === nextPriority,
+    );
     const [item] = requestQueue.splice(index, 1);
-    nextRequestAt = Date.now() + 250;
+    nextBackgroundAt = current + 250;
     item.run();
     drainRequests();
   }, delay);
@@ -82,8 +112,8 @@ function scheduledRequest(path: string, run: () => Promise<Response>) {
                 : Number.isFinite(retryAt)
                   ? retryAt - Date.now()
                   : 5000;
-            nextRequestAt = Math.max(
-              nextRequestAt,
+            blockedUntil = Math.max(
+              blockedUntil,
               Date.now() + Math.max(1000, delay),
             );
             if (requestTimer) clearTimeout(requestTimer);
@@ -99,6 +129,7 @@ function scheduledRequest(path: string, run: () => Promise<Response>) {
 }
 
 const fileCache = new Map<string, Blob>();
+const fileUrlCache = new Map<string, string>();
 const pendingFiles = new Map<string, Promise<Blob>>();
 let fileCacheBytes = 0;
 const FILE_CACHE_LIMIT = 50 * 1024 * 1024;
@@ -269,6 +300,49 @@ export async function uploadChatFile<T>(
   ).json() as Promise<T>;
 }
 
+export function currentUserId() {
+  return sessionUserId;
+}
+
+function revokeCachedUrl(key: string) {
+  const url = fileUrlCache.get(key);
+  if (url) {
+    if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function')
+      URL.revokeObjectURL(url);
+    fileUrlCache.delete(key);
+  }
+}
+
+function objectUrlForFile(key: string, blob: Blob) {
+  let url = fileUrlCache.get(key);
+  if (
+    !url &&
+    typeof URL !== 'undefined' &&
+    typeof URL.createObjectURL === 'function'
+  ) {
+    url = URL.createObjectURL(blob);
+    if (fileCache.has(key)) fileUrlCache.set(key, url);
+  }
+  return url ?? '';
+}
+
+export function peekChatFileUrl(conversationId: string, messageId: string) {
+  const key = `${conversationId}:${messageId}`;
+  const cached = fileCache.get(key);
+  if (!cached) return '';
+  fileCache.delete(key);
+  fileCache.set(key, cached);
+  return objectUrlForFile(key, cached);
+}
+
+export async function chatFileUrl(conversationId: string, messageId: string) {
+  const blob = await chatFile(conversationId, messageId);
+  const key = `${conversationId}:${messageId}`;
+  if (fileCache.has(key))
+    return { url: objectUrlForFile(key, blob), ephemeral: false };
+  return { url: URL.createObjectURL(blob), ephemeral: true };
+}
+
 export async function chatFile(conversationId: string, messageId: string) {
   const key = `${conversationId}:${messageId}`;
   const cached = fileCache.get(key);
@@ -295,7 +369,9 @@ export async function chatFile(conversationId: string, messageId: string) {
           const oldest = fileCache.keys().next().value!;
           fileCacheBytes -= fileCache.get(oldest)!.size;
           fileCache.delete(oldest);
+          revokeCachedUrl(oldest);
         }
+        revokeCachedUrl(key);
         fileCache.set(key, blob);
         fileCacheBytes += blob.size;
       }
@@ -363,6 +439,9 @@ export async function logout() {
 export function clearSession() {
   sessionGeneration++;
   sessionUserId = undefined;
+  blockedUntil = 0;
+  nextBackgroundAt = 0;
+  for (const key of fileUrlCache.keys()) revokeCachedUrl(key);
   fileCache.clear();
   pendingFiles.clear();
   fileCacheBytes = 0;
@@ -437,6 +516,8 @@ export function errorMessage(error: unknown) {
         'Quyền của bạn trong nhóm đã thay đổi. Hãy tải lại hội thoại.',
       DIRECT_CONVERSATION_IMMUTABLE:
         'Không thể thay đổi thành viên hoặc tên của trò chuyện riêng.',
+      CUSTOMIZATION_UNAVAILABLE:
+        'Máy chủ chưa hỗ trợ tùy chỉnh đoạn chat. Cần cập nhật backend để đổi nền hoặc biệt danh. Cuộc trò chuyện của bạn vẫn được giữ nguyên.',
       CONVERSATION_INPUT_INVALID:
         'Thông tin hội thoại chưa hợp lệ. Kiểm tra tên nhóm và thành viên.',
       IDEMPOTENCY_CONFLICT:

@@ -26,6 +26,7 @@ interface MessageBubbleProps {
   message: Message;
   mine: boolean;
   isGroup?: boolean;
+  pinned?: boolean;
   /** The next message is from the same sender within a few minutes. */
   continuesGroup: boolean;
   peers: Peer[];
@@ -55,6 +56,7 @@ export function MessageBubble({
   message,
   mine,
   isGroup,
+  pinned,
   continuesGroup,
   peers,
   names,
@@ -110,6 +112,7 @@ export function MessageBubble({
       {!isCall && (
         <>
           <MessageActions
+            pinned={pinned}
             message={message}
             mine={mine}
             isGroup={isGroup}
@@ -151,6 +154,12 @@ export function MessageBubble({
           gameInvite ? ' game-invite-message-body' : ''
         }`}
       >
+        {!message.deletedAt && pinned && (
+          <small className="message-pin-tag">
+            📌 Đã ghim
+            <br />
+          </small>
+        )}
         {!message.deletedAt && message.content?.forwarded && (
           <small className="workspace-mention-label">
             Đã chuyển tiếp

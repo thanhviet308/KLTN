@@ -223,6 +223,7 @@ export function MediaTools({
       return;
     }
     const embedded = isEmbeddedInAppBrowser(navigator.userAgent);
+    const userAgent = navigator.userAgent;
     clearTimeout(locationWatchdog.current);
     setManualLocation(false);
     setLocation(undefined);
@@ -266,6 +267,7 @@ export function MediaTools({
             setLocationError(
               formatGeolocationError({
                 ...lastFailure,
+                userAgent,
                 embedded,
                 permissionState,
                 policyAllowed,
@@ -302,6 +304,7 @@ export function MediaTools({
             permissionState,
             policyAllowed,
             browserMessage,
+            userAgent,
           }),
         );
       };
@@ -763,36 +766,45 @@ export function MessageMedia({ message }: { message: Message }) {
       </span>
     );
   }
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState(() =>
+    message.type === 'image' || message.type === 'voice'
+      ? api.peekChatFileUrl(message.conversationId, message.id)
+      : '',
+  );
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const holder = useRef<HTMLDivElement>(null);
-  const objectUrl = useRef('');
+  const ephemeralUrl = useRef('');
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
-      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+      if (ephemeralUrl.current) URL.revokeObjectURL(ephemeralUrl.current);
     };
   }, []);
   async function load(download = false) {
     setLoading(true);
     setError('');
     try {
-      const blob = await api.chatFile(message.conversationId, message.id);
-      if (!alive.current) return;
-      const next = URL.createObjectURL(blob);
-      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-      objectUrl.current = next;
-      setUrl(next);
+      const result = await api.chatFileUrl(message.conversationId, message.id);
+      if (!alive.current) {
+        if (result.ephemeral) URL.revokeObjectURL(result.url);
+        return;
+      }
+      if (ephemeralUrl.current && ephemeralUrl.current !== result.url) {
+        URL.revokeObjectURL(ephemeralUrl.current);
+        ephemeralUrl.current = '';
+      }
+      if (result.ephemeral) ephemeralUrl.current = result.url;
+      setUrl(result.url);
       if (download) {
         const anchor = document.createElement('a');
-        anchor.href = next;
+        anchor.href = result.url;
         anchor.download = message.content?.fileName ?? 'file';
         anchor.click();
       }
-      return next;
+      return result.url;
     } catch (error) {
       if (alive.current) setError(api.errorMessage(error));
     } finally {
@@ -801,6 +813,11 @@ export function MessageMedia({ message }: { message: Message }) {
   }
   useEffect(() => {
     if (message.type !== 'image' || !holder.current) return;
+    const cached = api.peekChatFileUrl(message.conversationId, message.id);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
         observer.disconnect();
@@ -846,6 +863,11 @@ export function MessageMedia({ message }: { message: Message }) {
       ) : (
         <button
           type="button"
+          className={
+            message.type === 'image'
+              ? 'message-media-image-placeholder'
+              : undefined
+          }
           disabled={loading}
           onClick={() => void load(message.type === 'file')}
         >

@@ -6,14 +6,15 @@ import { ReportDialog, type ReportTarget } from '../reports/ReportDialog';
 
 export function MessageActions({
   message,
+  pinned,
   mine,
-  isGroup,
   onUpdate,
   onReply,
   onReact,
   onAi,
 }: {
   message: Message;
+  pinned?: boolean;
   mine: boolean;
   isGroup?: boolean;
   onUpdate: (message: Message) => void;
@@ -23,6 +24,11 @@ export function MessageActions({
 }) {
   const isText = !message.type || message.type === 'text';
   const [pinNotice, setPinNotice] = useState('');
+  useEffect(() => {
+    if (!pinNotice) return;
+    const timer = window.setTimeout(() => setPinNotice(''), 2800);
+    return () => window.clearTimeout(timer);
+  }, [pinNotice]);
   const [report, setReport] = useState<ReportTarget>();
   const [mode, setMode] = useState<'forward' | 'edit' | 'recall'>();
   const [menu, setMenu] = useState<{ left: number; top: number }>();
@@ -58,7 +64,7 @@ export function MessageActions({
       (mine && isText ? 136 : 56) +
       (isText && onAi ? 88 : 0) +
       (!mine ? (message.type === 'image' ? 132 : 88) : 0) +
-      (isGroup ? 44 : 0);
+      44;
     const vw = window.visualViewport?.width ?? window.innerWidth;
     const vh = window.visualViewport?.height ?? window.innerHeight;
     setMenu({
@@ -323,28 +329,33 @@ export function MessageActions({
                 </button>
               </>
             )}
-            {isGroup && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={async () => {
-                  setMenu(undefined);
-                  try {
-                    await api.authenticated(
-                      `/conversations/${message.conversationId}/pins/${message.id}`,
-                      undefined,
-                      'PUT',
-                    );
-                    setError('');
-                    setPinNotice('Đã ghim tin nhắn.');
-                  } catch (e) {
-                    setPinNotice(api.errorMessage(e));
-                  }
-                }}
-              >
-                Ghim tin nhắn
-              </button>
-            )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={async () => {
+                setMenu(undefined);
+                try {
+                  await api.authenticated(
+                    `/conversations/${message.conversationId}/pins/${message.id}`,
+                    undefined,
+                    pinned ? 'DELETE' : 'PUT',
+                  );
+                  setError('');
+                  setPinNotice(
+                    pinned ? 'Đã bỏ ghim tin nhắn.' : 'Đã ghim tin nhắn.',
+                  );
+                  window.dispatchEvent(
+                    new CustomEvent('chat:pins', {
+                      detail: message.conversationId,
+                    }),
+                  );
+                } catch (e) {
+                  setPinNotice(api.errorMessage(e));
+                }
+              }}
+            >
+              {pinned ? 'Bỏ ghim tin nhắn' : 'Ghim tin nhắn'}
+            </button>
             {isText && onAi && (
               <>
                 <button
@@ -399,12 +410,16 @@ export function MessageActions({
           </div>,
           document.body,
         )}
-      {pinNotice && (
-        <div role="status" className="workspace-mention-label">
-          {pinNotice}
-          <button onClick={() => setPinNotice('')}>Đóng</button>
-        </div>
-      )}
+      {pinNotice &&
+        createPortal(
+          <div role="status" className="pin-feedback-toast">
+            <span>📌 {pinNotice}</span>
+            <button type="button" onClick={() => setPinNotice('')}>
+              Đóng
+            </button>
+          </div>,
+          document.body,
+        )}
       {report && (
         <ReportDialog
           target={report}

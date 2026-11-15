@@ -6,6 +6,35 @@ import {
   isEmbeddedInAppBrowser,
 } from '../src/features/chat/location-helper.ts';
 
+test('mobile permission denial gives device-specific guidance', () => {
+  for (const permissionState of [undefined, 'denied', 'granted']) {
+    const iphone = formatGeolocationError({
+      code: 1,
+      embedded: false,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)',
+      permissionState,
+    });
+    assert.match(iphone, /iPhone/);
+    assert.doesNotMatch(iphone, /Windows|ứng dụng máy tính/);
+    const android = formatGeolocationError({
+      code: 1,
+      embedded: false,
+      userAgent: 'Mozilla/5.0 (Linux; Android 14)',
+      permissionState,
+    });
+    assert.match(android, /Điện thoại|điện thoại/);
+    assert.doesNotMatch(android, /Windows/);
+  }
+  assert.match(
+    formatGeolocationError({
+      code: 1,
+      embedded: true,
+      userAgent: 'iPhone Messenger/450',
+    }),
+    /mở trang này bằng Safari/,
+  );
+});
+
 test('location errors distinguish policy, saved denial, OS denial and a pending prompt', () => {
   assert.match(
     formatGeolocationError({

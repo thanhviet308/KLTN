@@ -62,7 +62,12 @@ test(
         { take() {} },
         { predict: async () => null },
       );
-      const workspace = new WorkspaceService(db, conversations, messages);
+      const workspace = new WorkspaceService(
+        db,
+        conversations,
+        messages,
+        events,
+      );
       const accounts = new AccountsService(db, { accessChanged() {} });
       const group = await conversations.create(owner.id, {
         type: 'group',

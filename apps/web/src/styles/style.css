@@ -2002,17 +2002,28 @@ a:focus-visible {
   background: #edf0e9;
   border-radius: 10px;
 }
-@media (hover: none) {
+@media (hover: none), (max-width: 680px) {
+  /* Keep touch actions inside space owned by the selected message instead
+     of placing them over the preceding bubble. */
+  .chat-message:has(> .message-tools):is(:hover, :focus-within, :active),
+  .chat-message:has(> .message-tools.menu-open) {
+    padding-top: 56px;
+  }
   .message-tools {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    top: -36px;
+    top: 4px;
     z-index: 5;
   }
   .message-tools button {
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .message-tools::after {
+    inset: 0;
   }
   .message-tools button[data-tooltip]::after {
     display: none;

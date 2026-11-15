@@ -16,6 +16,7 @@ import type {
   VoteDto,
 } from './workspace.dto';
 import type { PageDto } from '../../common/page.dto';
+import { RealtimeEvents } from '../realtime/realtime-events.module';
 
 type Poll = {
   id: string;
@@ -42,6 +43,7 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
     @Inject(ConversationsService)
     private readonly conversations: ConversationsService,
     @Inject(MessagesService) private readonly messages: MessagesService,
+    @Inject(RealtimeEvents) private readonly events: RealtimeEvents,
   ) {}
   onModuleInit() {
     this.timer = setInterval(() => {
@@ -157,14 +159,13 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
     remove: boolean,
   ) {
     await this.messages.get(actorId, conversationId, messageId);
-    return this.db.transaction(async (manager) => {
-      const { conversation } = await this.conversations.requireAccess(
+    const result = await this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(
         manager,
         conversationId,
         actorId,
         true,
       );
-      if (conversation.type !== 'group') fail('CONVERSATION_IMMUTABLE', 400);
       if (remove)
         await manager.query(
           'DELETE FROM message_pins WHERE message_id=$1 AND conversation_id=$2',
@@ -183,6 +184,12 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
       }
       return { success: true };
     });
+    this.events.publish({
+      name: 'conversation:pins',
+      conversationId,
+      payload: { conversationId },
+    });
+    return result;
   }
   private async pollAccess(
     manager: EntityManager,

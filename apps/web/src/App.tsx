@@ -2,10 +2,10 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import * as api from './lib/api';
 import { AuthPage } from './features/auth/AuthPage';
 
-// Loaded only after sign-in so the login page ships a much smaller bundle.
-const Home = lazy(() =>
-  import('./features/home/Home').then((m) => ({ default: m.Home })),
-);
+// Preload Home alongside session restore so signed-in sessions render immediately.
+const loadHome = () =>
+  import('./features/home/Home').then((m) => ({ default: m.Home }));
+const Home = lazy(loadHome);
 const Admin = lazy(() =>
   import('./features/admin/Admin').then((m) => ({ default: m.Admin })),
 );
@@ -60,6 +60,7 @@ export function App() {
         setBooting(false);
         return;
       }
+      if (!adminOpen) void loadHome().catch(() => {});
       try {
         setUser((await api.refresh()).user);
       } catch (e) {

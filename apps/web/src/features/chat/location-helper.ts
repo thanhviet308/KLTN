@@ -55,6 +55,7 @@ export function formatGeolocationError(options: {
   permissionState?: PermissionState;
   policyAllowed?: boolean;
   browserMessage?: string;
+  userAgent?: string;
 }): string {
   if (options.secureContext === false) {
     return 'Chia sẻ vị trí tự động cần HTTPS, nhưng bạn vẫn có thể tự chọn điểm trên bản đồ.';
@@ -63,6 +64,15 @@ export function formatGeolocationError(options: {
     return 'Trang đang bị chính sách nhúng hoặc máy chủ chặn vị trí, nên trình duyệt không hiện yêu cầu cấp quyền. Hãy mở website trực tiếp trong một tab riêng; nếu vẫn lỗi, cần kiểm tra cấu hình quyền vị trí của website.';
   }
   if (options.code === 1) {
+    const ua = options.userAgent ?? '';
+    if (/iPhone|iPad|iPod/i.test(ua)) {
+      return options.embedded
+        ? 'Trình duyệt trong ứng dụng chưa lấy được quyền vị trí. Hãy mở trang này bằng Safari, sau đó bấm chia sẻ vị trí và chọn Cho phép. Trên iPhone, kiểm tra Cài đặt → Quyền riêng tư & Bảo mật → Dịch vụ định vị. Bạn cũng có thể chọn điểm trên bản đồ.'
+        : 'iPhone đang từ chối quyền vị trí. Vào Cài đặt → Quyền riêng tư & Bảo mật → Dịch vụ định vị, bật định vị và cho phép ứng dụng trình duyệt bạn đang dùng truy cập khi sử dụng. Nếu dùng Safari, kiểm tra mục Trang web Safari và quyền Vị trí trong menu trang web. Sau đó quay lại kiểm tra, hoặc chọn điểm trên bản đồ.';
+    }
+    if (/Android/i.test(ua)) {
+      return 'Điện thoại đang từ chối quyền vị trí. Bật Vị trí trong cài đặt điện thoại, sau đó vào Cài đặt → Ứng dụng → trình duyệt bạn đang dùng → Quyền → Vị trí và cho phép khi sử dụng. Kiểm tra thêm quyền Vị trí của website trong trình duyệt. Nếu đang mở trong ứng dụng khác, hãy mở bằng Chrome, hoặc chọn điểm trên bản đồ.';
+    }
     if (
       /system denied|denied by (?:the )?(?:system|os)/i.test(
         options.browserMessage ?? '',

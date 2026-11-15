@@ -7,6 +7,7 @@ export interface ChatEvent {
     | 'message:deleted'
     | 'message:reactions'
     | 'message:receipt'
+    | 'conversation:pins'
     | 'typing:update'
     | 'call:incoming'
     | 'call:updated'

@@ -1,3 +1,4 @@
+import { PinnedMessages } from './PinnedMessages';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import * as api from '../../lib/api';
@@ -78,6 +79,54 @@ export function Chat({
   const draftKey = `${user.id}:${conversationId}`;
   const [cached] = useState(() => cachedHistory(draftKey));
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
+  const [pins, setPins] = useState<Message[]>([]);
+  const pinRefresh = useRef<() => void>(() => {});
+  useEffect(() => {
+    let disposed = false;
+    let revision = 0;
+    async function refresh() {
+      const current = ++revision;
+      try {
+        const result = await api.authenticated<{ items: Message[] }>(
+          `/conversations/${conversationId}/pins`,
+        );
+        if (!disposed && current === revision) setPins(result.items);
+      } catch {
+        /* Reconnect/focus retries without interrupting chat. */
+      }
+    }
+    pinRefresh.current = () => {
+      void refresh();
+    };
+    const changed = (e: Event) => {
+      if ((e as CustomEvent).detail === conversationId) void refresh();
+    };
+    void refresh();
+    window.addEventListener('chat:pins', changed);
+    window.addEventListener('focus', pinRefresh.current);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 15000);
+    const focus = pinRefresh.current;
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+      window.removeEventListener('chat:pins', changed);
+      window.removeEventListener('focus', focus);
+    };
+  }, [conversationId]);
+  async function unpin(message: Message) {
+    try {
+      await api.authenticated(
+        `/conversations/${conversationId}/pins/${message.id}`,
+        undefined,
+        'DELETE',
+      );
+      pinRefresh.current();
+    } catch (e) {
+      fail(e);
+    }
+  }
   const [ai, setAi] = useState<{
     kind: AiKind;
     targetId?: string;
@@ -402,7 +451,10 @@ export function Chat({
         );
     });
     client.on('message:created', (message: Message) => {
-      if (message.conversationId === conversationId) accept([message]);
+      if (message.conversationId === conversationId) {
+        accept([message]);
+        pinRefresh.current();
+      }
     });
     client.on(
       'message:reactions',
@@ -414,9 +466,16 @@ export function Chat({
           }));
       },
     );
+    client.on('conversation:pins', (event: { conversationId: string }) => {
+      if (event.conversationId === conversationId) pinRefresh.current();
+    });
+    client.on('connect', () => pinRefresh.current());
     for (const name of ['message:updated', 'message:deleted']) {
       client.on(name, (message: Message) => {
-        if (message.conversationId === conversationId) accept([message]);
+        if (message.conversationId === conversationId) {
+          accept([message]);
+          pinRefresh.current();
+        }
       });
     }
     client.on(
@@ -527,6 +586,34 @@ export function Chat({
     loading,
     dependencies: [messages, pending],
   });
+  async function jumpToPin(target: Message) {
+    try {
+      nearBottom.current = false;
+      let cursor = older;
+      while (!messageCache.current.some((m) => m.id === target.id) && cursor) {
+        const page = await api.authenticated<History>(
+          `/conversations/${conversationId}/messages?direction=backward&limit=50&cursor=${cursor}`,
+        );
+        if (!alive.current) return;
+        accept(page.items);
+        setOlder(page.nextCursor);
+        if (page.nextCursor === cursor) break;
+        cursor = page.nextCursor;
+      }
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+      const element = list.current?.querySelector<HTMLElement>(
+        `[data-message-id="${target.id}"]`,
+      );
+      if (!element) throw new Error('Không tìm thấy tin nhắn đã ghim.');
+      element.scrollIntoView({ block: 'center', behavior: 'instant' });
+      element.classList.add('pin-highlight');
+      window.setTimeout(() => element.classList.remove('pin-highlight'), 2500);
+    } catch (e) {
+      fail(e);
+    }
+  }
   useEffect(() => {
     const container = list.current;
     if (!container) return;
@@ -834,6 +921,12 @@ export function Chat({
           {error}
         </div>
       )}
+      <PinnedMessages
+        pins={pins}
+        names={names}
+        onJump={jumpToPin}
+        onUnpin={unpin}
+      />
       <div
         className="message-timeline"
         data-chat-background={background}
@@ -909,6 +1002,7 @@ export function Chat({
                 message={message}
                 mine={mine}
                 isGroup={isGroup}
+                pinned={pins.some((pin) => pin.id === message.id)}
                 continuesGroup={continuesGroup}
                 peers={peers}
                 names={names}

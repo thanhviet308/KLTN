@@ -6,7 +6,11 @@ import { Chat } from '../chat/Chat';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
 import { presenceLabel, type Presence } from '../../hooks/usePresence';
-import { cachedHistory, loadRecentHistory } from '../../lib/chat-history-cache';
+import {
+  applyCachedMessage,
+  cachedHistory,
+  loadRecentHistory,
+} from '../../lib/chat-history-cache';
 import {
   messageSummary,
   newestMessagesFirst,
@@ -316,7 +320,7 @@ export function Conversations({
       if (!background) setCursor(page.nextCursor);
       setListLoading(false);
       if (!background && !next)
-        page.items.slice(0, 2).forEach((item) => preload(item.id));
+        page.items.slice(0, 4).forEach((item) => preload(item.id));
     } finally {
       listRequests.current--;
     }
@@ -349,7 +353,11 @@ export function Conversations({
     } catch (e) {
       if (!live.current) return;
       fail(e);
-      if (e instanceof api.ApiError && e.status === 404) {
+      if (
+        e instanceof api.ApiError &&
+        e.status === 404 &&
+        e.code === 'CONVERSATION_NOT_FOUND'
+      ) {
         setSelected(undefined);
         setMembers([]);
         void list().catch(fail);
@@ -403,6 +411,7 @@ export function Conversations({
     client.on('connect', subscribe);
     client.on('message:created', (message: Message) => {
       if (stopped) return;
+      applyCachedMessage(`${user.id}:${message.conversationId}`, message);
       const mine = message.senderId === user.id;
       const visibleConversation =
         viewActive.current &&
@@ -1065,17 +1074,23 @@ export function Conversations({
                   >
                     <Search size={18} aria-hidden="true" />
                   </button>
-                  {selected.type === 'group' && (
-                    <button
-                      type="button"
-                      className="chat-info-button"
-                      title="Ghim & bình chọn"
-                      aria-label="Ghim & bình chọn"
-                      onClick={() => setWorkspacePanel('group')}
-                    >
-                      <Pin size={18} aria-hidden="true" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="chat-info-button"
+                    title={
+                      selected.type === 'group'
+                        ? 'Ghim & bình chọn'
+                        : 'Tin nhắn đã ghim'
+                    }
+                    aria-label={
+                      selected.type === 'group'
+                        ? 'Ghim & bình chọn'
+                        : 'Tin nhắn đã ghim'
+                    }
+                    onClick={() => setWorkspacePanel('group')}
+                  >
+                    <Pin size={18} aria-hidden="true" />
+                  </button>
                   <button
                     type="button"
                     className="chat-info-button"
@@ -1119,8 +1134,10 @@ export function Conversations({
             onClose={() => setWorkspacePanel(undefined)}
           />
         )}
-        {workspacePanel === 'group' && selected?.type === 'group' && (
+        {workspacePanel === 'group' && selected && (
           <GroupTools
+            key={selected.id}
+            isGroup={selected.type === 'group'}
             conversationId={selected.id}
             userId={user.id}
             onClose={() => setWorkspacePanel(undefined)}
@@ -1266,9 +1283,17 @@ export function Conversations({
               busy={busy}
               onSave={(path, body) =>
                 run(async () => {
-                  const result = await api.authenticated<{
-                    conversation: Conversation;
-                  }>(`/conversations/${selected.id}/${path}`, body, 'PATCH');
+                  let result: { conversation: Conversation };
+                  try {
+                    result = await api.authenticated<{
+                      conversation: Conversation;
+                    }>(`/conversations/${selected.id}/${path}`, body, 'PATCH');
+                  } catch (e) {
+                    if (e instanceof api.ApiError && e.code === 'HTTP_404') {
+                      throw new api.ApiError(404, 'CUSTOMIZATION_UNAVAILABLE');
+                    }
+                    throw e;
+                  }
                   applyCustomization(result.conversation);
                 }, 'Đã cập nhật tùy chỉnh đoạn chat.')
               }

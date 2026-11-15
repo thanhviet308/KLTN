@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from '../../lib/api';
-import type { Message } from '../../lib/chat-model';
+import { messageSummary, type Message } from '../../lib/chat-model';
 import './workspace.css';
 
 export function WorkspaceDialog({
@@ -14,11 +14,29 @@ export function WorkspaceDialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const closing = useRef(false);
+  const closeCallback = useRef(onClose);
+  closeCallback.current = onClose;
+  function closeDialog() {
+    if (closing.current) return;
+    closing.current = true;
+    // Release the native modal/backdrop as well as the React panel state.
+    ref.current?.close();
+    closeCallback.current();
+  }
   useEffect(() => {
     const focus = document.activeElement as HTMLElement | null;
-    ref.current?.showModal();
+    const dialog = ref.current;
+    closing.current = false;
+    dialog?.showModal();
     return () => {
-      focus?.focus();
+      closing.current = true;
+      dialog?.close();
+      // Restore focus after the modal has left the top layer and React has
+      // removed its contents, rather than during the unmount itself.
+      queueMicrotask(() => {
+        if (focus?.isConnected) focus.focus({ preventScroll: true });
+      });
     };
   }, []);
   return createPortal(
@@ -26,12 +44,15 @@ export function WorkspaceDialog({
       ref={ref}
       className="workspace-dialog"
       aria-label={title}
-      onCancel={onClose}
-      onClose={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        closeDialog();
+      }}
+      onClose={closeDialog}
     >
       <header>
         <h2>{title}</h2>
-        <button type="button" onClick={onClose} aria-label="Đóng">
+        <button type="button" onClick={closeDialog} aria-label="Đóng">
           Đóng
         </button>
       </header>
@@ -313,10 +334,12 @@ function PollCard({
 }
 export function GroupTools({
   conversationId,
+  isGroup = true,
   userId,
   onClose,
 }: {
   conversationId: string;
+  isGroup?: boolean;
   userId: string;
   onClose: () => void;
 }) {
@@ -335,9 +358,11 @@ export function GroupTools({
     try {
       const [p, result] = await Promise.all([
         api.authenticated<{ items: Message[] }>(`${base}/pins`),
-        api.authenticated<{ items: Poll[]; nextCursor: string | null }>(
-          `${base}/polls?limit=20${next ? `&cursor=${next}` : ''}`,
-        ),
+        isGroup
+          ? api.authenticated<{ items: Poll[]; nextCursor: string | null }>(
+              `${base}/polls?limit=20${next ? `&cursor=${next}` : ''}`,
+            )
+          : Promise.resolve({ items: [] as Poll[], nextCursor: null }),
       ]);
       setPins(p.items);
       setPolls((old) => (next ? [...old, ...result.items] : result.items));
@@ -350,7 +375,7 @@ export function GroupTools({
   }
   useEffect(() => {
     void load();
-  }, [conversationId]);
+  }, [conversationId, isGroup]);
   async function create() {
     setBusy(true);
     setError('');
@@ -375,99 +400,161 @@ export function GroupTools({
     }
   }
   return (
-    <WorkspaceDialog title="Ghim & bình chọn" onClose={onClose}>
+    <WorkspaceDialog
+      title={isGroup ? 'Ghim & bình chọn' : 'Tin nhắn đã ghim'}
+      onClose={onClose}
+    >
       {error && <p role="alert">{error}</p>}
       {loading && <p role="status">Đang tải…</p>}
       <h3>Tin nhắn đã ghim</h3>
-      <p>Mọi thành viên trong nhóm đều có thể ghim hoặc bỏ ghim tin nhắn.</p>
+      <p>
+        {isGroup
+          ? 'Mọi thành viên trong nhóm đều có thể ghim hoặc bỏ ghim tin nhắn.'
+          : 'Cả hai người đều có thể ghim hoặc bỏ ghim tin nhắn.'}
+      </p>
       {!loading && !pins.length && <p>Chưa có tin được ghim.</p>}
-      {pins.map((m) => (
-        <article className="workspace-card" key={m.id}>
-          <p className="workspace-message">
-            {m.body || m.content?.fileName || 'Tin đa phương tiện'}
-          </p>
-          <button
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await api.authenticated(
-                  `${base}/pins/${m.id}`,
-                  undefined,
-                  'DELETE',
-                );
-                await load();
-              } catch (e) {
-                setError(api.errorMessage(e));
-              } finally {
-                setBusy(false);
-              }
+      <div className="pinned-dialog-list">
+        {pins.map((m, idx) => (
+          <article className="pinned-card" key={m.id}>
+            <div className="pinned-card-header">
+              <div className="pinned-card-author">
+                <strong>Tin nhắn đã ghim</strong>
+                <time dateTime={m.createdAt}>
+                  {new Date(m.createdAt).toLocaleString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                  })}
+                </time>
+              </div>
+              <span className="pinned-card-index">#{idx + 1}</span>
+            </div>
+            <div className="pinned-card-body" style={{ cursor: 'default' }}>
+              <p>
+                {m.content?.fileName
+                  ? `${messageSummary(m)} · ${m.content.fileName}`
+                  : messageSummary(m)}
+              </p>
+            </div>
+            <div className="pinned-card-footer">
+              <button
+                type="button"
+                className="pinned-action-btn is-jump"
+                disabled={busy}
+                onClick={() => {
+                  const el = document.querySelector<HTMLElement>(
+                    `[data-message-id="${m.id}"]`,
+                  );
+                  if (el) {
+                    onClose();
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('pin-highlight');
+                    window.setTimeout(
+                      () => el.classList.remove('pin-highlight'),
+                      2500,
+                    );
+                  }
+                }}
+              >
+                <span>Đi tới tin nhắn</span>
+              </button>
+              <button
+                type="button"
+                className="pinned-action-btn is-unpin"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await api.authenticated(
+                      `${base}/pins/${m.id}`,
+                      undefined,
+                      'DELETE',
+                    );
+                    window.dispatchEvent(
+                      new CustomEvent('chat:pins', {
+                        detail: conversationId,
+                      }),
+                    );
+                    await load();
+                  } catch (e) {
+                    setError(api.errorMessage(e));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <span>Bỏ ghim</span>
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {isGroup && (
+        <>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void create();
             }}
           >
-            Bỏ ghim
+            <h3>Tạo bình chọn</h3>
+            <label>
+              Câu hỏi
+              <input
+                required
+                maxLength={300}
+                value={question}
+                onChange={(e) => {
+                  key.current = crypto.randomUUID();
+                  setQuestion(e.target.value);
+                }}
+              />
+            </label>
+            <label>
+              Phương án (2–10 dòng, mỗi dòng một phương án)
+              <textarea
+                required
+                value={options}
+                maxLength={1510}
+                onChange={(e) => {
+                  key.current = crypto.randomUUID();
+                  setOptions(e.target.value);
+                }}
+              />
+            </label>
+            <label className="workspace-choice">
+              <input
+                type="checkbox"
+                checked={multiple}
+                onChange={(e) => {
+                  key.current = crypto.randomUUID();
+                  setMultiple(e.target.checked);
+                }}
+              />
+              Cho phép chọn nhiều
+            </label>
+            <button disabled={busy}>Tạo bình chọn</button>
+          </form>
+          <button disabled={busy} onClick={() => void load()}>
+            Cập nhật kết quả
           </button>
-        </article>
-      ))}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void create();
-        }}
-      >
-        <h3>Tạo bình chọn</h3>
-        <label>
-          Câu hỏi
-          <input
-            required
-            maxLength={300}
-            value={question}
-            onChange={(e) => {
-              key.current = crypto.randomUUID();
-              setQuestion(e.target.value);
-            }}
-          />
-        </label>
-        <label>
-          Phương án (2–10 dòng, mỗi dòng một phương án)
-          <textarea
-            required
-            value={options}
-            maxLength={1510}
-            onChange={(e) => {
-              key.current = crypto.randomUUID();
-              setOptions(e.target.value);
-            }}
-          />
-        </label>
-        <label className="workspace-choice">
-          <input
-            type="checkbox"
-            checked={multiple}
-            onChange={(e) => {
-              key.current = crypto.randomUUID();
-              setMultiple(e.target.checked);
-            }}
-          />
-          Cho phép chọn nhiều
-        </label>
-        <button disabled={busy}>Tạo bình chọn</button>
-      </form>
-      <button disabled={busy} onClick={() => void load()}>
-        Cập nhật kết quả
-      </button>
-      {polls.map((p) => (
-        <PollCard
-          key={p.id}
-          poll={p}
-          userId={userId}
-          base={base}
-          onRefresh={() => load()}
-        />
-      ))}
-      {cursor && (
-        <button disabled={busy} onClick={() => void load(cursor)}>
-          Xem thêm bình chọn
-        </button>
+          {polls.map((p) => (
+            <PollCard
+              key={p.id}
+              poll={p}
+              userId={userId}
+              base={base}
+              onRefresh={() => load()}
+            />
+          ))}
+          {cursor && (
+            <button disabled={busy} onClick={() => void load(cursor)}>
+              Xem thêm bình chọn
+            </button>
+          )}
+        </>
       )}
     </WorkspaceDialog>
   );

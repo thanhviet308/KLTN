@@ -16,6 +16,18 @@ interface Item {
   count: number;
   reacted: boolean;
 }
+const REACTION_CACHE_TTL_MS = 30_000;
+const reactionCache = new Map<
+  string,
+  { items: Item[]; revision: number; fetchedAt: number }
+>();
+function rememberReaction(key: string, items: Item[], revision: number) {
+  reactionCache.delete(key);
+  reactionCache.set(key, { items, revision, fetchedAt: Date.now() });
+  if (reactionCache.size > 500)
+    reactionCache.delete(reactionCache.keys().next().value!);
+}
+
 export function MessageReactions({
   message,
   revision,
@@ -31,7 +43,11 @@ export function MessageReactions({
   active: boolean;
   realtimeConnected: boolean;
 }) {
-  const [items, setItems] = useState<Item[]>([]);
+  const cacheKey = `${api.currentUserId() ?? 'anon'}:${message.id}`;
+  const [items, setItems] = useState<Item[]>(() => {
+    const cached = reactionCache.get(cacheKey);
+    return cached && cached.revision === revision ? cached.items : [];
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -65,6 +81,7 @@ export function MessageReactions({
       const result = await api.authenticated<{ items: Item[] }>(
         `${path}/reactions`,
       );
+      rememberReaction(cacheKey, result.items, revision);
       if (mounted.current && version === generation.current)
         setItems(result.items);
     } catch (e) {
@@ -74,12 +91,19 @@ export function MessageReactions({
   }
   useEffect(() => {
     if (!active || message.deletedAt) {
+      reactionCache.delete(cacheKey);
       setItems([]);
       generation.current++;
       return;
     }
     if (!visible && !open) return;
-    void load();
+    const cached = reactionCache.get(cacheKey);
+    const fresh =
+      !!cached &&
+      cached.revision === revision &&
+      Date.now() - cached.fetchedAt < REACTION_CACHE_TTL_MS;
+    if (fresh) setItems(cached.items);
+    if (!fresh) void load();
     const timer = realtimeConnected
       ? undefined
       : setInterval(() => {
@@ -108,6 +132,7 @@ export function MessageReactions({
         remove ? undefined : { emoji },
         remove ? 'DELETE' : 'PUT',
       );
+      rememberReaction(cacheKey, result.items, revision);
       generation.current++;
       if (mounted.current) {
         setItems(result.items);

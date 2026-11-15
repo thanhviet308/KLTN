@@ -102,10 +102,14 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
 
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const dashboardRequest = useRef(0);
+  const dashboardInFlight = useRef(false);
 
   const loadDashboard = useCallback(
     async (days = period) => {
       if (!isAdmin) return;
+      const request = ++dashboardRequest.current;
+      dashboardInFlight.current = true;
       setDashboardLoading(true);
       setDashboardError('');
       try {
@@ -117,13 +121,18 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
             '/admin/users?limit=6',
           ),
         ]);
+        if (request !== dashboardRequest.current) return;
         setDashboard(dash);
         setPending(dash.totals.pendingReports);
         setRecentRealUsers(recent.items);
       } catch (e) {
-        setDashboardError(api.errorMessage(e));
+        if (request === dashboardRequest.current)
+          setDashboardError(api.errorMessage(e));
       } finally {
-        setDashboardLoading(false);
+        if (request === dashboardRequest.current) {
+          dashboardInFlight.current = false;
+          setDashboardLoading(false);
+        }
       }
     },
     [isAdmin, period],
@@ -131,7 +140,29 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
 
   useEffect(() => {
     void loadDashboard(period);
+    return () => {
+      dashboardRequest.current++;
+      dashboardInFlight.current = false;
+    };
   }, [loadDashboard, period]);
+
+  useEffect(() => {
+    if (!isAdmin || section !== 'overview') return;
+    const refresh = () => {
+      if (document.visibilityState !== 'visible' || dashboardInFlight.current)
+        return;
+      void loadDashboard();
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 10000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [isAdmin, section, loadDashboard]);
 
   useEffect(() => {
     const sync = () => {
@@ -351,7 +382,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
           <div className="admin-topbar-actions">
             <span className={`admin-preview-pill ${isAdmin ? 'is-live' : ''}`}>
               <i className="admin-live-dot" aria-hidden="true" />
-              {isAdmin ? 'Hệ thống trực tiếp' : 'Bản xem thử'}
+              {isAdmin ? 'Dữ liệu hệ thống' : 'Bản xem thử'}
             </span>
           </div>
         </header>
@@ -391,7 +422,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
             <ShieldCheck size={17} />
             <span>
               {isAdmin
-                ? 'Đang kết nối dữ liệu quản trị hệ thống trực tiếp từ PostgreSQL.'
+                ? 'Dữ liệu từ PostgreSQL. Trang tổng quan tự cập nhật mỗi 10 giây và khi quay lại tab.'
                 : 'Đang hiển thị dữ liệu mẫu. Thay đổi chỉ áp dụng trong phiên xem thử.'}
             </span>
           </div>
@@ -646,9 +677,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                         : 'tăng trưởng trong kỳ'}
                     </span>
                     <span>
-                      {isAdmin
-                        ? 'PostgreSQL Realtime Aggregate'
-                        : 'Ví dụ minh họa'}
+                      {isAdmin ? 'Tự cập nhật mỗi 10 giây' : 'Ví dụ minh họa'}
                     </span>
                   </div>
                 </section>

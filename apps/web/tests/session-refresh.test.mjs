@@ -144,6 +144,38 @@ test('background requests are paced and foreground actions pass the backlog', as
   }
 });
 
+test('foreground reads and media run without 250ms gaps and jump ahead of sleeping background queue', async () => {
+  const originalFetch = globalThis.fetch;
+  const starts = [];
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/auth/login'))
+      return Response.json({
+        accessToken: 'token',
+        expiresIn: 900,
+        user: { id: 'first' },
+      });
+    starts.push({ url, at: Date.now() });
+    return Response.json({ ok: true });
+  };
+  try {
+    const api = await client('foreground-parallel');
+    await api.login('test@example.com', 'unused');
+    const startedAt = Date.now();
+    await Promise.all([
+      api.authenticated('/friends'),
+      api.authenticated('/conversations'),
+      api.authenticated('/notes'),
+      api.authenticated(
+        '/conversations/c/messages?direction=backward&limit=50',
+      ),
+    ]);
+    assert.ok(Date.now() - startedAt < 180);
+    assert.equal(starts.length, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('a proxy 429 pauses queued requests and is not reported as a network failure', async () => {
   const originalFetch = globalThis.fetch;
   let limitedAt;
