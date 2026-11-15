@@ -20,18 +20,24 @@ export function MessageMedia({
   loading,
   playing,
   mine,
+  transcribing = false,
+  transcribed = false,
   onLoad,
   onOpen,
   onPlay,
+  onTranscribe,
 }: {
   message: api.Message;
   localPath?: string;
   loading: boolean;
   playing: boolean;
   mine: boolean;
+  transcribing?: boolean;
+  transcribed?: boolean;
   onLoad: () => void;
   onOpen: () => void;
   onPlay: () => void;
+  onTranscribe?: () => void;
 }) {
   const attempted = useRef(false);
   useEffect(() => {
@@ -127,27 +133,56 @@ export function MessageMedia({
   }
   if (message.type === 'voice') {
     return (
-      <Pressable
-        disabled={loading}
-        onPress={localPath ? onPlay : onLoad}
-        style={[styles.mediaCard, mine && styles.mediaCardMine]}
-      >
-        {loading ? (
-          <ActivityIndicator color={mine ? 'white' : '#b75020'} />
-        ) : (
-          <Text style={[styles.mediaIcon, mine && styles.mediaIconMine]}>
-            {playing ? '■' : '▶'}
-          </Text>
+      <View style={styles.voiceMediaWrap}>
+        <Pressable
+          disabled={loading}
+          onPress={localPath ? onPlay : onLoad}
+          style={[styles.voicePlayRow, mine && styles.mediaCardMine]}
+        >
+          {loading ? (
+            <ActivityIndicator color={mine ? 'white' : '#b75020'} />
+          ) : (
+            <Text style={[styles.mediaIcon, mine && styles.mediaIconMine]}>
+              {playing ? '■' : '▶'}
+            </Text>
+          )}
+          <View style={styles.mediaCardText}>
+            <Text
+              numberOfLines={1}
+              style={[styles.mediaTitle, mine && styles.messageTextMine]}
+            >
+              {playing ? 'Đang phát' : 'Tin thoại'}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={[styles.mediaCaption, mine && styles.mediaCaptionMine]}
+            >
+              {localPath ? 'Chạm để phát' : 'Chạm để tải'}
+            </Text>
+          </View>
+        </Pressable>
+        {onTranscribe && !transcribed && (
+          <Pressable
+            accessibilityRole="button"
+            disabled={transcribing}
+            onPress={onTranscribe}
+            style={({ pressed }) => [
+              styles.voiceTranscribePill,
+              mine && styles.voiceTranscribePillMine,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.voiceTranscribePillText,
+                mine && styles.voiceTranscribePillTextMine,
+              ]}
+            >
+              {transcribing ? 'Đang chép…' : '✨ Chép lời'}
+            </Text>
+          </Pressable>
         )}
-        <View style={styles.mediaCardText}>
-          <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
-            {playing ? 'Đang phát tin nhắn thoại' : 'Tin nhắn thoại'}
-          </Text>
-          <Text style={[styles.mediaCaption, mine && styles.mediaCaptionMine]}>
-            {localPath ? 'Chạm để phát hoặc dừng' : 'Chạm để tải'}
-          </Text>
-        </View>
-      </Pressable>
+      </View>
     );
   }
   return (

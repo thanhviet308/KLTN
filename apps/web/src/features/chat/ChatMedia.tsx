@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { UiIcon } from '../../components/UiIcon';
 import { LocationMap } from './LocationMap';
 import {
@@ -719,7 +720,17 @@ function VoicePlayer({
   );
 }
 
-export function MessageMedia({ message }: { message: Message }) {
+export function MessageMedia({
+  message,
+  transcribing = false,
+  transcribed = false,
+  onTranscribe,
+}: {
+  message: Message;
+  transcribing?: boolean;
+  transcribed?: boolean;
+  onTranscribe?: () => void;
+}) {
   if (message.type === 'call') {
     const seconds = Math.max(0, message.content?.durationSeconds ?? 0);
     const hours = Math.floor(seconds / 3600);
@@ -859,7 +870,20 @@ export function MessageMedia({ message }: { message: Message }) {
           <img src={url} alt={message.content?.fileName ?? 'Ảnh được gửi'} />
         </a>
       ) : message.type === 'voice' ? (
-        <VoicePlayer url={url} onLoad={() => load()} />
+        <>
+          <VoicePlayer url={url} onLoad={() => load()} />
+          {onTranscribe && !transcribed && (
+            <button
+              type="button"
+              className="voice-transcribe-trigger"
+              disabled={transcribing}
+              onClick={onTranscribe}
+            >
+              <Sparkles size={12} aria-hidden="true" />
+              <span>{transcribing ? 'Đang chép…' : 'Chép lời'}</span>
+            </button>
+          )}
+        </>
       ) : (
         <button
           type="button"

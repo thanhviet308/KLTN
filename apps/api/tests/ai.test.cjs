@@ -1,21 +1,30 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
+const { mkdtempSync, rmSync, writeFileSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
 require('reflect-metadata');
 const { validate } = require('class-validator');
 const { AiService } = require('../dist/modules/ai/ai.service');
+const {
+  Attachment,
+} = require('../dist/modules/database/entities/attachment.entity');
 const {
   Notification,
 } = require('../dist/modules/database/entities/notification.entity');
 const {
   AiProviderService,
+  normalizeAudioMime,
   validateAiChatResult,
   validateAiResult,
+  validateAiTranscriptResult,
 } = require('../dist/modules/ai/ai-provider.service');
 const {
   AiChatRequestDto,
   AiChatTurnDto,
   AiRequestDto,
+  AiTranscribeDto,
 } = require('../dist/modules/ai/ai.dto');
 
 const first = {
@@ -460,4 +469,187 @@ test('AI chatbox validates multi-turn messages, enforces quota and parses struct
   const chatErrors = await validate(invalidChatDto);
   assert.equal(chatErrors.length, 1);
   assert.equal(chatErrors[0].property, 'messages');
+});
+
+test('voice transcription reads authorized audio, caches results, extends into translate/replies, and blocks recalled audio', async () => {
+  assert.equal(normalizeAudioMime('audio/webm;codecs=opus'), 'audio/webm');
+  assert.equal(normalizeAudioMime('audio/x-m4a'), 'audio/mp4');
+  assert.equal(normalizeAudioMime('image/png'), undefined);
+  assert.deepEqual(
+    validateAiTranscriptResult({
+      transcript: '  Hẹn 3 giờ nhé  ',
+      language: ' VI ',
+    }),
+    { transcript: 'Hẹn 3 giờ nhé', language: 'vi' },
+  );
+  assert.deepEqual(
+    validateAiTranscriptResult({ transcript: '', language: 'unknown' }),
+    { transcript: '', language: 'unknown' },
+  );
+  assert.throws(
+    () => validateAiTranscriptResult({ transcript: 123, language: 'vi' }),
+    code('AI_INVALID_OUTPUT'),
+  );
+  const badTranscribeDto = Object.assign(new AiTranscribeDto(), {
+    translateTo: 'de',
+    includeReplies: 'yes',
+  });
+  const transcribeErrors = await validate(badTranscribeDto);
+  assert.deepEqual(transcribeErrors.map((item) => item.property).sort(), [
+    'includeReplies',
+    'translateTo',
+  ]);
+
+  const dir = mkdtempSync(join(tmpdir(), 'pingpong-voice-ai-'));
+  try {
+    const objectKey = '20000000-0000-4000-8000-000000000009';
+    const audioPath = join(dir, objectKey);
+    writeFileSync(audioPath, Buffer.from('mock-webm-audio'));
+
+    let voiceMessage = {
+      id: '30000000-0000-4000-8000-000000000003',
+      senderId: 'peer',
+      body: null,
+      editedBody: null,
+      editedAt: null,
+      deletedAt: null,
+      type: 'voice',
+      createdAt: new Date('2026-11-15T10:00:00Z'),
+      senderMember: { user: { displayName: 'Bảo Trân' } },
+      sequence: '3',
+    };
+    const attachmentRow = {
+      id: '40000000-0000-4000-8000-000000000004',
+      messageId: voiceMessage.id,
+      objectKey,
+      mimeType: 'audio/webm;codecs=opus',
+      status: 'attached',
+    };
+    let transcribeCalls = 0;
+    const generateCalls = [];
+    let authorized = true;
+    const provider = {
+      available: () => true,
+      transcribeAudio: async (base64, mimeType) => {
+        transcribeCalls++;
+        assert.equal(base64, Buffer.from('mock-webm-audio').toString('base64'));
+        assert.equal(mimeType, 'audio/webm');
+        return {
+          transcript: 'Chiều nay 3 giờ họp nhóm nhé.',
+          language: 'vi',
+        };
+      },
+      generate: async (input, sources) => {
+        generateCalls.push({ input, sources });
+        if (input.kind === 'translate') {
+          return {
+            summary: '',
+            decisions: [],
+            tasks: [],
+            replies: [],
+            translation: 'Group meeting at 3 PM this afternoon.',
+          };
+        }
+        return {
+          summary: '',
+          decisions: [],
+          tasks: [],
+          replies: ['Ok nhé, 3h mình có mặt', 'Nhớ mang theo laptop nhé'],
+          translation: '',
+        };
+      },
+    };
+    const manager = {
+      getRepository: (entity) => {
+        if (entity === Attachment) {
+          const builder = {
+            addSelect: () => builder,
+            where: () => builder,
+            getOne: async () => (voiceMessage.deletedAt ? null : attachmentRow),
+          };
+          return { createQueryBuilder: () => builder };
+        }
+        const builder = {
+          leftJoinAndSelect: () => builder,
+          leftJoin: () => builder,
+          addSelect: () => builder,
+          where: () => builder,
+          andWhere: () => builder,
+          orderBy: () => builder,
+          limit: () => builder,
+          getOne: async () => (voiceMessage.deletedAt ? null : voiceMessage),
+          getMany: async () => [second],
+        };
+        return { createQueryBuilder: () => builder };
+      },
+    };
+    const service = new AiService(
+      { transaction: (work) => work(manager) },
+      {
+        requireAccess: async () => {
+          if (!authorized) throw new Error('membership denied');
+        },
+      },
+      provider,
+      { path: () => audioPath },
+    );
+
+    const initial = await service.transcribeVoice(
+      'me',
+      'conversation',
+      voiceMessage.id,
+    );
+    assert.deepEqual(initial, {
+      messageId: voiceMessage.id,
+      result: {
+        transcript: 'Chiều nay 3 giờ họp nhóm nhé.',
+        language: 'vi',
+        translation: '',
+        replies: [],
+      },
+    });
+    assert.equal(transcribeCalls, 1);
+
+    // Repeating with translation and contextual smart replies reuses cached audio transcript
+    const expanded = await service.transcribeVoice(
+      'me',
+      'conversation',
+      voiceMessage.id,
+      { translateTo: 'en', includeReplies: true, tone: 'friendly' },
+    );
+    assert.equal(transcribeCalls, 1);
+    assert.equal(generateCalls.length, 2);
+    assert.equal(
+      expanded.result.translation,
+      'Group meeting at 3 PM this afternoon.',
+    );
+    assert.deepEqual(expanded.result.replies, [
+      'Ok nhé, 3h mình có mặt',
+      'Nhớ mang theo laptop nhé',
+    ]);
+    assert.deepEqual(
+      generateCalls[1].sources.map((item) => item.body),
+      ['Đồng ý.', 'Chiều nay 3 giờ họp nhóm nhé.'],
+    );
+
+    // Recalling the voice message mid-flight blocks returning output and drops cache
+    provider.generate = async () => {
+      voiceMessage = { ...voiceMessage, deletedAt: new Date() };
+      return {
+        summary: '',
+        decisions: [],
+        tasks: [],
+        replies: ['x', 'y'],
+        translation: '',
+      };
+    };
+    await assert.rejects(
+      service.transcribeVoice('me', 'conversation', voiceMessage.id, {
+        includeReplies: true,
+      }),
+      code('AI_SOURCE_UNAVAILABLE'),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

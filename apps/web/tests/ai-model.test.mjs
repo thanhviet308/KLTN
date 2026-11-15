@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
+  AI_LANGUAGES,
+  buildVoiceTranscribePayload,
   initialSelection,
+  reduceVoiceTranscriptSuccess,
   sourceRevision,
   sourceVersion,
   textMessages,
@@ -68,4 +71,68 @@ test('browser revisions match server SHA256 and invalidate results when message 
     await sourceRevision({ ...original, editedAt: '2026-11-02T01:00:00.000Z' }),
     digest,
   );
+});
+
+test('voice transcription helpers build strict payloads and merge incremental AI extensions', () => {
+  assert.equal(AI_LANGUAGES.vi, 'Tiếng Việt');
+  assert.equal(AI_LANGUAGES.en, 'Tiếng Anh');
+  assert.deepEqual(buildVoiceTranscribePayload(), {});
+  assert.deepEqual(
+    buildVoiceTranscribePayload({
+      translateTo: undefined,
+      includeReplies: true,
+    }),
+    { includeReplies: true },
+  );
+  assert.deepEqual(
+    buildVoiceTranscribePayload({ translateTo: 'en', tone: 'friendly' }),
+    { translateTo: 'en', tone: 'friendly' },
+  );
+
+  const initial = reduceVoiceTranscriptSuccess(
+    undefined,
+    {
+      transcript: 'Chiều nay 3 giờ họp nhóm nhé.',
+      language: 'vi',
+      translation: '',
+      replies: [],
+    },
+    undefined,
+  );
+  assert.deepEqual(initial, {
+    loading: false,
+    transcript: 'Chiều nay 3 giờ họp nhóm nhé.',
+    language: 'vi',
+    translation: undefined,
+    translatedLanguage: undefined,
+    replies: undefined,
+    error: undefined,
+  });
+
+  const translated = reduceVoiceTranscriptSuccess(
+    initial,
+    {
+      transcript: 'Chiều nay 3 giờ họp nhóm nhé.',
+      language: 'vi',
+      translation: 'Team meeting at 3 PM this afternoon.',
+      replies: [],
+    },
+    { translateTo: 'en' },
+  );
+  assert.equal(translated.translation, 'Team meeting at 3 PM this afternoon.');
+  assert.equal(translated.translatedLanguage, 'en');
+
+  const withReplies = reduceVoiceTranscriptSuccess(
+    translated,
+    {
+      transcript: 'Chiều nay 3 giờ họp nhóm nhé.',
+      language: 'vi',
+      translation: '',
+      replies: ['Ok, 3h mình có mặt'],
+    },
+    { includeReplies: true },
+  );
+  assert.equal(withReplies.translation, 'Team meeting at 3 PM this afternoon.');
+  assert.equal(withReplies.translatedLanguage, 'en');
+  assert.deepEqual(withReplies.replies, ['Ok, 3h mình có mặt']);
 });

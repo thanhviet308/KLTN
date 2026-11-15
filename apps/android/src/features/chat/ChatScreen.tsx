@@ -40,6 +40,10 @@ import {
   SwipeableMessageBubble,
   triggerTouchHaptic,
 } from './SwipeableMessageBubble';
+import {
+  VoiceTranscriptCard,
+  type VoiceTranscriptEntry,
+} from './VoiceTranscriptCard';
 import { useCalls } from '../calls/CallProvider';
 
 async function requestMicrophonePermission() {
@@ -128,6 +132,9 @@ export function Chat({
   const [reactions, setReactions] = useState<
     Record<string, { emoji: string; count: number; reacted: boolean }[]>
   >({});
+  const [voiceTranscripts, setVoiceTranscripts] = useState<
+    Record<string, VoiceTranscriptEntry>
+  >({});
   const [typing, setTyping] = useState<Record<string, number>>({});
   const [members, setMembers] = useState<
     { id: string; user: Peer; role: 'owner' | 'admin' | 'member' }[]
@@ -154,6 +161,22 @@ export function Chat({
   );
   const typingAt = useRef(0);
   const mediaPathsRef = useRef<Record<string, string>>({});
+  const mountedRef = useRef(true);
+  const voiceConversationRef = useRef(conversation.id);
+  voiceConversationRef.current = conversation.id;
+  const voicePendingRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setVoiceTranscripts({});
+    voicePendingRef.current.clear();
+  }, [conversation.id]);
 
   const accept = useCallback((incoming: api.Message[]) => {
     messagesRef.current = mergeMessages(messagesRef.current, incoming);
@@ -811,6 +834,80 @@ export function Chat({
     }
   }
 
+  async function transcribeVoice(
+    target: api.Message,
+    options?: api.AiTranscribeOptions,
+  ) {
+    if (target.type !== 'voice' || target.deletedAt) return;
+    if (voicePendingRef.current.has(target.id)) return;
+    voicePendingRef.current.add(target.id);
+    const activeConversation = conversation.id;
+    setVoiceTranscripts(previous => ({
+      ...previous,
+      [target.id]: {
+        ...previous[target.id],
+        loading: true,
+        error: undefined,
+      },
+    }));
+    try {
+      const response = await api.transcribeVoiceMessage(
+        activeConversation,
+        target.id,
+        options,
+      );
+      if (
+        !mountedRef.current ||
+        voiceConversationRef.current !== activeConversation
+      ) {
+        return;
+      }
+      const nextResult = response.result;
+      setVoiceTranscripts(previous => {
+        const prior = previous[target.id];
+        return {
+          ...previous,
+          [target.id]: {
+            loading: false,
+            transcript: nextResult.transcript,
+            language: nextResult.language,
+            translation: nextResult.translation || prior?.translation,
+            translatedLanguage: nextResult.translation
+              ? options?.translateTo === 'en'
+                ? 'en'
+                : 'vi'
+              : prior?.translatedLanguage,
+            replies: nextResult.replies.length
+              ? nextResult.replies
+              : prior?.replies,
+            error: undefined,
+          },
+        };
+      });
+    } catch (next) {
+      if (
+        !mountedRef.current ||
+        voiceConversationRef.current !== activeConversation
+      ) {
+        return;
+      }
+      if (next instanceof api.ApiError && next.status === 401) {
+        onExpired();
+        return;
+      }
+      setVoiceTranscripts(previous => ({
+        ...previous,
+        [target.id]: {
+          ...previous[target.id],
+          loading: false,
+          error: api.errorMessage(next),
+        },
+      }));
+    } finally {
+      voicePendingRef.current.delete(target.id);
+    }
+  }
+
   if (infoOpen)
     return (
       <ConversationInfo
@@ -1056,7 +1153,14 @@ export function Chat({
                         onLoad={() => void downloadMedia(item)}
                         onOpen={() => void openMedia(item)}
                         onPlay={() => void playVoice(item).catch(fail)}
+                        onTranscribe={
+                          item.type === 'voice'
+                            ? () => void transcribeVoice(item)
+                            : undefined
+                        }
                         playing={playingMessage === item.id}
+                        transcribed={!!voiceTranscripts[item.id]?.transcript}
+                        transcribing={!!voiceTranscripts[item.id]?.loading}
                       />
                       {(item.type === 'text' || !!item.deletedAt) && (
                         <Text
@@ -1091,6 +1195,34 @@ export function Chat({
                       </View>
                     </Pressable>
                   </SwipeableMessageBubble>
+                  {!item.deletedAt &&
+                    item.type === 'voice' &&
+                    !!voiceTranscripts[item.id] && (
+                      <VoiceTranscriptCard
+                        mine={mine}
+                        onHide={() =>
+                          setVoiceTranscripts(previous => {
+                            const rest = { ...previous };
+                            delete rest[item.id];
+                            return rest;
+                          })
+                        }
+                        onRetry={() => void transcribeVoice(item)}
+                        onSuggestReplies={() =>
+                          void transcribeVoice(item, { includeReplies: true })
+                        }
+                        onTranslate={lang =>
+                          void transcribeVoice(item, { translateTo: lang })
+                        }
+                        onUseReply={reply => {
+                          setReplyTo(item);
+                          setEditing(undefined);
+                          setBody(reply);
+                          focusComposer();
+                        }}
+                        state={voiceTranscripts[item.id]}
+                      />
+                    )}
                   {!!reactions[item.id]?.length && (
                     <View
                       style={[
@@ -1329,6 +1461,23 @@ export function Chat({
                   </View>
                   <Text style={styles.sheetOptionText}>Trả lời tin nhắn</Text>
                 </Pressable>
+                {actionTarget.type === 'voice' && (
+                  <Pressable
+                    onPress={() => {
+                      const target = actionTarget;
+                      setActionTarget(undefined);
+                      void transcribeVoice(target);
+                    }}
+                    style={styles.sheetOption}
+                  >
+                    <View style={styles.sheetOptionIcon}>
+                      <Text style={styles.sheetOptionIconText}>✦</Text>
+                    </View>
+                    <Text style={styles.sheetOptionText}>
+                      Chép lời tin nhắn thoại với AI
+                    </Text>
+                  </Pressable>
+                )}
                 {actionTarget.senderId === user.id &&
                   actionTarget.type === 'text' && (
                     <Pressable

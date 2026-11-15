@@ -126,3 +126,36 @@ export function summarizeMessageForSheet(
   if (message.type === 'location') return 'Vị trí được chia sẻ';
   return (message.body ?? '').trim() || 'Tin nhắn';
 }
+
+/**
+ * Copies plain text using Clipboard API with textarea fallback for mobile WebViews.
+ */
+export async function copyPlainText(value: string): Promise<boolean> {
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === 'function'
+  ) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      /* Fallback below supports restricted mobile WebViews. */
+    }
+  }
+  if (typeof document === 'undefined') return false;
+  try {
+    const helper = document.createElement('textarea');
+    helper.value = value;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.opacity = '0';
+    document.body.appendChild(helper);
+    helper.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(helper);
+    return copied;
+  } catch {
+    return false;
+  }
+}

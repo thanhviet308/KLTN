@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
   IsOptional,
   IsString,
@@ -75,4 +76,26 @@ export interface AiResult {
 export interface AiChatResult {
   reply: string;
   suggestions: string[];
+}
+
+export class AiTranscribeDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(['vi', 'en', 'ja', 'ko', 'zh', 'fr'])
+  translateTo?: 'vi' | 'en' | 'ja' | 'ko' | 'zh' | 'fr';
+
+  @IsOptional()
+  @IsBoolean()
+  includeReplies?: boolean;
+
+  @IsOptional()
+  @IsIn(['concise', 'friendly', 'formal'])
+  tone?: 'concise' | 'friendly' | 'formal';
+}
+
+export interface AiTranscriptResult {
+  transcript: string;
+  language: string;
+  translation: string;
+  replies: string[];
 }

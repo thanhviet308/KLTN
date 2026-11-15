@@ -397,6 +397,35 @@ export async function logout() {
   }
 }
 
+export interface AiTranscriptResult {
+  transcript: string;
+  language: string;
+  translation: string;
+  replies: string[];
+}
+
+export interface AiTranscribeOptions {
+  translateTo?: 'vi' | 'en' | 'ja' | 'ko' | 'zh' | 'fr';
+  includeReplies?: boolean;
+  tone?: 'concise' | 'friendly' | 'formal';
+}
+
+export async function transcribeVoiceMessage(
+  conversationId: string,
+  messageId: string,
+  options?: AiTranscribeOptions,
+) {
+  const payload: AiTranscribeOptions = {};
+  if (options?.translateTo) payload.translateTo = options.translateTo;
+  if (options?.includeReplies) payload.includeReplies = true;
+  if (options?.tone) payload.tone = options.tone;
+  return authenticated<{ messageId: string; result: AiTranscriptResult }>(
+    `/conversations/${conversationId}/messages/${messageId}/transcribe`,
+    payload,
+    'POST',
+  );
+}
+
 export function user() {
   return currentUser;
 }
@@ -416,6 +445,25 @@ export function errorMessage(error: unknown) {
     FRIENDSHIP_REQUIRED: 'Bạn cần kết bạn trước khi nhắn tin.',
     MESSAGE_EDIT_CONFLICT: 'Tin nhắn đã thay đổi. Hãy tải lại và thử lại.',
     MESSAGE_SEND_FORBIDDEN: 'Hiện không thể gửi tin nhắn vào cuộc trò chuyện.',
+    AI_NOT_CONFIGURED: 'Trợ lý AI hiện chưa sẵn sàng. Vui lòng thử lại sau.',
+    AI_SOURCE_UNAVAILABLE:
+      'Một số tin đã bị thu hồi hoặc không còn quyền truy cập. Hãy chọn lại nội dung.',
+    AI_SOURCE_CHANGED:
+      'Tin nguồn đã thay đổi. Hãy kiểm tra và tạo lại kết quả.',
+    AI_INPUT_INVALID: 'Hãy chọn lại tin nhắn và các tùy chọn AI.',
+    AI_INPUT_EMPTY: 'Chưa có nội dung văn bản để xử lý.',
+    AI_INPUT_TOO_LARGE: 'Nội dung quá dài. Hãy chọn ít tin nhắn hơn.',
+    AI_BUSY: 'AI đang xử lý yêu cầu khác. Vui lòng thử lại sau.',
+    AI_QUOTA_EXCEEDED:
+      'Bạn đã dùng hết 20 lượt AI trong giờ này. Vui lòng thử lại sau.',
+    AI_PROVIDER_LIMIT:
+      'Dịch vụ AI đang đạt giới hạn sử dụng. Vui lòng thử lại sau.',
+    AI_UNAVAILABLE: 'Chưa thể kết nối dịch vụ AI. Vui lòng thử lại sau.',
+    AI_TIMEOUT: 'AI xử lý quá lâu. Hãy thử lại với ít tin nhắn hơn.',
+    AI_INVALID_OUTPUT: 'AI trả kết quả chưa hợp lệ. Vui lòng thử lại.',
+    AI_INCOMPLETE:
+      'AI chưa hoàn tất kết quả. Hãy chọn ít nội dung hơn và thử lại.',
+    AI_REFUSED: 'AI không thể xử lý nội dung này. Hãy thử chọn nội dung khác.',
   };
   if (messages[error.code]) return messages[error.code];
   if (error.status === 401)

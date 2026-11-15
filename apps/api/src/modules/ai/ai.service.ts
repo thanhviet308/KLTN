@@ -1,21 +1,48 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { DataSource, type EntityManager } from 'typeorm';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { writeNotification } from '../notifications/notification-writer';
 import { ConversationsService } from '../conversations/conversations.service';
+import { Attachment } from '../database/entities/attachment.entity';
 import { Message } from '../database/entities/message.entity';
-import { AiProviderService, aiError } from './ai-provider.service';
-import type { AiChatRequestDto, AiRequestDto } from './ai.dto';
+import { ChatFilesService } from '../messages/chat-files.service';
+import {
+  AiProviderService,
+  aiError,
+  normalizeAudioMime,
+  type AiSource,
+} from './ai-provider.service';
+import type {
+  AiChatRequestDto,
+  AiRequestDto,
+  AiTranscribeDto,
+  AiTranscriptResult,
+} from './ai.dto';
+
+const MAX_TRANSCRIPT_CACHE = 500;
+const MAX_VOICE_AI_BYTES = 10 * 1024 * 1024;
 
 @Injectable()
 export class AiService {
   private running = new Set<string>();
   private limits = new Map<string, { count: number; until: number }>();
+  private transcripts = new Map<
+    string,
+    {
+      transcript: string;
+      language: string;
+      translations: Record<string, string>;
+    }
+  >();
   constructor(
     @Inject(DataSource) private readonly db: DataSource,
     @Inject(ConversationsService)
     private readonly conversations: ConversationsService,
     @Inject(AiProviderService) private readonly provider: AiProviderService,
+    @Optional()
+    @Inject(ChatFilesService)
+    private readonly files?: ChatFilesService,
   ) {}
 
   private consumeQuota(actorId: string) {
@@ -33,6 +60,30 @@ export class AiService {
     this.limits.set(actorId, quota);
   }
 
+  private visibleMessageQuery(
+    manager: EntityManager,
+    actorId: string,
+    conversationId: string,
+  ) {
+    return manager
+      .getRepository(Message)
+      .createQueryBuilder('message')
+      .leftJoinAndSelect('message.senderMember', 'member')
+      .leftJoin('member.user', 'sender')
+      .addSelect(['sender.id', 'sender.displayName'])
+      .where('message.conversationId = :conversationId', { conversationId })
+      .andWhere(
+        "EXISTS (SELECT 1 FROM users visible_sender WHERE visible_sender.id=message.sender_id AND visible_sender.status='active')",
+      )
+      .andWhere(
+        `EXISTS (SELECT 1 FROM conversation_member_periods period
+          WHERE period.conversation_id = message.conversation_id AND period.user_id = :actorId
+          AND message.sequence > period.joined_after_sequence
+          AND (period.left_after_sequence IS NULL OR message.sequence <= period.left_after_sequence))`,
+        { actorId },
+      );
+  }
+
   private async sources(
     actorId: string,
     conversationId: string,
@@ -40,25 +91,13 @@ export class AiService {
   ) {
     return this.db.transaction(async (manager) => {
       await this.conversations.requireAccess(manager, conversationId, actorId);
-      const rows = await manager
-        .getRepository(Message)
-        .createQueryBuilder('message')
-        .leftJoinAndSelect('message.senderMember', 'member')
-        .leftJoin('member.user', 'sender')
-        .addSelect(['sender.id', 'sender.displayName'])
-        .where('message.conversationId = :conversationId', { conversationId })
+      const rows = await this.visibleMessageQuery(
+        manager,
+        actorId,
+        conversationId,
+      )
         .andWhere('message.id IN (:...ids)', { ids })
         .andWhere("message.type = 'text' AND message.deletedAt IS NULL")
-        .andWhere(
-          "EXISTS (SELECT 1 FROM users visible_sender WHERE visible_sender.id=message.sender_id AND visible_sender.status='active')",
-        )
-        .andWhere(
-          `EXISTS (SELECT 1 FROM conversation_member_periods period
-          WHERE period.conversation_id = message.conversation_id AND period.user_id = :actorId
-          AND message.sequence > period.joined_after_sequence
-          AND (period.left_after_sequence IS NULL OR message.sequence <= period.left_after_sequence))`,
-          { actorId },
-        )
         .orderBy('message.sequence', 'ASC')
         .getMany();
       if (rows.length !== ids.length) aiError(404, 'AI_SOURCE_UNAVAILABLE');
@@ -203,6 +242,219 @@ export class AiService {
         }),
       );
       return { result };
+    } finally {
+      this.running.delete(actorId);
+    }
+  }
+
+  private async voiceSource(
+    actorId: string,
+    conversationId: string,
+    messageId: string,
+    includeContext: boolean,
+  ) {
+    return this.db.transaction(async (manager) => {
+      await this.conversations.requireAccess(manager, conversationId, actorId);
+      const voiceMessage = await this.visibleMessageQuery(
+        manager,
+        actorId,
+        conversationId,
+      )
+        .andWhere('message.id = :messageId', { messageId })
+        .andWhere("message.type = 'voice' AND message.deletedAt IS NULL")
+        .getOne();
+      if (!voiceMessage) aiError(404, 'AI_SOURCE_UNAVAILABLE');
+      const attachment = await manager
+        .getRepository(Attachment)
+        .createQueryBuilder('attachment')
+        .addSelect('attachment.objectKey')
+        .where(
+          'attachment.messageId = :messageId AND attachment.status = :status',
+          { messageId: voiceMessage.id, status: 'attached' },
+        )
+        .getOne();
+      if (!attachment) aiError(404, 'AI_SOURCE_UNAVAILABLE');
+      const recentContext: AiSource[] = [];
+      if (includeContext) {
+        const recentRows = await this.visibleMessageQuery(
+          manager,
+          actorId,
+          conversationId,
+        )
+          .andWhere('message.sequence < :sequence', {
+            sequence: voiceMessage.sequence,
+          })
+          .andWhere("message.type = 'text' AND message.deletedAt IS NULL")
+          .orderBy('message.sequence', 'DESC')
+          .limit(9)
+          .getMany();
+        for (const row of recentRows.reverse()) {
+          const text = (row.editedBody ?? row.body ?? '').trim();
+          if (!text) continue;
+          recentContext.push({
+            id: row.id,
+            sender:
+              row.senderId === actorId
+                ? 'Bạn'
+                : (row.senderMember?.user?.displayName ?? 'Thành viên'),
+            body: text,
+            createdAt: row.createdAt.toISOString(),
+          });
+        }
+      }
+      return {
+        attachment,
+        sender:
+          voiceMessage.senderId === actorId
+            ? 'Bạn'
+            : (voiceMessage.senderMember?.user?.displayName ?? 'Thành viên'),
+        createdAt: voiceMessage.createdAt.toISOString(),
+        recentContext,
+      };
+    });
+  }
+
+  private rememberTranscript(
+    cacheKey: string,
+    value: {
+      transcript: string;
+      language: string;
+      translations: Record<string, string>;
+    },
+  ) {
+    if (
+      !this.transcripts.has(cacheKey) &&
+      this.transcripts.size >= MAX_TRANSCRIPT_CACHE
+    ) {
+      const oldestKey = this.transcripts.keys().next().value;
+      if (oldestKey !== undefined) this.transcripts.delete(oldestKey);
+    }
+    this.transcripts.set(cacheKey, value);
+  }
+
+  async transcribeVoice(
+    actorId: string,
+    conversationId: string,
+    messageId: string,
+    input: AiTranscribeDto = {},
+  ): Promise<{ messageId: string; result: AiTranscriptResult }> {
+    if (!this.provider.available()) aiError(503, 'AI_NOT_CONFIGURED');
+    if (!this.files) aiError(503, 'AI_UNAVAILABLE');
+    if (this.running.has(actorId) || this.running.size >= 2)
+      aiError(429, 'AI_BUSY');
+    this.running.add(actorId);
+    try {
+      const source = await this.voiceSource(
+        actorId,
+        conversationId,
+        messageId,
+        !!input.includeReplies,
+      );
+      const mimeType = normalizeAudioMime(source.attachment.mimeType);
+      if (!mimeType) aiError(400, 'AI_INPUT_INVALID');
+      const cacheKey = `${source.attachment.id}:${source.attachment.objectKey}`;
+      let entry = this.transcripts.get(cacheKey);
+      if (!entry) {
+        let bytes: Buffer;
+        try {
+          bytes = await readFile(this.files.path(source.attachment.objectKey));
+        } catch (error) {
+          if (
+            error &&
+            typeof error === 'object' &&
+            'code' in error &&
+            error.code === 'ENOENT'
+          )
+            aiError(404, 'AI_SOURCE_UNAVAILABLE');
+          throw error;
+        }
+        if (!bytes.length) aiError(400, 'AI_INPUT_EMPTY');
+        if (bytes.length > MAX_VOICE_AI_BYTES)
+          aiError(413, 'AI_INPUT_TOO_LARGE');
+        this.consumeQuota(actorId);
+        const transcribed = await this.provider.transcribeAudio(
+          bytes.toString('base64'),
+          mimeType,
+        );
+        entry = {
+          transcript: transcribed.transcript,
+          language: transcribed.language,
+          translations: {},
+        };
+        this.rememberTranscript(cacheKey, entry);
+      }
+
+      let translation = '';
+      if (input.translateTo && entry.transcript) {
+        const cachedTranslation = entry.translations[input.translateTo];
+        if (cachedTranslation) {
+          translation = cachedTranslation;
+        } else {
+          this.consumeQuota(actorId);
+          const translated = await this.provider.generate(
+            {
+              kind: 'translate',
+              messageIds: [messageId],
+              sourceRevisions: [],
+              language: input.translateTo,
+            },
+            [
+              {
+                id: messageId,
+                sender: source.sender,
+                body: entry.transcript,
+                createdAt: source.createdAt,
+              },
+            ],
+          );
+          translation = translated.translation;
+          entry.translations[input.translateTo] = translation;
+        }
+      }
+
+      let replies: string[] = [];
+      if (input.includeReplies && entry.transcript) {
+        this.consumeQuota(actorId);
+        const contextMessages: AiSource[] = [
+          ...source.recentContext,
+          {
+            id: messageId,
+            sender: source.sender,
+            body: entry.transcript,
+            createdAt: source.createdAt,
+          },
+        ];
+        const suggested = await this.provider.generate(
+          {
+            kind: 'replies',
+            messageIds: contextMessages.map((item) => item.id),
+            sourceRevisions: [],
+            targetMessageId: messageId,
+            tone: input.tone ?? 'concise',
+          },
+          contextMessages,
+        );
+        replies = suggested.replies;
+      }
+
+      // Recheck membership and visibility after provider calls so recalled voice
+      // notes or revoked access never expose transcribed text.
+      try {
+        await this.voiceSource(actorId, conversationId, messageId, false);
+      } catch (error) {
+        this.transcripts.delete(cacheKey);
+        throw error;
+      }
+
+      return {
+        messageId,
+        result: {
+          transcript: entry.transcript,
+          language: entry.language,
+          translation,
+          replies,
+        },
+      };
     } finally {
       this.running.delete(actorId);
     }

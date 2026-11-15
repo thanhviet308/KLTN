@@ -19,10 +19,15 @@ import {
 import { useTimelineScroll } from './useTimelineScroll';
 import { AiAssistant } from '../ai/AiAssistant';
 import {
+  buildVoiceTranscribePayload,
+  reduceVoiceTranscriptSuccess,
   sourceVersion,
   unreadTextMessages,
   UNREAD_SUMMARY_THRESHOLD,
   type AiKind,
+  type AiTranscriptResult,
+  type VoiceTranscribeOptions,
+  type VoiceTranscriptState,
 } from '../ai/ai-model';
 import {
   cachedHistory,
@@ -138,10 +143,74 @@ export function Chat({
   const [translations, setTranslations] = useState<Record<string, Translation>>(
     {},
   );
+  const [voiceTranscripts, setVoiceTranscripts] = useState<
+    Record<string, VoiceTranscriptState>
+  >({});
+  const voiceConversation = useRef(conversationId);
+  voiceConversation.current = conversationId;
+  const voicePending = useRef(new Set<string>());
   useEffect(() => {
     setAi(undefined);
     setTranslations({});
+    setVoiceTranscripts({});
+    voicePending.current.clear();
   }, [conversationId]);
+  async function transcribeVoice(
+    target: Message,
+    options?: VoiceTranscribeOptions,
+  ) {
+    if (target.type !== 'voice' || target.deletedAt) return;
+    if (voicePending.current.has(target.id)) return;
+    voicePending.current.add(target.id);
+    const activeConversation = conversationId;
+    setVoiceTranscripts((previous) => ({
+      ...previous,
+      [target.id]: {
+        ...previous[target.id],
+        loading: true,
+        error: undefined,
+      },
+    }));
+    try {
+      const response = await api.authenticated<{
+        messageId: string;
+        result: AiTranscriptResult;
+      }>(
+        `/conversations/${activeConversation}/messages/${target.id}/transcribe`,
+        buildVoiceTranscribePayload(options),
+        'POST',
+      );
+      if (!alive.current || voiceConversation.current !== activeConversation) {
+        return;
+      }
+      setVoiceTranscripts((previous) => ({
+        ...previous,
+        [target.id]: reduceVoiceTranscriptSuccess(
+          previous[target.id],
+          response.result,
+          options,
+        ),
+      }));
+    } catch (e) {
+      if (!alive.current || voiceConversation.current !== activeConversation) {
+        return;
+      }
+      if (e instanceof api.ApiError && e.status === 401) {
+        onExpired();
+        return;
+      }
+      setVoiceTranscripts((previous) => ({
+        ...previous,
+        [target.id]: {
+          ...previous[target.id],
+          loading: false,
+          error: api.errorMessage(e),
+        },
+      }));
+    } finally {
+      voicePending.current.delete(target.id);
+    }
+  }
   useEffect(() => {
     onMessagesChange?.(messages);
   }, [messages, onMessagesChange]);
@@ -1031,6 +1100,22 @@ export function Chat({
                     return rest;
                   })
                 }
+                voiceTranscript={voiceTranscripts[message.id]}
+                onTranscribeVoice={(options) =>
+                  void transcribeVoice(message, options)
+                }
+                onHideVoiceTranscript={() =>
+                  setVoiceTranscripts((previous) => {
+                    const rest = { ...previous };
+                    delete rest[message.id];
+                    return rest;
+                  })
+                }
+                onUseVoiceReply={(reply) => {
+                  setReplyTo(message);
+                  setBody(reply);
+                  composer.current?.focus();
+                }}
                 onOpenReceipts={() => void viewReceipts(message.id)}
                 currentGame={currentGame}
                 onOpenGame={() => setGameOpen(true)}

@@ -3,6 +3,7 @@ import { Sparkles, X, Copy } from 'lucide-react';
 import * as api from '../../lib/api';
 import type { Message } from '../../lib/chat-model';
 import {
+  AI_LANGUAGES,
   initialSelection,
   sourceRevision,
   sourceVersion,
@@ -374,14 +375,7 @@ export function AiAssistant({
                   resetOutput();
                 }}
               >
-                {Object.entries({
-                  vi: 'Tiếng Việt',
-                  en: 'Tiếng Anh',
-                  ja: 'Tiếng Nhật',
-                  ko: 'Tiếng Hàn',
-                  zh: 'Tiếng Trung',
-                  fr: 'Tiếng Pháp',
-                }).map(([code, title]) => (
+                {Object.entries(AI_LANGUAGES).map(([code, title]) => (
                   <option key={code} value={code}>
                     {title}
                   </option>

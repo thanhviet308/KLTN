@@ -19,32 +19,10 @@ import {
   MESSAGE_REACTION_EMOJIS,
   type MessageReactionController,
 } from './MessageReactions';
-import { summarizeMessageForSheet } from './touch-message-gestures';
-
-async function copyMessageText(value: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(value);
-      return true;
-    } catch {
-      /* Fallback below supports restricted mobile WebViews. */
-    }
-  }
-  try {
-    const helper = document.createElement('textarea');
-    helper.value = value;
-    helper.setAttribute('readonly', '');
-    helper.style.position = 'fixed';
-    helper.style.opacity = '0';
-    document.body.appendChild(helper);
-    helper.select();
-    const copied = document.execCommand('copy');
-    document.body.removeChild(helper);
-    return copied;
-  } catch {
-    return false;
-  }
-}
+import {
+  copyPlainText,
+  summarizeMessageForSheet,
+} from './touch-message-gestures';
 
 export function MessageActions({
   message,
@@ -59,6 +37,7 @@ export function MessageActions({
   onReply,
   onReact,
   onAi,
+  onTranscribeVoice,
 }: {
   message: Message;
   pinned?: boolean;
@@ -73,6 +52,7 @@ export function MessageActions({
   onReply: (message: Message) => void;
   onReact: () => void;
   onAi?: (kind: 'replies' | 'translate') => void;
+  onTranscribeVoice?: () => void;
 }) {
   const isText = !message.type || message.type === 'text';
   const [toastNotice, setToastNotice] = useState('');
@@ -120,6 +100,7 @@ export function MessageActions({
     const height =
       (mine && isText ? 136 : 56) +
       (isText && onAi ? 88 : 0) +
+      (message.type === 'voice' && onTranscribeVoice ? 44 : 0) +
       (!mine ? (message.type === 'image' ? 132 : 88) : 0) +
       44;
     const vw = window.visualViewport?.width ?? window.innerWidth;
@@ -300,7 +281,7 @@ export function MessageActions({
             mobileOnly: true,
             onSelect: () => {
               closeOverlays();
-              void copyMessageText(message.body ?? '').then((ok) =>
+              void copyPlainText(message.body ?? '').then((ok) =>
                 setToastNotice(
                   ok
                     ? '📋 Đã sao chép tin nhắn.'
@@ -330,6 +311,19 @@ export function MessageActions({
             onSelect: () => {
               closeOverlays();
               void open('forward');
+            },
+          },
+        ]
+      : []),
+    ...(message.type === 'voice' && onTranscribeVoice
+      ? [
+          {
+            key: 'ai-transcribe',
+            label: 'Chép lời với AI',
+            icon: <Sparkles size={18} aria-hidden="true" />,
+            onSelect: () => {
+              closeOverlays();
+              onTranscribeVoice();
             },
           },
         ]

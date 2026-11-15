@@ -14,13 +14,19 @@ import {
   type Receipt,
 } from '../../lib/chat-model';
 import type { Peer } from '../../lib/types';
-import { sourceVersion, type AiKind } from '../ai/ai-model';
+import {
+  sourceVersion,
+  type AiKind,
+  type VoiceTranscribeOptions,
+  type VoiceTranscriptState,
+} from '../ai/ai-model';
 import { GAME_INFO, type CaroSession, type GameType } from '../games/CaroGame';
 import { MessageMedia } from './ChatMedia';
 import { MessageActions } from './MessageActions';
 import { MessageReactions, useMessageReactions } from './MessageReactions';
 import { SentStatus } from './SentStatus';
 import { TranslationNote } from './TranslationNote';
+import { VoiceTranscriptNote } from './VoiceTranscriptNote';
 import { SpamWarning } from './SpamWarning';
 import { ReportButton } from '../reports/ReportDialog';
 import {
@@ -65,6 +71,10 @@ interface MessageBubbleProps {
   onCloseReactions: () => void;
   onAi: (kind: AiKind) => void;
   onHideTranslation: () => void;
+  voiceTranscript?: VoiceTranscriptState;
+  onTranscribeVoice?: (options?: VoiceTranscribeOptions) => void;
+  onHideVoiceTranscript?: () => void;
+  onUseVoiceReply?: (reply: string) => void;
   onOpenReceipts: () => void;
 }
 
@@ -93,6 +103,10 @@ export function MessageBubble({
   onCloseReactions,
   onAi,
   onHideTranslation,
+  voiceTranscript,
+  onTranscribeVoice,
+  onHideVoiceTranscript,
+  onUseVoiceReply,
   onOpenReceipts,
 }: MessageBubbleProps) {
   const isCall = message.type === 'call';
@@ -335,6 +349,9 @@ export function MessageBubble({
             onReply={onReply}
             onReact={onReact}
             onAi={onAi}
+            onTranscribeVoice={
+              onTranscribeVoice ? () => onTranscribeVoice() : undefined
+            }
           />
           <MessageReactions
             message={message}
@@ -388,7 +405,16 @@ export function MessageBubble({
         {message.deletedAt ? (
           'Tin nhắn đã thu hồi'
         ) : message.type && message.type !== 'text' ? (
-          <MessageMedia message={message} />
+          <MessageMedia
+            message={message}
+            transcribing={voiceTranscript?.loading}
+            transcribed={!!voiceTranscript?.transcript}
+            onTranscribe={
+              message.type === 'voice' && onTranscribeVoice
+                ? () => onTranscribeVoice()
+                : undefined
+            }
+          />
         ) : gameInvite ? (
           <div className={`game-chat-invite-card${mine ? ' is-mine' : ''}`}>
             <div className="game-chat-invite-header">
@@ -459,6 +485,23 @@ export function MessageBubble({
             language={translation.language}
             text={translation.text}
             onHide={onHideTranslation}
+          />
+        )}
+      {!message.deletedAt &&
+        message.type === 'voice' &&
+        voiceTranscript &&
+        onTranscribeVoice &&
+        onHideVoiceTranscript &&
+        onUseVoiceReply && (
+          <VoiceTranscriptNote
+            state={voiceTranscript}
+            onRetry={() => onTranscribeVoice()}
+            onTranslate={(language) =>
+              onTranscribeVoice({ translateTo: language })
+            }
+            onSuggestReplies={() => onTranscribeVoice({ includeReplies: true })}
+            onUseReply={onUseVoiceReply}
+            onHide={onHideVoiceTranscript}
           />
         )}
       {!isCall && showStatus && !message.deletedAt && (
