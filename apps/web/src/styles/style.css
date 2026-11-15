@@ -1790,6 +1790,55 @@ a:focus-visible {
   position: relative;
   isolation: isolate;
 }
+.message-body:focus:not(:focus-visible) {
+  outline: none;
+}
+.chat-message.has-swipe-motion .message-body,
+.chat-message.has-swipe-motion .message-sender-avatar,
+.chat-message.has-swipe-motion .reaction-badges {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translate3d(var(--swipe-x, 0px), 0, 0);
+}
+.chat-message.is-swiping .message-body,
+.chat-message.is-swiping .message-sender-avatar,
+.chat-message.is-swiping .reaction-badges {
+  transition: none;
+}
+.swipe-reply-indicator {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%) scale(0.86);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fffdf9;
+  color: #6c503b;
+  border: 1px solid #e6d9cb;
+  box-shadow: 0 3px 10px rgba(58, 42, 29, 0.14);
+  pointer-events: none;
+  z-index: 0;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+.chat-message.mine .swipe-reply-indicator {
+  left: auto;
+  right: 4px;
+}
+.swipe-reply-indicator.is-ready {
+  transform: translateY(-50%) scale(1.06);
+  background: #b75020;
+  border-color: #b75020;
+  color: #fff;
+}
+.chat-message.is-sheet-target .message-body {
+  box-shadow: 0 0 0 2px rgba(183, 80, 32, 0.42);
+}
 .message-tools {
   position: absolute;
   top: 0;
@@ -2002,12 +2051,49 @@ a:focus-visible {
   background: #edf0e9;
   border-radius: 10px;
 }
-@media (hover: none), (max-width: 680px) {
-  /* Keep touch actions inside space owned by the selected message instead
-     of placing them over the preceding bubble. */
-  .chat-message:has(> .message-tools):is(:hover, :focus-within, :active),
+@media (hover: none), (pointer: coarse) {
+  /* Touch devices use swipe-to-reply and long-press bottom sheet instead of
+     popping the hover/focus toolbar above the tapped bubble. */
+  .home-shell .chat-message > .message-tools:not(.call-report-tools),
+  .chat-message > .message-tools:not(.call-report-tools) {
+    display: none;
+  }
+  .chat-message.has-swipe-motion {
+    touch-action: pan-y;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .chat-message.call-event:has(> .call-report-tools):is(
+      :hover,
+      :focus-within,
+      :active
+    ) {
+    padding-top: 46px;
+  }
+  .chat-message.call-event > .message-tools.call-report-tools {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    top: 4px;
+    z-index: 5;
+  }
+  .chat-message.call-event > .message-tools.call-report-tools button {
+    width: 36px;
+    height: 36px;
+  }
+  .chat-message.call-event:is(:hover, :focus-within, :active)
+    > .message-tools.call-report-tools {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+@media (max-width: 680px) and (hover: hover) and (pointer: fine) {
+  /* Keep mouse hover actions inside space owned by the message on narrow desktop windows. */
+  .chat-message:has(> .message-tools):is(:hover, :focus-within),
   .chat-message:has(> .message-tools.menu-open) {
-    padding-top: 56px;
+    padding-top: 48px;
   }
   .message-tools {
     opacity: 0;
@@ -2017,10 +2103,8 @@ a:focus-visible {
     z-index: 5;
   }
   .message-tools button {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    width: 36px;
+    height: 36px;
   }
   .message-tools::after {
     inset: 0;
@@ -2030,7 +2114,6 @@ a:focus-visible {
   }
   .chat-message:hover .message-tools,
   .chat-message:focus-within .message-tools,
-  .chat-message:active .message-tools,
   .message-tools.menu-open {
     opacity: 1;
     visibility: visible;
@@ -2173,6 +2256,163 @@ a:focus-visible {
 .message-action-menu button:focus-visible {
   background: #edf2ed;
   outline: none;
+}
+.message-action-menu button.is-danger {
+  color: #b42318;
+}
+@keyframes messageSheetSlideUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.message-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(31, 24, 19, 0.46);
+  backdrop-filter: blur(2px);
+}
+.message-bottom-sheet {
+  width: min(100%, 480px);
+  max-height: min(82dvh, calc(var(--app-h, 100dvh) - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 22px 22px 0 0;
+  padding: 10px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: #fffdf9;
+  color: #31251b;
+  border-top: 1px solid #eadfd2;
+  box-shadow: 0 -10px 36px rgba(42, 30, 21, 0.22);
+  animation: messageSheetSlideUp 170ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.message-sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: #dfd2c3;
+  margin: 0 auto 12px;
+}
+.message-sheet-reactions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+  border-radius: 16px;
+  background: #f6eee3;
+  margin-bottom: 10px;
+}
+.message-sheet-reactions button {
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 24px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    transform 100ms ease,
+    background-color 120ms ease;
+}
+.message-sheet-reactions button:active {
+  transform: scale(0.92);
+}
+.message-sheet-reactions button.is-reacted,
+.message-sheet-reactions button:focus-visible {
+  background: #fae4d2;
+  box-shadow: inset 0 0 0 1px rgba(183, 80, 32, 0.38);
+  outline: none;
+}
+.message-sheet-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-left: 3px solid #b75020;
+  border-radius: 8px;
+  background: #faf4eb;
+}
+.message-sheet-preview strong {
+  font-size: 12px;
+  color: #8c451f;
+}
+.message-sheet-preview span {
+  font-size: 13px;
+  color: #5c493a;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.message-sheet-actions {
+  display: grid;
+  gap: 2px;
+}
+.message-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #31251b;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.message-sheet-item:active,
+.message-sheet-item:focus-visible {
+  background: #f5ebe0;
+  outline: none;
+}
+.message-sheet-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #f6eee3;
+  color: #7c4f31;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.message-sheet-item.is-active {
+  background: #fbf2e8;
+  color: #9e4217;
+}
+.message-sheet-item.is-active .message-sheet-icon {
+  background: #f6dec8;
+  color: #b75020;
+}
+.message-sheet-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3e1cf;
+  color: #9e4217;
+  font-size: 11px;
+  font-weight: 700;
+}
+.message-sheet-item.is-danger {
+  color: #b42318;
+}
+.message-sheet-item.is-danger .message-sheet-icon {
+  background: #fef0ee;
+  color: #b42318;
 }
 /* PingPong workspace: compact navigation, spacious conversation. */
 .home-shell {
@@ -2425,6 +2665,31 @@ a:focus-visible {
   color: #366b54;
   background: #f0f5ee;
   margin-left: auto;
+}
+.chat-call-actions .chat-info-button.header-more-mobile-only,
+.home-shell .chat-call-actions .chat-info-button.header-more-mobile-only {
+  display: none;
+}
+@media (max-width: 680px) {
+  .chat-call-actions .chat-info-button.header-action-desktop-only,
+  .home-shell .chat-call-actions .chat-info-button.header-action-desktop-only {
+    display: none;
+  }
+  .chat-call-actions .chat-info-button.header-more-mobile-only,
+  .home-shell .chat-call-actions .chat-info-button.header-more-mobile-only {
+    display: grid;
+    position: relative;
+  }
+  .chat-info-button.header-more-mobile-only.has-active::after {
+    content: '';
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #b75020;
+  }
 }
 .chat-panel {
   padding: 0 24px 16px;

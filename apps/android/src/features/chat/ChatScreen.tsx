@@ -11,6 +11,7 @@ import {
   Pressable,
   Text,
   TextInput,
+  type TextInputInstance,
   View,
 } from 'react-native';
 import {
@@ -35,6 +36,10 @@ import {
 import { styles } from '../../styles';
 import { ConversationInfo } from './ConversationInfo';
 import { MessageMedia } from './MessageMedia';
+import {
+  SwipeableMessageBubble,
+  triggerTouchHaptic,
+} from './SwipeableMessageBubble';
 import { useCalls } from '../calls/CallProvider';
 
 async function requestMicrophonePermission() {
@@ -118,6 +123,7 @@ export function Chat({
   const [replyTo, setReplyTo] = useState<api.Message>();
   const [editing, setEditing] = useState<api.Message>();
   const [actionTarget, setActionTarget] = useState<api.Message>();
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [mediaSheetOpen, setMediaSheetOpen] = useState(false);
   const [reactions, setReactions] = useState<
     Record<string, { emoji: string; count: number; reacted: boolean }[]>
@@ -135,6 +141,11 @@ export function Chat({
   const [title, setTitle] = useState(conversationName(conversation));
   const messagesRef = useRef<api.Message[]>([]);
   const messageList = useRef<FlatList<api.Message>>(null);
+  const composerRef = useRef<TextInputInstance>(null);
+  const searchInputRef = useRef<TextInputInstance>(null);
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const hasPositionedList = useRef(false);
   const nearBottomRef = useRef(true);
   const socketRef = useRef<ReturnType<typeof io> | undefined>(undefined);
@@ -744,8 +755,40 @@ export function Chat({
     return `📎 ${message.content?.fileName ?? 'Tệp đính kèm'}`;
   }
 
+  const scheduleFocus = useCallback(
+    (targetRef: React.RefObject<TextInputInstance | null>) => {
+      if (focusTimer.current) clearTimeout(focusTimer.current);
+      focusTimer.current = setTimeout(() => {
+        targetRef.current?.focus();
+      }, 60);
+    },
+    [],
+  );
+
+  const focusComposer = useCallback(() => {
+    scheduleFocus(composerRef);
+  }, [scheduleFocus]);
+
+  useEffect(() => {
+    return () => {
+      if (focusTimer.current) clearTimeout(focusTimer.current);
+    };
+  }, []);
+
+  const startReply = useCallback(
+    (message: api.Message) => {
+      if (message.deletedAt || message.type === 'call') return;
+      setReplyTo(message);
+      setEditing(undefined);
+      setActionTarget(undefined);
+      focusComposer();
+    },
+    [focusComposer],
+  );
+
   function showActions(message: api.Message) {
     if (message.deletedAt || message.type === 'call') return;
+    triggerTouchHaptic(10);
     setActionTarget(message);
     void loadReactions(message.id);
   }
@@ -840,17 +883,6 @@ export function Chat({
           </View>
         </Pressable>
         <View style={styles.chatActionGroup}>
-          <Pressable
-            accessibilityLabel="Tìm trong cuộc trò chuyện"
-            accessibilityRole="button"
-            onPress={() => {
-              setSearchOpen(prev => !prev);
-              if (searchOpen) setSearchQuery('');
-            }}
-            style={styles.infoButton}
-          >
-            <Text style={styles.infoButtonText}>⌕</Text>
-          </Pressable>
           {(['audio', 'video'] as const).map(type => (
             <Pressable
               key={type}
@@ -869,12 +901,13 @@ export function Chat({
             </Pressable>
           ))}
           <Pressable
-            accessibilityLabel="Thông tin cuộc trò chuyện"
+            accessibilityLabel="Thêm tiện ích cuộc trò chuyện"
             accessibilityRole="button"
-            onPress={() => setInfoOpen(true)}
-            style={styles.infoButton}
+            accessibilityState={{ expanded: headerMenuOpen }}
+            onPress={() => setHeaderMenuOpen(true)}
+            style={[styles.infoButton, searchOpen && styles.infoButtonActive]}
           >
-            <Text style={styles.infoButtonText}>i</Text>
+            <Text style={styles.infoButtonText}>⋯</Text>
           </Pressable>
         </View>
       </View>
@@ -882,6 +915,7 @@ export function Chat({
         <View style={styles.chatSearchBar}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput
+            ref={searchInputRef}
             accessibilityLabel="Tìm tin nhắn trong cuộc trò chuyện"
             autoFocus
             onChangeText={setSearchQuery}
@@ -990,58 +1024,73 @@ export function Chat({
                       {memberName(item.senderId)}
                     </Text>
                   )}
-                  <Pressable
-                    accessibilityHint="Nhấn giữ để bày tỏ cảm xúc hoặc thao tác"
-                    accessibilityRole="button"
-                    delayLongPress={280}
-                    onLongPress={() => showActions(item)}
-                    style={[
-                      styles.bubble,
-                      mine ? styles.bubbleMine : styles.bubblePeer,
-                    ]}
+                  <SwipeableMessageBubble
+                    disabled={!!item.deletedAt || item.type === 'call'}
+                    message={item}
+                    mine={mine}
+                    onReply={startReply}
                   >
-                    <MessageMedia
-                      loading={!!mediaLoading[item.id]}
-                      localPath={mediaPaths[item.id]}
-                      message={item}
-                      mine={mine}
-                      onLoad={() => void downloadMedia(item)}
-                      onOpen={() => void openMedia(item)}
-                      onPlay={() => void playVoice(item).catch(fail)}
-                      playing={playingMessage === item.id}
-                    />
-                    {(item.type === 'text' || !!item.deletedAt) && (
-                      <Text
-                        style={[
-                          styles.messageText,
-                          mine && styles.messageTextMine,
-                          !!item.deletedAt && styles.deletedMessage,
-                        ]}
-                      >
-                        {messageLabel(item)}
-                      </Text>
-                    )}
-                    <View style={styles.messageTimeRow}>
-                      {!!item.editedAt && !item.deletedAt && (
+                    <Pressable
+                      accessibilityHint={
+                        item.deletedAt || item.type === 'call'
+                          ? undefined
+                          : 'Vuốt ngang để trả lời hoặc nhấn giữ để bày tỏ cảm xúc'
+                      }
+                      accessibilityRole="button"
+                      delayLongPress={280}
+                      onLongPress={() => showActions(item)}
+                      style={({ pressed }) => [
+                        styles.bubble,
+                        mine ? styles.bubbleMine : styles.bubblePeer,
+                        pressed &&
+                          !item.deletedAt &&
+                          item.type !== 'call' &&
+                          styles.bubblePressed,
+                      ]}
+                    >
+                      <MessageMedia
+                        loading={!!mediaLoading[item.id]}
+                        localPath={mediaPaths[item.id]}
+                        message={item}
+                        mine={mine}
+                        onLoad={() => void downloadMedia(item)}
+                        onOpen={() => void openMedia(item)}
+                        onPlay={() => void playVoice(item).catch(fail)}
+                        playing={playingMessage === item.id}
+                      />
+                      {(item.type === 'text' || !!item.deletedAt) && (
                         <Text
                           style={[
-                            styles.editedLabel,
+                            styles.messageText,
+                            mine && styles.messageTextMine,
+                            !!item.deletedAt && styles.deletedMessage,
+                          ]}
+                        >
+                          {messageLabel(item)}
+                        </Text>
+                      )}
+                      <View style={styles.messageTimeRow}>
+                        {!!item.editedAt && !item.deletedAt && (
+                          <Text
+                            style={[
+                              styles.editedLabel,
+                              mine && styles.bubbleTimeMine,
+                            ]}
+                          >
+                            đã sửa
+                          </Text>
+                        )}
+                        <Text
+                          style={[
+                            styles.bubbleTime,
                             mine && styles.bubbleTimeMine,
                           ]}
                         >
-                          đã sửa
+                          {shortTime(item.createdAt)}
                         </Text>
-                      )}
-                      <Text
-                        style={[
-                          styles.bubbleTime,
-                          mine && styles.bubbleTimeMine,
-                        ]}
-                      >
-                        {shortTime(item.createdAt)}
-                      </Text>
-                    </View>
-                  </Pressable>
+                      </View>
+                    </Pressable>
+                  </SwipeableMessageBubble>
                   {!!reactions[item.id]?.length && (
                     <View
                       style={[
@@ -1177,6 +1226,7 @@ export function Chat({
               </Pressable>
             )}
             <TextInput
+              ref={composerRef}
               accessibilityLabel="Nội dung tin nhắn"
               editable={!sending}
               maxLength={10000}
@@ -1241,26 +1291,37 @@ export function Chat({
             {actionTarget && (
               <>
                 <View style={styles.reactionPicker}>
-                  {['👍', '❤️', '😂', '😮', '😢', '😡'].map(emoji => (
-                    <Pressable
-                      key={emoji}
-                      accessibilityLabel={`Bày tỏ ${emoji}`}
-                      onPress={() => void react(actionTarget.id, emoji)}
-                      style={styles.reactionOption}
-                    >
-                      <Text style={styles.reactionEmoji}>{emoji}</Text>
-                    </Pressable>
-                  ))}
+                  {['👍', '❤️', '😂', '😮', '😢', '😡'].map(emoji => {
+                    const active = !!reactions[actionTarget.id]?.some(
+                      item => item.emoji === emoji && item.reacted,
+                    );
+                    return (
+                      <Pressable
+                        key={emoji}
+                        accessibilityHint={
+                          active
+                            ? 'Nhấn để gỡ cảm xúc này'
+                            : 'Nhấn để bày tỏ cảm xúc'
+                        }
+                        accessibilityLabel={`Bày tỏ ${emoji}`}
+                        accessibilityState={{ selected: active }}
+                        onPress={() => void react(actionTarget.id, emoji)}
+                        style={({ pressed }) => [
+                          styles.reactionOption,
+                          active && styles.reactionOptionActive,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text style={styles.reactionEmoji}>{emoji}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
                 <Text numberOfLines={2} style={styles.sheetSubtitle}>
                   {messageLabel(actionTarget)}
                 </Text>
                 <Pressable
-                  onPress={() => {
-                    setReplyTo(actionTarget);
-                    setEditing(undefined);
-                    setActionTarget(undefined);
-                  }}
+                  onPress={() => startReply(actionTarget)}
                   style={styles.sheetOption}
                 >
                   <View style={styles.sheetOptionIcon}>
@@ -1276,6 +1337,7 @@ export function Chat({
                         setReplyTo(undefined);
                         setBody(actionTarget.body ?? '');
                         setActionTarget(undefined);
+                        focusComposer();
                       }}
                       style={styles.sheetOption}
                     >
@@ -1396,6 +1458,64 @@ export function Chat({
                   <Text style={styles.sheetOptionIconText}>{option.icon}</Text>
                 </View>
                 <Text style={styles.sheetOptionText}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        animationType="fade"
+        transparent
+        visible={headerMenuOpen}
+        onRequestClose={() => setHeaderMenuOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setHeaderMenuOpen(false)}
+        >
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text numberOfLines={1} style={styles.sheetTitle}>
+              {title}
+            </Text>
+            <Text style={styles.sheetSubtitle}>Tiện ích cuộc trò chuyện</Text>
+            {[
+              {
+                icon: '⌕',
+                label: 'Tìm trong cuộc trò chuyện',
+                active: searchOpen,
+                act: () => {
+                  const next = !searchOpen;
+                  setSearchOpen(next);
+                  if (next) scheduleFocus(searchInputRef);
+                  else setSearchQuery('');
+                },
+              },
+              {
+                icon: 'i',
+                label: 'Thông tin cuộc trò chuyện',
+                active: false,
+                act: () => setInfoOpen(true),
+              },
+            ].map(option => (
+              <Pressable
+                key={option.label}
+                onPress={() => {
+                  setHeaderMenuOpen(false);
+                  option.act();
+                }}
+                style={[
+                  styles.sheetOption,
+                  option.active && styles.sheetOptionActive,
+                ]}
+              >
+                <View style={styles.sheetOptionIcon}>
+                  <Text style={styles.sheetOptionIconText}>{option.icon}</Text>
+                </View>
+                <Text style={styles.sheetOptionText}>{option.label}</Text>
+                {option.active && (
+                  <Text style={styles.sheetOptionBadge}>Đang mở</Text>
+                )}
               </Pressable>
             ))}
           </Pressable>

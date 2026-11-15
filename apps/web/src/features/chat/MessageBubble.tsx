@@ -1,5 +1,13 @@
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type TouchEvent,
+} from 'react';
 import { Avatar } from '../../components/Avatar';
-import { Gamepad2, Users, Zap, Clock3, Play } from 'lucide-react';
+import { Gamepad2, Users, Zap, Clock3, Play, Reply } from 'lucide-react';
 import {
   parseGameInviteBody,
   type Message,
@@ -10,11 +18,19 @@ import { sourceVersion, type AiKind } from '../ai/ai-model';
 import { GAME_INFO, type CaroSession, type GameType } from '../games/CaroGame';
 import { MessageMedia } from './ChatMedia';
 import { MessageActions } from './MessageActions';
-import { MessageReactions } from './MessageReactions';
+import { MessageReactions, useMessageReactions } from './MessageReactions';
 import { SentStatus } from './SentStatus';
 import { TranslationNote } from './TranslationNote';
 import { SpamWarning } from './SpamWarning';
 import { ReportButton } from '../reports/ReportDialog';
+import {
+  evaluateSwipeTouch,
+  isCoarseTouchDevice,
+  isTouchControlElement,
+  LONG_PRESS_DELAY_MS,
+  shouldCancelLongPress,
+  type SwipeAxis,
+} from './touch-message-gestures';
 
 export interface Translation {
   version: string;
@@ -92,11 +108,205 @@ export function MessageBubble({
     !!currentGame &&
     (!gameInvite.gameId || currentGame.id === gameInvite.gameId);
 
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [swiping, setSwiping] = useState(false);
+  const [swipeReady, setSwipeReady] = useState(false);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const suppressClick = useRef(false);
+  const suppressClickTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const touchState = useRef<{
+    startX: number;
+    startY: number;
+    axis: SwipeAxis;
+    ready: boolean;
+    hapticFired: boolean;
+    longPressTimer?: ReturnType<typeof setTimeout>;
+    scrollCleanup?: () => void;
+  } | null>(null);
+
+  const reactions = useMessageReactions({
+    message,
+    revision: reactionRevision,
+    open: reactionOpen || sheetOpen,
+    onClose: () => {
+      onCloseReactions();
+      setSheetOpen(false);
+    },
+    active,
+    enabled: !isCall,
+    realtimeConnected,
+  });
+
+  function clearTouchSession() {
+    if (!touchState.current) return;
+    if (touchState.current.longPressTimer !== undefined) {
+      clearTimeout(touchState.current.longPressTimer);
+    }
+    touchState.current.scrollCleanup?.();
+    touchState.current = null;
+  }
+
+  function armSuppressClick() {
+    suppressClick.current = true;
+    clearTimeout(suppressClickTimer.current);
+    suppressClickTimer.current = setTimeout(() => {
+      suppressClick.current = false;
+    }, 450);
+  }
+
+  useEffect(() => {
+    if (message.deletedAt) setSheetOpen(false);
+  }, [message.deletedAt]);
+
+  useEffect(
+    () => () => {
+      clearTouchSession();
+      clearTimeout(suppressClickTimer.current);
+    },
+    [],
+  );
+
+  function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
+    if (isCall || message.deletedAt || sheetOpen) return;
+    if (event.touches.length !== 1) {
+      clearTouchSession();
+      setSwiping(false);
+      setSwipeReady(false);
+      setSwipeOffset(0);
+      return;
+    }
+    if (isTouchControlElement(event.target)) return;
+    const touch = event.touches[0];
+    clearTouchSession();
+
+    const timeline = bubbleRef.current?.closest('.message-timeline');
+    const cancelHold = () => {
+      if (touchState.current?.longPressTimer !== undefined) {
+        clearTimeout(touchState.current.longPressTimer);
+        touchState.current.longPressTimer = undefined;
+      }
+    };
+    const onScroll = () => cancelHold();
+    if (timeline)
+      timeline.addEventListener('scroll', onScroll, { passive: true });
+
+    const longPressTimer = setTimeout(() => {
+      const current = touchState.current;
+      if (!current || current.axis !== 'undecided') return;
+      current.scrollCleanup?.();
+      touchState.current = null;
+      window.getSelection()?.removeAllRanges();
+      armSuppressClick();
+      try {
+        navigator.vibrate?.(12);
+      } catch {
+        /* Vibration API unsupported in some mobile WebViews. */
+      }
+      setSheetOpen(true);
+    }, LONG_PRESS_DELAY_MS);
+
+    touchState.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      axis: 'undecided',
+      ready: false,
+      hapticFired: false,
+      longPressTimer,
+      scrollCleanup: () => {
+        if (timeline) timeline.removeEventListener('scroll', onScroll);
+      },
+    };
+  }
+
+  function handleTouchMove(event: TouchEvent<HTMLDivElement>) {
+    const current = touchState.current;
+    if (!current || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const dx = touch.clientX - current.startX;
+    const dy = touch.clientY - current.startY;
+    if (shouldCancelLongPress(dx, dy) && current.longPressTimer !== undefined) {
+      clearTimeout(current.longPressTimer);
+      current.longPressTimer = undefined;
+      current.scrollCleanup?.();
+    }
+    const evaluated = evaluateSwipeTouch({
+      startX: current.startX,
+      startY: current.startY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+      mine,
+      axis: current.axis,
+    });
+    current.axis = evaluated.axis;
+    current.ready = evaluated.ready;
+    if (evaluated.axis === 'horizontal') {
+      setSwiping(true);
+      setSwipeOffset(evaluated.offsetX);
+      setSwipeReady(evaluated.ready);
+      if (evaluated.ready && !current.hapticFired) {
+        current.hapticFired = true;
+        try {
+          navigator.vibrate?.(10);
+        } catch {
+          /* Ignore unsupported haptic feedback. */
+        }
+      }
+    }
+  }
+
+  function finishTouch() {
+    const session = touchState.current;
+    clearTouchSession();
+    if (!session) return;
+    if (session.axis === 'horizontal') armSuppressClick();
+    if (session.ready) onReply(message);
+    setSwiping(false);
+    setSwipeReady(false);
+    setSwipeOffset(0);
+  }
+
+  function handleClickCapture(event: MouseEvent<HTMLDivElement>) {
+    if (!suppressClick.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressClick.current = false;
+  }
+
+  function handleContextMenu(event: MouseEvent<HTMLDivElement>) {
+    if (!isCall && !message.deletedAt && isCoarseTouchDevice()) {
+      event.preventDefault();
+    }
+  }
+
   return (
     <div
+      ref={bubbleRef}
       data-message-id={message.id}
-      className={`chat-message ${mine ? 'mine' : ''}${isCall ? ' call-event' : ''}${message.content?.callStatus === 'missed' ? ' missed-call' : ''}${continuesGroup ? ' continues-group' : ''}`}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={finishTouch}
+      onTouchCancel={finishTouch}
+      onClickCapture={handleClickCapture}
+      onContextMenu={handleContextMenu}
+      style={
+        swipeOffset !== 0
+          ? ({ '--swipe-x': `${swipeOffset}px` } as CSSProperties)
+          : undefined
+      }
+      className={`chat-message ${mine ? 'mine' : ''}${isCall ? ' call-event' : ''}${message.content?.callStatus === 'missed' ? ' missed-call' : ''}${continuesGroup ? ' continues-group' : ''}${!isCall && !message.deletedAt ? ' has-swipe-motion' : ''}${swiping ? ' is-swiping' : ''}${sheetOpen && !message.deletedAt ? ' is-sheet-target' : ''}`}
     >
+      {(swiping || swipeOffset !== 0) && !isCall && !message.deletedAt && (
+        <span
+          className={`swipe-reply-indicator${swipeReady ? ' is-ready' : ''}`}
+          style={{ opacity: Math.min(1, Math.abs(swipeOffset) / 36) }}
+          aria-hidden="true"
+        >
+          <Reply size={16} strokeWidth={2.2} />
+        </span>
+      )}
       {isCall && message.content?.callId && (
         <div className="message-tools call-report-tools">
           <ReportButton
@@ -116,6 +326,11 @@ export function MessageBubble({
             message={message}
             mine={mine}
             isGroup={isGroup}
+            senderName={names(message.senderId)}
+            gameTitle={gameMeta?.name}
+            mobileSheetOpen={sheetOpen && !message.deletedAt}
+            onCloseMobileSheet={() => setSheetOpen(false)}
+            reactions={reactions}
             onUpdate={onUpdate}
             onReply={onReply}
             onReact={onReact}
@@ -123,11 +338,9 @@ export function MessageBubble({
           />
           <MessageReactions
             message={message}
-            revision={reactionRevision}
             open={reactionOpen}
             onClose={onCloseReactions}
-            active={active}
-            realtimeConnected={realtimeConnected}
+            controller={reactions}
           />
         </>
       )}

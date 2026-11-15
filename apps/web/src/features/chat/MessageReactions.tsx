@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import * as api from '../../lib/api';
 import type { Message } from '../../lib/chat-model';
 
-const emojis = [
+export const MESSAGE_REACTION_EMOJIS = [
   { emoji: '❤️', name: 'Yêu thích' },
   { emoji: '😂', name: 'Haha' },
   { emoji: '😮', name: 'Ngạc nhiên' },
@@ -11,29 +11,43 @@ const emojis = [
   { emoji: '😡', name: 'Tức giận' },
   { emoji: '👍', name: 'Thích' },
 ];
-interface Item {
+export interface ReactionItem {
   emoji: string;
   count: number;
   reacted: boolean;
 }
+export interface MessageReactionController {
+  items: ReactionItem[];
+  busy: boolean;
+  error: string;
+  react: (emoji: string) => Promise<void>;
+}
 const REACTION_CACHE_TTL_MS = 30_000;
 const reactionCache = new Map<
   string,
-  { items: Item[]; revision: number; fetchedAt: number }
+  { items: ReactionItem[]; revision: number; fetchedAt: number }
 >();
-function rememberReaction(key: string, items: Item[], revision: number) {
+function rememberReaction(
+  key: string,
+  items: ReactionItem[],
+  revision: number,
+) {
   reactionCache.delete(key);
   reactionCache.set(key, { items, revision, fetchedAt: Date.now() });
   if (reactionCache.size > 500)
     reactionCache.delete(reactionCache.keys().next().value!);
 }
 
-export function MessageReactions({
+/**
+ * Loads, caches, and toggles reactions for a single timeline message.
+ */
+export function useMessageReactions({
   message,
   revision,
   open,
   onClose,
   active,
+  enabled = true,
   realtimeConnected,
 }: {
   message: Message;
@@ -41,10 +55,11 @@ export function MessageReactions({
   open: boolean;
   onClose: () => void;
   active: boolean;
+  enabled?: boolean;
   realtimeConnected: boolean;
-}) {
+}): MessageReactionController {
   const cacheKey = `${api.currentUserId() ?? 'anon'}:${message.id}`;
-  const [items, setItems] = useState<Item[]>(() => {
+  const [items, setItems] = useState<ReactionItem[]>(() => {
     const cached = reactionCache.get(cacheKey);
     return cached && cached.revision === revision ? cached.items : [];
   });
@@ -52,11 +67,10 @@ export function MessageReactions({
   const [error, setError] = useState('');
   const generation = useRef(0);
   const mounted = useRef(true);
-  const dialog = useRef<HTMLDivElement>(null);
   const path = `/conversations/${message.conversationId}/messages/${message.id}`;
   const [visible, setVisible] = useState(false);
   useEffect(() => {
-    if (!active) return;
+    if (!active || !enabled) return;
     const element = document.querySelector(
       `[data-message-id="${CSS.escape(message.id)}"]`,
     );
@@ -67,7 +81,7 @@ export function MessageReactions({
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [active, message.id]);
+  }, [active, enabled, message.id]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -78,7 +92,7 @@ export function MessageReactions({
   async function load() {
     const version = ++generation.current;
     try {
-      const result = await api.authenticated<{ items: Item[] }>(
+      const result = await api.authenticated<{ items: ReactionItem[] }>(
         `${path}/reactions`,
       );
       rememberReaction(cacheKey, result.items, revision);
@@ -90,7 +104,7 @@ export function MessageReactions({
     }
   }
   useEffect(() => {
-    if (!active || message.deletedAt) {
+    if (!active || !enabled || message.deletedAt) {
       reactionCache.delete(cacheKey);
       setItems([]);
       generation.current++;
@@ -113,12 +127,17 @@ export function MessageReactions({
       clearInterval(timer);
       generation.current++;
     };
-  }, [revision, active, message.deletedAt, open, realtimeConnected, visible]);
+  }, [
+    revision,
+    active,
+    enabled,
+    message.deletedAt,
+    open,
+    realtimeConnected,
+    visible,
+  ]);
   useEffect(() => {
-    if (open) {
-      setError('');
-      dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    }
+    if (open) setError('');
   }, [open]);
   async function react(emoji: string) {
     if (busy) return;
@@ -127,7 +146,7 @@ export function MessageReactions({
     generation.current++;
     try {
       const remove = items.some((item) => item.emoji === emoji && item.reacted);
-      const result = await api.authenticated<{ items: Item[] }>(
+      const result = await api.authenticated<{ items: ReactionItem[] }>(
         `${path}/reaction`,
         remove ? undefined : { emoji },
         remove ? 'DELETE' : 'PUT',
@@ -144,6 +163,27 @@ export function MessageReactions({
       if (mounted.current) setBusy(false);
     }
   }
+  return { items, busy, error, react };
+}
+
+export function MessageReactions({
+  message,
+  open,
+  onClose,
+  controller,
+}: {
+  message: Message;
+  open: boolean;
+  onClose: () => void;
+  controller: MessageReactionController;
+}) {
+  const { items, busy, error, react } = controller;
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open) {
+      dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    }
+  }, [open]);
   if (message.deletedAt) return null;
   return (
     <>
@@ -206,7 +246,7 @@ export function MessageReactions({
               }}
             >
               <div className="emoji-options">
-                {emojis.map(({ emoji, name }) => (
+                {MESSAGE_REACTION_EMOJIS.map(({ emoji, name }) => (
                   <button
                     key={emoji}
                     type="button"

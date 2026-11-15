@@ -1,13 +1,60 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  Copy,
+  Flag,
+  Forward,
+  Languages,
+  Pencil,
+  Pin,
+  PinOff,
+  Reply,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import * as api from '../../lib/api';
 import type { Message } from '../../lib/chat-model';
 import { ReportDialog, type ReportTarget } from '../reports/ReportDialog';
+import {
+  MESSAGE_REACTION_EMOJIS,
+  type MessageReactionController,
+} from './MessageReactions';
+import { summarizeMessageForSheet } from './touch-message-gestures';
+
+async function copyMessageText(value: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      /* Fallback below supports restricted mobile WebViews. */
+    }
+  }
+  try {
+    const helper = document.createElement('textarea');
+    helper.value = value;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.opacity = '0';
+    document.body.appendChild(helper);
+    helper.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(helper);
+    return copied;
+  } catch {
+    return false;
+  }
+}
 
 export function MessageActions({
   message,
   pinned,
   mine,
+  senderName,
+  gameTitle,
+  mobileSheetOpen = false,
+  onCloseMobileSheet,
+  reactions,
   onUpdate,
   onReply,
   onReact,
@@ -17,23 +64,29 @@ export function MessageActions({
   pinned?: boolean;
   mine: boolean;
   isGroup?: boolean;
+  senderName?: string;
+  gameTitle?: string;
+  mobileSheetOpen?: boolean;
+  onCloseMobileSheet?: () => void;
+  reactions?: MessageReactionController;
   onUpdate: (message: Message) => void;
   onReply: (message: Message) => void;
   onReact: () => void;
   onAi?: (kind: 'replies' | 'translate') => void;
 }) {
   const isText = !message.type || message.type === 'text';
-  const [pinNotice, setPinNotice] = useState('');
+  const [toastNotice, setToastNotice] = useState('');
   useEffect(() => {
-    if (!pinNotice) return;
-    const timer = window.setTimeout(() => setPinNotice(''), 2800);
+    if (!toastNotice) return;
+    const timer = window.setTimeout(() => setToastNotice(''), 2800);
     return () => window.clearTimeout(timer);
-  }, [pinNotice]);
+  }, [toastNotice]);
   const [report, setReport] = useState<ReportTarget>();
   const [mode, setMode] = useState<'forward' | 'edit' | 'recall'>();
   const [menu, setMenu] = useState<{ left: number; top: number }>();
   const menuButton = useRef<HTMLButtonElement>(null);
   const menuElement = useRef<HTMLDivElement>(null);
+  const sheetElement = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menu) return;
     menuElement.current?.querySelector<HTMLButtonElement>('button')?.focus();
@@ -54,6 +107,10 @@ export function MessageActions({
       document.removeEventListener('scroll', reposition, true);
     };
   }, [menu]);
+  useEffect(() => {
+    if (!mobileSheetOpen) return;
+    sheetElement.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, [mobileSheetOpen]);
   function toggleMenu() {
     if (menu) {
       setMenu(undefined);
@@ -186,6 +243,194 @@ export function MessageActions({
     }
   }
   if (message.deletedAt) return null;
+
+  const closeOverlays = () => {
+    setMenu(undefined);
+    onCloseMobileSheet?.();
+  };
+
+  async function togglePin() {
+    closeOverlays();
+    try {
+      await api.authenticated(
+        `/conversations/${message.conversationId}/pins/${message.id}`,
+        undefined,
+        pinned ? 'DELETE' : 'PUT',
+      );
+      setError('');
+      setToastNotice(
+        pinned ? '📌 Đã bỏ ghim tin nhắn.' : '📌 Đã ghim tin nhắn.',
+      );
+      window.dispatchEvent(
+        new CustomEvent('chat:pins', {
+          detail: message.conversationId,
+        }),
+      );
+    } catch (e) {
+      setToastNotice(api.errorMessage(e));
+    }
+  }
+
+  interface ActionEntry {
+    key: string;
+    label: string;
+    icon: ReactNode;
+    danger?: boolean;
+    mobileOnly?: boolean;
+    onSelect: () => void;
+  }
+
+  const actions: ActionEntry[] = [
+    {
+      key: 'reply',
+      label: 'Trả lời',
+      icon: <Reply size={18} aria-hidden="true" />,
+      mobileOnly: true,
+      onSelect: () => {
+        closeOverlays();
+        onReply(message);
+      },
+    },
+    ...(isText && message.body?.trim()
+      ? [
+          {
+            key: 'copy',
+            label: 'Sao chép',
+            icon: <Copy size={18} aria-hidden="true" />,
+            mobileOnly: true,
+            onSelect: () => {
+              closeOverlays();
+              void copyMessageText(message.body ?? '').then((ok) =>
+                setToastNotice(
+                  ok
+                    ? '📋 Đã sao chép tin nhắn.'
+                    : 'Không thể sao chép tự động trên trình duyệt này.',
+                ),
+              );
+            },
+          },
+        ]
+      : []),
+    {
+      key: 'pin',
+      label: pinned ? 'Bỏ ghim tin nhắn' : 'Ghim tin nhắn',
+      icon: pinned ? (
+        <PinOff size={18} aria-hidden="true" />
+      ) : (
+        <Pin size={18} aria-hidden="true" />
+      ),
+      onSelect: () => void togglePin(),
+    },
+    ...(message.type !== 'call'
+      ? [
+          {
+            key: 'forward',
+            label: 'Chuyển tiếp',
+            icon: <Forward size={18} aria-hidden="true" />,
+            onSelect: () => {
+              closeOverlays();
+              void open('forward');
+            },
+          },
+        ]
+      : []),
+    ...(isText && onAi
+      ? [
+          {
+            key: 'ai-replies',
+            label: 'Gợi ý trả lời với AI',
+            icon: <Sparkles size={18} aria-hidden="true" />,
+            onSelect: () => {
+              closeOverlays();
+              onAi('replies');
+            },
+          },
+          {
+            key: 'ai-translate',
+            label: 'Dịch tin nhắn',
+            icon: <Languages size={18} aria-hidden="true" />,
+            onSelect: () => {
+              closeOverlays();
+              onAi('translate');
+            },
+          },
+        ]
+      : []),
+    ...(mine && isText
+      ? [
+          {
+            key: 'edit',
+            label: 'Sửa tin nhắn',
+            icon: <Pencil size={18} aria-hidden="true" />,
+            onSelect: () => {
+              closeOverlays();
+              void open('edit');
+            },
+          },
+        ]
+      : []),
+    ...(mine
+      ? [
+          {
+            key: 'recall',
+            label: 'Thu hồi',
+            icon: <Trash2 size={18} aria-hidden="true" />,
+            danger: true,
+            onSelect: () => {
+              closeOverlays();
+              void open('recall');
+            },
+          },
+        ]
+      : [
+          {
+            key: 'report-message',
+            label: 'Báo cáo tin nhắn',
+            icon: <Flag size={18} aria-hidden="true" />,
+            onSelect: () => {
+              closeOverlays();
+              setReport({
+                targetType: 'message',
+                targetId: message.id,
+                label: 'Báo cáo tin nhắn',
+              });
+            },
+          },
+          ...(message.type === 'image' && message.content?.attachmentId
+            ? [
+                {
+                  key: 'report-image',
+                  label: 'Báo cáo ảnh',
+                  icon: <Flag size={18} aria-hidden="true" />,
+                  onSelect: () => {
+                    closeOverlays();
+                    setReport({
+                      targetType: 'attachment',
+                      targetId: message.content!.attachmentId!,
+                      label: 'Báo cáo ảnh',
+                    });
+                  },
+                },
+              ]
+            : []),
+          {
+            key: 'report-sender',
+            label: 'Báo cáo người gửi',
+            icon: <Flag size={18} aria-hidden="true" />,
+            onSelect: () => {
+              closeOverlays();
+              setReport({
+                targetType: 'user',
+                targetId: message.senderId,
+                label: 'Báo cáo người gửi',
+              });
+            },
+          },
+        ]),
+  ];
+
+  const desktopActions = actions.filter((entry) => !entry.mobileOnly);
+
   return (
     <>
       <div className={`message-tools${menu ? ' menu-open' : ''}`}>
@@ -225,28 +470,26 @@ export function MessageActions({
             <path d="m9 4-6 6 6 6M3 10h9c6 0 9 4 9 10" />
           </svg>
         </button>
-        {
-          <button
-            type="button"
-            ref={menuButton}
-            aria-label="Thêm thao tác"
-            aria-haspopup="menu"
-            aria-expanded={!!menu}
-            onClick={toggleMenu}
+        <button
+          type="button"
+          ref={menuButton}
+          aria-label="Thêm thao tác"
+          aria-haspopup="menu"
+          aria-expanded={!!menu}
+          onClick={toggleMenu}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="12" cy="19" r="2" />
-            </svg>
-          </button>
-        }
+            <circle cx="12" cy="5" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="12" cy="19" r="2" />
+          </svg>
+        </button>
       </div>
       {menu &&
         createPortal(
@@ -281,140 +524,121 @@ export function MessageActions({
               }
             }}
           >
-            {!mine && (
-              <>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenu(undefined);
-                    setReport({
-                      targetType: 'message',
-                      targetId: message.id,
-                      label: 'Báo cáo tin nhắn',
-                    });
-                  }}
-                >
-                  Báo cáo tin nhắn
-                </button>
-                {message.type === 'image' && message.content?.attachmentId && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setMenu(undefined);
-                      setReport({
-                        targetType: 'attachment',
-                        targetId: message.content!.attachmentId!,
-                        label: 'Báo cáo ảnh',
-                      });
-                    }}
-                  >
-                    Báo cáo ảnh
-                  </button>
-                )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenu(undefined);
-                    setReport({
-                      targetType: 'user',
-                      targetId: message.senderId,
-                      label: 'Báo cáo người gửi',
-                    });
-                  }}
-                >
-                  Báo cáo người gửi
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={async () => {
-                setMenu(undefined);
-                try {
-                  await api.authenticated(
-                    `/conversations/${message.conversationId}/pins/${message.id}`,
-                    undefined,
-                    pinned ? 'DELETE' : 'PUT',
-                  );
-                  setError('');
-                  setPinNotice(
-                    pinned ? 'Đã bỏ ghim tin nhắn.' : 'Đã ghim tin nhắn.',
-                  );
-                  window.dispatchEvent(
-                    new CustomEvent('chat:pins', {
-                      detail: message.conversationId,
-                    }),
-                  );
-                } catch (e) {
-                  setPinNotice(api.errorMessage(e));
-                }
-              }}
-            >
-              {pinned ? 'Bỏ ghim tin nhắn' : 'Ghim tin nhắn'}
-            </button>
-            {isText && onAi && (
-              <>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenu(undefined);
-                    onAi('replies');
-                  }}
-                >
-                  Gợi ý trả lời với AI
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenu(undefined);
-                    onAi('translate');
-                  }}
-                >
-                  Dịch tin nhắn
-                </button>
-              </>
-            )}
-            {mine && (
+            {desktopActions.map((entry) => (
               <button
+                key={entry.key}
                 type="button"
                 role="menuitem"
-                onClick={() => void open('recall')}
+                className={entry.danger ? 'is-danger' : undefined}
+                onClick={entry.onSelect}
               >
-                Thu hồi
+                {entry.label}
               </button>
-            )}
-            {message.type !== 'call' && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void open('forward')}
-              >
-                Chuyển tiếp
-              </button>
-            )}
-            {mine && isText && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void open('edit')}
-              >
-                Sửa tin nhắn
-              </button>
-            )}
+            ))}
           </div>,
           document.body,
         )}
-      {pinNotice &&
+      {mobileSheetOpen &&
+        createPortal(
+          <div
+            className="message-sheet-backdrop"
+            onClick={(event) => {
+              if (
+                event.target === event.currentTarget &&
+                !(reactions?.busy ?? false)
+              )
+                onCloseMobileSheet?.();
+            }}
+          >
+            <section
+              ref={sheetElement}
+              className="message-bottom-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Thao tác tin nhắn"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !(reactions?.busy ?? false)) {
+                  onCloseMobileSheet?.();
+                }
+                if (event.key === 'Tab') {
+                  const buttons = Array.from(
+                    event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                      'button:not(:disabled)',
+                    ),
+                  );
+                  const first = buttons[0];
+                  const last = buttons.at(-1);
+                  if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last?.focus();
+                  } else if (
+                    !event.shiftKey &&
+                    document.activeElement === last
+                  ) {
+                    event.preventDefault();
+                    first?.focus();
+                  }
+                }
+              }}
+            >
+              <div className="message-sheet-handle" aria-hidden="true" />
+              {reactions && (
+                <div
+                  className="message-sheet-reactions"
+                  role="group"
+                  aria-label="Bày tỏ cảm xúc"
+                >
+                  {MESSAGE_REACTION_EMOJIS.map(({ emoji, name }) => {
+                    const reacted = reactions.items.some(
+                      (item) => item.emoji === emoji && item.reacted,
+                    );
+                    return (
+                      <button
+                        key={emoji}
+                        type="button"
+                        className={reacted ? 'is-reacted' : undefined}
+                        aria-label={name}
+                        aria-pressed={reacted}
+                        disabled={reactions.busy}
+                        onClick={() => void reactions.react(emoji)}
+                      >
+                        {emoji}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {reactions?.error && (
+                <p className="message error" role="alert">
+                  {reactions.error}
+                </p>
+              )}
+              <div className="message-sheet-preview">
+                {senderName && <strong>{mine ? 'Bạn' : senderName}</strong>}
+                <span>{summarizeMessageForSheet(message, gameTitle)}</span>
+              </div>
+              <div className="message-sheet-actions">
+                {actions.map((entry) => (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    className={`message-sheet-item${entry.danger ? ' is-danger' : ''}`}
+                    onClick={entry.onSelect}
+                  >
+                    <span className="message-sheet-icon">{entry.icon}</span>
+                    <span>{entry.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
+      {toastNotice &&
         createPortal(
           <div role="status" className="pin-feedback-toast">
-            <span>📌 {pinNotice}</span>
-            <button type="button" onClick={() => setPinNotice('')}>
+            <span>{toastNotice}</span>
+            <button type="button" onClick={() => setToastNotice('')}>
               Đóng
             </button>
           </div>,

@@ -1789,21 +1789,21 @@
     text-overflow: ellipsis;
   }
   .home-shell .chat-call-actions {
-    gap: 2px;
+    gap: 4px;
     flex-shrink: 0;
   }
   .home-shell .chat-call-actions .chat-info-button {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
-    min-height: 32px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
     padding: 0;
     margin-left: 0;
     color: #b75020;
   }
   .home-shell .chat-call-actions .chat-info-button svg {
-    width: 17px;
-    height: 17px;
+    width: 18px;
+    height: 18px;
   }
   .home-shell .workspace-toolbar {
     padding: 8px 12px;

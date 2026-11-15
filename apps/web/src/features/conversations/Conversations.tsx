@@ -22,7 +22,14 @@ import { playMessageSound } from '../../lib/notification-sounds';
 import { MessageMedia } from '../chat/ChatMedia';
 import { SharedMediaDialog } from './SharedMediaDialog';
 import { SharedFileRow } from './SharedFileRow';
-import { Bell, BellOff, Pin, Search, Sparkles } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  MoreHorizontal,
+  Pin,
+  Search,
+  Sparkles,
+} from 'lucide-react';
 import { GroupTools, MessageSearch } from '../workspace/WorkspacePanels';
 import type { Peer, Page } from '../../lib/types';
 import {
@@ -36,6 +43,7 @@ import {
 import { ActiveFriends, type FriendNote } from './ActiveFriends';
 import { ConversationSummaryPanel } from './ConversationSummaryPanel';
 import { ComposeForm } from './ComposeForm';
+import { HeaderOverflowSheet } from './HeaderOverflowSheet';
 import { ThreadListItem } from './ThreadListItem';
 import { ConversationCustomization } from './ConversationCustomization';
 
@@ -116,6 +124,24 @@ export function Conversations({
     .sort((a, b) => a.displayName.localeCompare(b.displayName, 'vi'));
   const [creating, setCreating] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  useEffect(() => {
+    setHeaderMenuOpen(false);
+  }, [selected?.id]);
+  function toggleWorkspacePanel(panel: 'search' | 'group') {
+    if (showInfo) {
+      setShowInfo(false);
+      setWorkspacePanel(panel);
+      return;
+    }
+    setWorkspacePanel((previous) => (previous === panel ? undefined : panel));
+  }
+  function toggleConversationInfo() {
+    if (!selected) return;
+    const next = !showInfo;
+    setShowInfo(next);
+    if (next) void run(() => detail(selected.id));
+  }
   const [filter, setFilter] = useState('');
   const [searchedMessages, setSearchedMessages] = useState<
     Pick<
@@ -1054,7 +1080,7 @@ export function Conversations({
               {onToggleAiChat && (
                 <button
                   type="button"
-                  className="chat-info-button ai-toolbar-toggle"
+                  className={`chat-info-button ai-toolbar-toggle${selected ? ' header-action-desktop-only' : ''}`}
                   title="Trợ lý PingPong AI"
                   aria-label="Trợ lý PingPong AI"
                   aria-pressed={aiChatOpen}
@@ -1067,16 +1093,17 @@ export function Conversations({
                 <>
                   <button
                     type="button"
-                    className="chat-info-button"
+                    className="chat-info-button header-action-desktop-only"
                     title="Tìm trong cuộc trò chuyện"
                     aria-label="Tìm trong cuộc trò chuyện"
-                    onClick={() => setWorkspacePanel('search')}
+                    aria-pressed={workspacePanel === 'search'}
+                    onClick={() => toggleWorkspacePanel('search')}
                   >
                     <Search size={18} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
-                    className="chat-info-button"
+                    className="chat-info-button header-action-desktop-only"
                     title={
                       selected.type === 'group'
                         ? 'Ghim & bình chọn'
@@ -1087,7 +1114,8 @@ export function Conversations({
                         ? 'Ghim & bình chọn'
                         : 'Tin nhắn đã ghim'
                     }
-                    onClick={() => setWorkspacePanel('group')}
+                    aria-pressed={workspacePanel === 'group'}
+                    onClick={() => toggleWorkspacePanel('group')}
                   >
                     <Pin size={18} aria-hidden="true" />
                   </button>
@@ -1113,21 +1141,45 @@ export function Conversations({
                   </button>
                   <button
                     type="button"
-                    className="chat-info-button"
+                    className="chat-info-button header-action-desktop-only"
                     aria-label="Thông tin cuộc trò chuyện"
                     aria-expanded={showInfo}
-                    onClick={() => {
-                      setShowInfo(!showInfo);
-                      if (!showInfo) void run(() => detail(selected.id));
-                    }}
+                    onClick={toggleConversationInfo}
                   >
                     <UiIcon name="info" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`chat-info-button header-more-mobile-only${aiChatOpen || workspacePanel || showInfo ? ' has-active' : ''}`}
+                    title="Thêm tiện ích"
+                    aria-label="Thêm tiện ích cuộc trò chuyện"
+                    aria-expanded={headerMenuOpen}
+                    aria-haspopup="dialog"
+                    onClick={() => setHeaderMenuOpen((open) => !open)}
+                  >
+                    <MoreHorizontal size={19} aria-hidden="true" />
                   </button>
                 </>
               )}
             </div>
           )}
         </div>
+        {selected && (
+          <HeaderOverflowSheet
+            open={headerMenuOpen}
+            title={heading ?? 'Cuộc trò chuyện'}
+            isGroup={selected.type === 'group'}
+            aiChatOpen={aiChatOpen}
+            canToggleAi={!!onToggleAiChat}
+            workspacePanel={workspacePanel}
+            showInfo={showInfo}
+            onClose={() => setHeaderMenuOpen(false)}
+            onToggleAi={() => onToggleAiChat?.()}
+            onToggleSearch={() => toggleWorkspacePanel('search')}
+            onTogglePins={() => toggleWorkspacePanel('group')}
+            onToggleInfo={toggleConversationInfo}
+          />
+        )}
         {workspacePanel === 'search' && selected && (
           <MessageSearch
             conversationId={selected.id}

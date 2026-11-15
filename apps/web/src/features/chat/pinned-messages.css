@@ -380,12 +380,13 @@
   animation: pinHighlightPulse 1.2s ease-out infinite alternate;
 }
 
-/* Floating toast when pinning/unpinning */
+/* Floating toast when pinning/unpinning or copying */
 .pin-feedback-toast {
   position: fixed;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
   z-index: 9999;
   display: inline-flex;
   align-items: center;
