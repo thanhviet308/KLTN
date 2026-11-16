@@ -45,7 +45,9 @@ export function ForgotPassword({
       </small>
     ) : null;
   function clear(field: string) {
-    setErrors((previous) => ({ ...previous, [field]: '' }));
+    setErrors((previous) =>
+      previous[field] ? { ...previous, [field]: '' } : previous,
+    );
   }
   async function sendCode() {
     const result = await api.requestPasswordReset(email.trim());

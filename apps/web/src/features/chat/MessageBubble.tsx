@@ -334,32 +334,24 @@ export function MessageBubble({
         </div>
       )}
       {!isCall && (
-        <>
-          <MessageActions
-            pinned={pinned}
-            message={message}
-            mine={mine}
-            isGroup={isGroup}
-            senderName={names(message.senderId)}
-            gameTitle={gameMeta?.name}
-            mobileSheetOpen={sheetOpen && !message.deletedAt}
-            onCloseMobileSheet={() => setSheetOpen(false)}
-            reactions={reactions}
-            onUpdate={onUpdate}
-            onReply={onReply}
-            onReact={onReact}
-            onAi={onAi}
-            onTranscribeVoice={
-              onTranscribeVoice ? () => onTranscribeVoice() : undefined
-            }
-          />
-          <MessageReactions
-            message={message}
-            open={reactionOpen}
-            onClose={onCloseReactions}
-            controller={reactions}
-          />
-        </>
+        <MessageActions
+          pinned={pinned}
+          message={message}
+          mine={mine}
+          isGroup={isGroup}
+          senderName={names(message.senderId)}
+          gameTitle={gameMeta?.name}
+          mobileSheetOpen={sheetOpen && !message.deletedAt}
+          onCloseMobileSheet={() => setSheetOpen(false)}
+          reactions={reactions}
+          onUpdate={onUpdate}
+          onReply={onReply}
+          onReact={onReact}
+          onAi={onAi}
+          onTranscribeVoice={
+            onTranscribeVoice ? () => onTranscribeVoice() : undefined
+          }
+        />
       )}
       {!mine && (
         <span
@@ -378,101 +370,113 @@ export function MessageBubble({
           />
         </span>
       )}
-      <div
-        tabIndex={0}
-        className={`message-body${isCall ? ' call-message-body' : ''}${
-          gameInvite ? ' game-invite-message-body' : ''
-        }`}
-      >
-        {!message.deletedAt && pinned && (
-          <small className="message-pin-tag">
-            📌 Đã ghim
-            <br />
-          </small>
-        )}
-        {!message.deletedAt && message.content?.forwarded && (
-          <small className="workspace-mention-label">
-            Đã chuyển tiếp
-            <br />
-          </small>
-        )}
-        {!message.deletedAt && !!message.content?.mentions?.length && (
-          <div className="workspace-mention-label">
-            Nhắc đến:{' '}
-            {message.content.mentions.map((id) => `@${names(id)}`).join(', ')}
-          </div>
-        )}
-        {message.deletedAt ? (
-          'Tin nhắn đã thu hồi'
-        ) : message.type && message.type !== 'text' ? (
-          <MessageMedia
-            message={message}
-            transcribing={voiceTranscript?.loading}
-            transcribed={!!voiceTranscript?.transcript}
-            onTranscribe={
-              message.type === 'voice' && onTranscribeVoice
-                ? () => onTranscribeVoice()
-                : undefined
-            }
-          />
-        ) : gameInvite ? (
-          <div className={`game-chat-invite-card${mine ? ' is-mine' : ''}`}>
-            <div className="game-chat-invite-header">
-              <span className="game-chat-invite-kicker">
-                {gameMeta?.groupOnly ? (
-                  <Users size={14} aria-hidden="true" />
-                ) : (
-                  <Gamepad2 size={14} aria-hidden="true" />
-                )}
-                {gameMeta?.groupOnly ? 'Nhóm' : 'Mời chơi'}
-              </span>
-              {gameMeta && (
-                <span className="game-chat-invite-badge">{gameMeta.badge}</span>
-              )}
+      <div className="message-bubble-slot">
+        <div
+          tabIndex={0}
+          className={`message-body${isCall ? ' call-message-body' : ''}${
+            gameInvite ? ' game-invite-message-body' : ''
+          }`}
+        >
+          {!message.deletedAt && pinned && (
+            <small className="message-pin-tag">
+              📌 Đã ghim
+              <br />
+            </small>
+          )}
+          {!message.deletedAt && message.content?.forwarded && (
+            <small className="workspace-mention-label">
+              Đã chuyển tiếp
+              <br />
+            </small>
+          )}
+          {!message.deletedAt && !!message.content?.mentions?.length && (
+            <div className="workspace-mention-label">
+              Nhắc đến:{' '}
+              {message.content.mentions.map((id) => `@${names(id)}`).join(', ')}
             </div>
-            <strong className="game-chat-invite-title">
-              {gameMeta?.name ?? 'Trò chơi trực tuyến'}
-            </strong>
-            <p className="game-chat-invite-desc">
-              {gameMeta?.subtitle ?? gameInvite.text}
-            </p>
-            <div className="game-chat-invite-footer">
-              {isThisGame && currentGame.status === 'invited' && !mine ? (
-                <button
-                  type="button"
-                  className="game-chat-invite-btn is-accept"
-                  onClick={() => {
-                    if (onAcceptGame && currentGame.id) {
-                      onAcceptGame(currentGame.id);
-                    } else {
-                      onOpenGame?.();
-                    }
-                  }}
-                >
-                  <Zap size={16} aria-hidden="true" /> Chấp nhận & chơi
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="game-chat-invite-btn"
-                  onClick={() => onOpenGame?.()}
-                >
-                  {isThisGame && currentGame.status === 'invited' ? (
-                    <Clock3 size={16} aria-hidden="true" />
+          )}
+          {message.deletedAt ? (
+            'Tin nhắn đã thu hồi'
+          ) : message.type && message.type !== 'text' ? (
+            <MessageMedia
+              message={message}
+              transcribing={voiceTranscript?.loading}
+              transcribed={!!voiceTranscript?.transcript}
+              onTranscribe={
+                message.type === 'voice' && onTranscribeVoice
+                  ? () => onTranscribeVoice()
+                  : undefined
+              }
+            />
+          ) : gameInvite ? (
+            <div className={`game-chat-invite-card${mine ? ' is-mine' : ''}`}>
+              <div className="game-chat-invite-header">
+                <span className="game-chat-invite-kicker">
+                  {gameMeta?.groupOnly ? (
+                    <Users size={14} aria-hidden="true" />
                   ) : (
-                    <Play size={16} aria-hidden="true" />
+                    <Gamepad2 size={14} aria-hidden="true" />
                   )}
-                  {isThisGame && currentGame.status === 'invited'
-                    ? 'Phòng chờ'
-                    : isThisGame && currentGame.status === 'active'
-                      ? 'Vào bàn chơi'
-                      : 'Mở bàn chơi'}
-                </button>
-              )}
+                  {gameMeta?.groupOnly ? 'Nhóm' : 'Mời chơi'}
+                </span>
+                {gameMeta && (
+                  <span className="game-chat-invite-badge">
+                    {gameMeta.badge}
+                  </span>
+                )}
+              </div>
+              <strong className="game-chat-invite-title">
+                {gameMeta?.name ?? 'Trò chơi trực tuyến'}
+              </strong>
+              <p className="game-chat-invite-desc">
+                {gameMeta?.subtitle ?? gameInvite.text}
+              </p>
+              <div className="game-chat-invite-footer">
+                {isThisGame && currentGame.status === 'invited' && !mine ? (
+                  <button
+                    type="button"
+                    className="game-chat-invite-btn is-accept"
+                    onClick={() => {
+                      if (onAcceptGame && currentGame.id) {
+                        onAcceptGame(currentGame.id);
+                      } else {
+                        onOpenGame?.();
+                      }
+                    }}
+                  >
+                    <Zap size={16} aria-hidden="true" /> Chấp nhận & chơi
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="game-chat-invite-btn"
+                    onClick={() => onOpenGame?.()}
+                  >
+                    {isThisGame && currentGame.status === 'invited' ? (
+                      <Clock3 size={16} aria-hidden="true" />
+                    ) : (
+                      <Play size={16} aria-hidden="true" />
+                    )}
+                    {isThisGame && currentGame.status === 'invited'
+                      ? 'Phòng chờ'
+                      : isThisGame && currentGame.status === 'active'
+                        ? 'Vào bàn chơi'
+                        : 'Mở bàn chơi'}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
-          message.body
+          ) : (
+            message.body
+          )}
+        </div>
+        {!isCall && (
+          <MessageReactions
+            message={message}
+            open={reactionOpen}
+            onClose={onCloseReactions}
+            controller={reactions}
+          />
         )}
       </div>
       {!mine &&
@@ -508,6 +512,7 @@ export function MessageBubble({
         <SentStatus
           readers={readers}
           delivered={delivered}
+          peers={peers}
           names={names}
           onOpen={onOpenReceipts}
         />

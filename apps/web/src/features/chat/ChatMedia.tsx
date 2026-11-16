@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Plus, Sparkles } from 'lucide-react';
 import { UiIcon } from '../../components/UiIcon';
 import { LocationMap } from './LocationMap';
 import {
@@ -29,10 +29,14 @@ export interface MediaDraft {
 
 export function MediaTools({
   disabled,
+  hasOpenGame,
+  onOpenGame,
   onSend,
   onError,
 }: {
   disabled: boolean;
+  hasOpenGame?: boolean;
+  onOpenGame?: () => void;
   onSend: (draft: MediaDraft) => Promise<void>;
   onError: (error: string) => void;
 }) {
@@ -40,6 +44,26 @@ export function MediaTools({
   const [seconds, setSeconds] = useState(0);
   const [starting, setStarting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const attachWrap = useRef<HTMLDivElement>(null);
+  const menuOpen = attachOpen && !disabled && !busy && !recording;
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!attachWrap.current?.contains(event.target as Node)) {
+        setAttachOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAttachOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
   const [location, setLocation] = useState<MediaDraft['location']>();
   const [locationOpen, setLocationOpen] = useState(false);
   const [locationError, setLocationError] = useState('');
@@ -374,16 +398,80 @@ export function MediaTools({
             });
         }}
       />
-      <button
-        className="media-file-button"
-        type="button"
-        disabled={disabled || busy || recording}
-        onClick={() => input.current?.click()}
-        aria-label="Gửi ảnh hoặc tệp"
-        title="Gửi ảnh hoặc tệp"
-      >
-        <UiIcon name="image" />
-      </button>
+      {!recording && (
+        <div ref={attachWrap} className="composer-more-wrap">
+          <button
+            className={`composer-more-button${menuOpen ? ' is-open' : ''}${hasOpenGame ? ' has-open-game' : ''}`}
+            type="button"
+            disabled={disabled || busy}
+            onClick={() => setAttachOpen((open) => !open)}
+            aria-label="Mở menu đính kèm"
+            title="Thêm vào tin nhắn"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+          >
+            <Plus size={20} aria-hidden="true" />
+            {hasOpenGame && (
+              <span className="composer-game-badge" aria-hidden="true" />
+            )}
+          </button>
+          {menuOpen && (
+            <div
+              className="composer-attach-menu"
+              role="menu"
+              aria-label="Thêm vào tin nhắn"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="composer-attach-item"
+                onClick={() => {
+                  setAttachOpen(false);
+                  input.current?.click();
+                }}
+              >
+                <span className="composer-attach-icon" aria-hidden="true">
+                  <UiIcon name="image" size={18} />
+                </span>
+                <span>Ảnh hoặc tệp</span>
+              </button>
+              {onOpenGame && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`composer-attach-item${hasOpenGame ? ' is-highlighted' : ''}`}
+                  onClick={() => {
+                    setAttachOpen(false);
+                    onOpenGame();
+                  }}
+                >
+                  <span className="composer-attach-icon" aria-hidden="true">
+                    <UiIcon name="game" size={18} />
+                  </span>
+                  <span>Trò chơi trong chat</span>
+                  {hasOpenGame && (
+                    <span className="composer-attach-pill">Đang chơi</span>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                className="composer-attach-item"
+                onClick={() => {
+                  setAttachOpen(false);
+                  locate();
+                }}
+              >
+                <span className="composer-attach-icon" aria-hidden="true">
+                  <UiIcon name="location" size={18} />
+                </span>
+                <span>Chia sẻ vị trí</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {recording ? (
         <>
           <button
@@ -440,16 +528,6 @@ export function MediaTools({
           <UiIcon name="microphone" />
         </button>
       )}
-      <button
-        className="media-location-button"
-        type="button"
-        disabled={disabled || busy || recording}
-        onClick={locate}
-        aria-label="Chia sẻ vị trí hiện tại"
-        title="Chia sẻ vị trí hiện tại"
-      >
-        <UiIcon name="location" />
-      </button>
       {busy && !locationOpen && (
         <span className="media-status" role="status">
           {starting ? 'Đang chờ quyền truy cập micro…' : 'Đang xử lý…'}

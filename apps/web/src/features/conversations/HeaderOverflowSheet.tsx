@@ -1,10 +1,17 @@
-import { useEffect, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Pin, Search, Sparkles } from 'lucide-react';
 import { UiIcon } from '../../components/UiIcon';
 
 export interface HeaderOverflowSheetProps {
   open: boolean;
+  anchorRef?: RefObject<HTMLButtonElement | null>;
   title: string;
   isGroup: boolean;
   aiChatOpen: boolean;
@@ -28,6 +35,7 @@ interface OverflowActionItem {
 
 export function HeaderOverflowSheet({
   open,
+  anchorRef,
   title,
   isGroup,
   aiChatOpen,
@@ -40,6 +48,8 @@ export function HeaderOverflowSheet({
   onTogglePins,
   onToggleInfo,
 }: HeaderOverflowSheetProps) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -48,6 +58,27 @@ export function HeaderOverflowSheet({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const sheet = sheetRef.current;
+      const anchor = anchorRef?.current;
+      if (!sheet || !anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const top = Math.max(12, Math.round(rect.bottom + 8));
+      const right = Math.max(12, Math.round(window.innerWidth - rect.right));
+      sheet.style.setProperty('--anchor-top', `${top}px`);
+      sheet.style.setProperty('--anchor-right', `${right}px`);
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, anchorRef]);
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -88,12 +119,13 @@ export function HeaderOverflowSheet({
 
   return createPortal(
     <div
-      className="message-sheet-backdrop"
+      className="message-sheet-backdrop is-header-menu"
       role="presentation"
       onClick={onClose}
     >
       <div
-        className="message-bottom-sheet"
+        ref={sheetRef}
+        className="message-bottom-sheet is-header-menu"
         role="dialog"
         aria-modal="true"
         aria-label="Tiện ích cuộc trò chuyện"

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
-import * as api from '../lib/api';
+import { acquireChatSocket } from '../lib/realtime';
 
 export interface Presence {
   online: boolean;
@@ -34,27 +33,9 @@ export function usePresence(userId: string) {
   const [presence, setPresence] = useState<Record<string, Presence>>({});
   useEffect(() => {
     let stopped = false;
-    let refreshing = false;
-    let currentToken = '';
     let syncing = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-    const client = io(`${api.API_ORIGIN}/chat`, {
-      transports: ['websocket'],
-      autoConnect: false,
-      auth: (done) => {
-        void api.accessToken().then(
-          (accessToken) => {
-            if (!stopped) {
-              currentToken = accessToken;
-              done({ accessToken });
-            }
-          },
-          () => {
-            if (!stopped) done({});
-          },
-        );
-      },
-    });
+    const hub = acquireChatSocket(userId);
+    const client = hub.socket;
     const sync = () => {
       if (!client.connected || syncing) return;
       syncing = true;
@@ -76,39 +57,21 @@ export function usePresence(userId: string) {
         },
       );
     };
-    client.on('connect', sync);
-    client.on('disconnect', (reason) => {
+    const onDisconnect = () => {
       syncing = false;
       setPresence({});
-      if (!stopped && reason === 'io server disconnect') {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => {
-          if (!stopped) client.connect();
-        }, 1000);
-      }
-    });
-    client.on('connect_error', () => setPresence({}));
-    client.connect();
+    };
+    const onConnectError = () => {
+      syncing = false;
+      setPresence({});
+    };
+    client.on('connect', sync);
+    client.on('disconnect', onDisconnect);
+    client.on('connect_error', onConnectError);
+    if (client.connected) sync();
     const refreshPresence = () => {
-      if (refreshing) return;
-      refreshing = true;
-      void api
-        .accessToken()
-        .then((accessToken) => {
-          if (stopped) return;
-          if (client.connected && currentToken !== accessToken) {
-            // Socket.IO's auth callback obtains a fresh token on every handshake.
-            client.disconnect();
-            client.connect();
-          } else if (!client.connected) client.connect();
-          else sync();
-        })
-        .catch(() => {
-          if (!stopped) setPresence({});
-        })
-        .finally(() => {
-          refreshing = false;
-        });
+      if (client.connected) sync();
+      else hub.reconnectNow();
     };
     const onVisible = () => {
       if (document.visibilityState === 'visible') refreshPresence();
@@ -116,16 +79,19 @@ export function usePresence(userId: string) {
     window.addEventListener('focus', onVisible);
     window.addEventListener('online', refreshPresence);
     document.addEventListener('visibilitychange', onVisible);
-    const timer = setInterval(refreshPresence, 15000);
+    const timer = setInterval(() => {
+      if (client.connected) sync();
+    }, 15000);
     return () => {
       stopped = true;
       clearInterval(timer);
-      clearTimeout(reconnectTimer);
       window.removeEventListener('focus', onVisible);
       window.removeEventListener('online', refreshPresence);
       document.removeEventListener('visibilitychange', onVisible);
-      client.removeAllListeners();
-      client.disconnect();
+      client.off('connect', sync);
+      client.off('disconnect', onDisconnect);
+      client.off('connect_error', onConnectError);
+      hub.release();
     };
   }, [userId]);
   return presence;

@@ -12,6 +12,13 @@ import { motion, useReducedMotion } from 'motion/react';
 import * as api from '../../lib/api';
 import { ForgotPassword } from './ForgotPassword';
 
+const ART_INITIAL = { opacity: 0, y: 24, scale: 0.96 };
+const ART_ANIMATE = { opacity: 1, y: 0, scale: 1 };
+const ART_TRANSITION = { duration: 0.7, ease: [0.2, 0.8, 0.2, 1] as const };
+const CARD_INITIAL = { opacity: 0, y: 16 };
+const CARD_ANIMATE = { opacity: 1, y: 0 };
+const CARD_TRANSITION = { duration: 0.55, delay: 0.12 };
+
 interface AuthPageProps {
   booting: boolean;
   initialError?: string;
@@ -48,7 +55,9 @@ export function AuthPage({
     ) : null;
   }
   function clearFieldError(field: string) {
-    setFieldErrors((previous) => ({ ...previous, [field]: '' }));
+    setFieldErrors((previous) =>
+      previous[field] ? { ...previous, [field]: '' } : previous,
+    );
   }
   const [sendingCode, setSendingCode] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -272,11 +281,9 @@ export function AuthPage({
                 className="auth-illustration"
                 src="/images/plum-coral-social.png"
                 alt=""
-                initial={
-                  reducedMotion ? false : { opacity: 0, y: 24, scale: 0.96 }
-                }
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ duration: 0.7, ease: [0.2, 0.8, 0.2, 1] }}
+                initial={reducedMotion ? false : ART_INITIAL}
+                animate={ART_ANIMATE}
+                transition={ART_TRANSITION}
               />
             </span>
             <span className="auth-art-caption">Gần nhau hơn, mỗi ngày.</span>
@@ -291,9 +298,9 @@ export function AuthPage({
         <motion.section
           className="card"
           aria-busy={busy || booting}
-          initial={reducedMotion ? false : { opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.55, delay: 0.12 }}
+          initial={reducedMotion ? false : CARD_INITIAL}
+          animate={CARD_ANIMATE}
+          transition={CARD_TRANSITION}
         >
           {booting ? (
             <div className="loading" role="status">

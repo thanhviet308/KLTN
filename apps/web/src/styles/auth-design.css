@@ -391,11 +391,14 @@
     display: flex;
     flex-direction: column;
     gap: 0;
+    min-height: 100svh;
     padding: calc(76px + env(safe-area-inset-top, 0px)) 20px
       calc(24px + env(safe-area-inset-bottom, 0px));
+    overflow-x: clip;
   }
   .page input {
     font-size: 16px;
+    scroll-margin-block: 24px;
   }
   .page .brand {
     left: 24px;
@@ -415,8 +418,9 @@
   .page main {
     width: 100%;
     max-width: 440px;
-    margin: auto;
-    padding: 20px 0;
+    min-height: 0;
+    margin: 0 auto;
+    padding: 16px 0 32px;
   }
   .page .main-top {
     margin-bottom: 23px;

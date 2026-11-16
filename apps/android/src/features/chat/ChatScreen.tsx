@@ -377,10 +377,18 @@ export function Chat({
           event.conversationId === conversation.id &&
           event.userId !== user.id
         )
-          setTyping(previous => ({
-            ...previous,
-            [event.userId]: event.typing ? Date.parse(event.expiresAt) : 0,
-          }));
+          setTyping(previous => {
+            if (!event.typing) {
+              if (!(event.userId in previous)) return previous;
+              const next = { ...previous };
+              delete next[event.userId];
+              return next;
+            }
+            return {
+              ...previous,
+              [event.userId]: Date.parse(event.expiresAt),
+            };
+          });
       },
     );
     const subscription = AppState.addEventListener('change', state => {

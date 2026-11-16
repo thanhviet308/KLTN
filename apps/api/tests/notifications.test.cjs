@@ -7,6 +7,7 @@ const {
 const {
   writeNotification,
 } = require('../dist/modules/notifications/notification-writer');
+const { User } = require('../dist/modules/database/entities/user.entity');
 
 function fixture() {
   const seen = {};
@@ -105,4 +106,95 @@ test('event notifications use the supplied transaction and a deduplication key',
   });
   assert.equal(seen.orIgnore, true);
   assert.equal(seen.executed, true);
+});
+test('notification lists hydrate actor profiles for historical and current events', async () => {
+  const rows = [
+    {
+      id: 'n1',
+      type: 'friend_request',
+      payload: {
+        title: 'Bạn có lời mời kết bạn mới',
+        requesterId: 'u1',
+        requestId: 'req-1',
+      },
+      createdAt: new Date('2026-11-15T10:00:00Z'),
+      readAt: null,
+    },
+    {
+      id: 'n2',
+      type: 'friend_accepted',
+      payload: {
+        title: 'Lời mời kết bạn đã được chấp nhận',
+        userId: 'u2',
+      },
+      createdAt: new Date('2026-11-15T09:00:00Z'),
+      readAt: null,
+    },
+    {
+      id: 'n3',
+      type: 'friend_request',
+      payload: {
+        title: 'Bạn có lời mời kết bạn mới',
+        requesterId: 'missing-user',
+      },
+      createdAt: new Date('2026-11-15T08:00:00Z'),
+      readAt: null,
+    },
+  ];
+  let userQueryArgs = null;
+  const noticeRepo = {
+    createQueryBuilder: () => {
+      const b = {
+        where: () => b,
+        andWhere: () => b,
+        orderBy: () => b,
+        addOrderBy: () => b,
+        take: () => b,
+        getMany: async () => rows,
+      };
+      return b;
+    },
+    countBy: async () => 2,
+  };
+  const userRepo = {
+    createQueryBuilder: () => {
+      const b = {
+        where: (...args) => {
+          userQueryArgs = args;
+          return b;
+        },
+        getMany: async () => [
+          {
+            id: 'u1',
+            displayName: 'Bảo Trân',
+            avatarKey: '/users/avatars/u1.jpg',
+            email: 'secret@example.com',
+          },
+          {
+            id: 'u2',
+            displayName: 'Minh Anh',
+            avatarKey: null,
+            email: 'secret2@example.com',
+          },
+        ],
+      };
+      return b;
+    },
+  };
+  const service = new NotificationsService({
+    getRepository: (entity) => (entity === User ? userRepo : noticeRepo),
+  });
+  const result = await service.list('owner', { limit: 20 });
+  assert.deepEqual(userQueryArgs[1].ids, ['u1', 'u2', 'missing-user']);
+  assert.deepEqual(result.items[0].actor, {
+    id: 'u1',
+    displayName: 'Bảo Trân',
+    avatarUrl: '/users/avatars/u1.jpg',
+  });
+  assert.deepEqual(result.items[1].actor, {
+    id: 'u2',
+    displayName: 'Minh Anh',
+    avatarUrl: null,
+  });
+  assert.equal(result.items[2].actor, undefined);
 });

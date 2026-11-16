@@ -1,4 +1,4 @@
-import { Bell, BellOff } from 'lucide-react';
+import { Bell, BellOff, Pin, Search } from 'lucide-react';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
 import { presenceLabel, type Presence } from '../../hooks/usePresence';
@@ -31,8 +31,11 @@ export function ConversationSummaryPanel({
   memberCount,
   presence,
   muted,
+  searchActive,
+  pinsActive,
   sharedMessages,
-  onCall,
+  onToggleSearch,
+  onTogglePins,
   onToggleMute,
   onOpenInfo,
   onViewAll,
@@ -43,8 +46,11 @@ export function ConversationSummaryPanel({
   memberCount: number;
   presence: Record<string, Presence>;
   muted: boolean;
+  searchActive?: boolean;
+  pinsActive?: boolean;
   sharedMessages: Message[];
-  onCall: (kind: 'audio' | 'video') => void;
+  onToggleSearch: () => void;
+  onTogglePins: () => void;
   onToggleMute: () => void;
   onOpenInfo: () => void;
   onViewAll: (type: 'image' | 'file') => void;
@@ -69,13 +75,23 @@ export function ConversationSummaryPanel({
         </p>
       </div>
       <div className="summary-actions">
-        <button type="button" onClick={() => onCall('audio')}>
-          <UiIcon name="phone" />
-          <span>Gọi thoại</span>
+        <button
+          type="button"
+          aria-pressed={searchActive}
+          onClick={onToggleSearch}
+          title="Tìm trong cuộc trò chuyện"
+        >
+          <Search size={19} aria-hidden="true" />
+          <span>Tìm kiếm</span>
         </button>
-        <button type="button" onClick={() => onCall('video')}>
-          <UiIcon name="video" />
-          <span>Gọi video</span>
+        <button
+          type="button"
+          aria-pressed={pinsActive}
+          onClick={onTogglePins}
+          title="Tin nhắn đã ghim"
+        >
+          <Pin size={19} aria-hidden="true" />
+          <span>Đã ghim</span>
         </button>
         <button
           type="button"

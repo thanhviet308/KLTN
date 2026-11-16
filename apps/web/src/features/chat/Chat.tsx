@@ -1,7 +1,8 @@
 import { PinnedMessages } from './PinnedMessages';
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import { type Socket } from 'socket.io-client';
 import * as api from '../../lib/api';
+import { acquireChatSocket } from '../../lib/realtime';
 import { UiIcon } from '../../components/UiIcon';
 import { MediaTools, type MediaDraft } from './ChatMedia';
 import { MessageBubble, type Translation } from './MessageBubble';
@@ -391,27 +392,29 @@ export function Chat({
     alive.current = true;
     let syncing = false;
     let stopped = false;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let currentToken = '';
+    let subscribeRetry: ReturnType<typeof setTimeout> | undefined;
     let lastSyncAt = 0;
-    const client = io(`${api.API_ORIGIN}/chat`, {
-      transports: ['websocket'],
-      autoConnect: false,
-      reconnection: false,
-    });
+    const hub = acquireChatSocket(user.id);
+    const client = hub.socket;
     socket.current = client;
-    client.on(
-      'account:visibility',
-      ({ userId, status }: { userId: string; status: string }) => {
-        if (status === 'blocked') {
-          messageCache.current = messageCache.current.filter(
-            (m) => m.senderId !== userId,
-          );
-          setMessages((old) => old.filter((m) => m.senderId !== userId));
-          setReplyTo((old) => (old?.senderId === userId ? undefined : old));
-        }
-      },
-    );
+    setConnected(false);
+    setConnectionCode(client.connected ? '' : hub.getLastErrorCode());
+    const onAccountVisibility = ({
+      userId,
+      status,
+    }: {
+      userId: string;
+      status: string;
+    }) => {
+      if (stopped) return;
+      if (status === 'blocked') {
+        messageCache.current = messageCache.current.filter(
+          (m) => m.senderId !== userId,
+        );
+        setMessages((old) => old.filter((m) => m.senderId !== userId));
+        setReplyTo((old) => (old?.senderId === userId ? undefined : old));
+      }
+    };
     async function sync() {
       if (syncing || Date.now() - lastSyncAt < 2000) {
         return;
@@ -471,29 +474,15 @@ export function Chat({
         syncing = false;
       }
     }
-    async function connect(force = false) {
-      try {
-        if (force) await api.refresh();
-        const token = await api.accessToken();
-        if (stopped) return;
-        currentToken = token;
-        client.auth = { accessToken: token };
-        client.connect();
-      } catch (e) {
-        if (!stopped) {
-          fail(e);
-          schedule();
-        }
-      }
+    function scheduleSubscribeRetry() {
+      if (stopped || subscribeRetry) return;
+      subscribeRetry = setTimeout(() => {
+        subscribeRetry = undefined;
+        if (!stopped && client.connected) subscribeConversation();
+      }, 3000);
     }
-    function schedule(force = false) {
-      if (stopped || retryTimer) return;
-      retryTimer = setTimeout(() => {
-        retryTimer = undefined;
-        void connect(force);
-      }, 5000);
-    }
-    client.on('connect', () => {
+    function subscribeConversation() {
+      if (stopped || !client.connected) return;
       client
         .timeout(10000)
         .emit(
@@ -506,145 +495,174 @@ export function Chat({
               if (ack?.code === 'CONVERSATION_NOT_FOUND') {
                 setUnavailable(true);
                 setError('Bạn không còn quyền truy cập cuộc trò chuyện này.');
-                client.disconnect();
-              } else {
-                client.disconnect();
-                schedule();
-              }
+              } else scheduleSubscribeRetry();
               return;
+            }
+            if (subscribeRetry) {
+              clearTimeout(subscribeRetry);
+              subscribeRetry = undefined;
             }
             setConnected(true);
             setConnectionCode('');
             void sync();
           },
         );
-    });
-    client.on('message:created', (message: Message) => {
+    }
+    const onConnect = () => {
+      pinRefresh.current();
+      subscribeConversation();
+    };
+    const onMessageCreated = (message: Message) => {
       if (message.conversationId === conversationId) {
         accept([message]);
         pinRefresh.current();
       }
-    });
-    client.on(
-      'message:reactions',
-      (event: { conversationId: string; messageId: string }) => {
-        if (event.conversationId === conversationId && alive.current)
-          setReactionVersions((previous) => ({
-            ...previous,
-            [event.messageId]: (previous[event.messageId] ?? 0) + 1,
-          }));
-      },
-    );
-    client.on('conversation:pins', (event: { conversationId: string }) => {
+    };
+    const onMessageReactions = (event: {
+      conversationId: string;
+      messageId: string;
+    }) => {
+      if (event.conversationId === conversationId && alive.current)
+        setReactionVersions((previous) => ({
+          ...previous,
+          [event.messageId]: (previous[event.messageId] ?? 0) + 1,
+        }));
+    };
+    const onConversationPins = (event: { conversationId: string }) => {
       if (event.conversationId === conversationId) pinRefresh.current();
-    });
-    client.on('connect', () => pinRefresh.current());
-    for (const name of ['message:updated', 'message:deleted']) {
-      client.on(name, (message: Message) => {
-        if (message.conversationId === conversationId) {
-          accept([message]);
-          pinRefresh.current();
+    };
+    const onMessageMutated = (message: Message) => {
+      if (message.conversationId === conversationId) {
+        accept([message]);
+        pinRefresh.current();
+      }
+    };
+    const onMessageReceipt = (event: {
+      conversationId: string;
+      receipt: Receipt;
+    }) => {
+      if (event.conversationId === conversationId) receipt(event.receipt);
+    };
+    const onTypingUpdate = (event: {
+      conversationId: string;
+      userId: string;
+      typing: boolean;
+      expiresAt: string;
+    }) => {
+      if (
+        event.conversationId !== conversationId ||
+        event.userId === user.id ||
+        !alive.current
+      )
+        return;
+      setTyping((previous) => {
+        if (!event.typing) {
+          if (!(event.userId in previous)) return previous;
+          const next = { ...previous };
+          delete next[event.userId];
+          return next;
         }
+        return {
+          ...previous,
+          [event.userId]: Date.parse(event.expiresAt),
+        };
       });
-    }
-    client.on(
-      'message:receipt',
-      (event: { conversationId: string; receipt: Receipt }) => {
-        if (event.conversationId === conversationId) receipt(event.receipt);
-      },
-    );
-    client.on(
-      'typing:update',
-      (event: {
-        conversationId: string;
-        userId: string;
-        typing: boolean;
-        expiresAt: string;
-      }) => {
-        if (event.conversationId === conversationId && alive.current)
-          setTyping((previous) => ({
-            ...previous,
-            [event.userId]: event.typing ? Date.parse(event.expiresAt) : 0,
-          }));
-      },
-    );
-    client.on('game:updated', (result: { game: CaroSession }) => {
+    };
+    const onGameUpdated = (result: { game: CaroSession }) => {
       if (result.game.conversationId === conversationId && alive.current) {
         setCurrentGame(result.game);
         if (result.game.status === 'invited' && result.game.oUserId === user.id)
           setGameOpen(true);
       }
-    });
-    client.on('sync:required', () => void sync());
-    client.on('disconnect', (reason: string) => {
-      if (!stopped) {
-        setConnected(false);
-        // A server disconnect can be a transport or capacity issue. Let token
-        // expiry drive renewal; disconnect alone does not prove auth failure.
-        schedule();
-      }
-    });
-    client.on('connect_error', (failure) => {
-      if (!stopped) {
-        setConnected(false);
-        setConnectionCode(
-          (failure as Error & { data?: { code?: string } }).data?.code ??
-            failure.message,
-        );
-        schedule(
-          /AUTH|TOKEN|SESSION|CREDENTIAL/.test(
-            (failure as Error & { data?: { code?: string } }).data?.code ??
-              failure.message,
-          ),
-        );
-      }
+    };
+    const onSyncRequired = () => {
+      void sync();
+    };
+    const onDisconnect = () => {
+      if (!stopped) setConnected(false);
+    };
+    client.on('account:visibility', onAccountVisibility);
+    client.on('connect', onConnect);
+    client.on('message:created', onMessageCreated);
+    client.on('message:reactions', onMessageReactions);
+    client.on('conversation:pins', onConversationPins);
+    client.on('message:updated', onMessageMutated);
+    client.on('message:deleted', onMessageMutated);
+    client.on('message:receipt', onMessageReceipt);
+    client.on('typing:update', onTypingUpdate);
+    client.on('game:updated', onGameUpdated);
+    client.on('sync:required', onSyncRequired);
+    client.on('disconnect', onDisconnect);
+    const unsubscribeError = hub.subscribeError((code) => {
+      if (stopped) return;
+      setConnected(false);
+      setConnectionCode(code);
     });
     void sync();
-    void connect();
+    if (client.connected) onConnect();
     const typingExpiry = setInterval(() => {
+      const now = Date.now();
       setTyping((previous) =>
-        Object.fromEntries(
-          Object.entries(previous).filter(([, expiry]) => expiry > Date.now()),
-        ),
+        Object.values(previous).some((expiry) => expiry <= now)
+          ? Object.fromEntries(
+              Object.entries(previous).filter(([, expiry]) => expiry > now),
+            )
+          : previous,
       );
     }, 1000);
     const interval = setInterval(() => {
       if (!client.connected) void sync();
-      void api
-        .accessToken()
-        .then((token) => {
-          if (!stopped && client.connected && token !== currentToken) {
-            client.disconnect();
-            if (retryTimer) {
-              clearTimeout(retryTimer);
-              retryTimer = undefined;
-            }
-            void connect();
-          }
-        })
-        .catch(fail);
     }, 15000);
-    const onFocus = () => {
-      if (document.visibilityState === 'visible' && !client.connected)
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!client.connected) {
+        hub.reconnectNow();
         void sync();
+      }
     };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
+    const onOnline = () => {
+      if (!client.connected) {
+        hub.reconnectNow();
+        void sync();
+      }
+    };
+    window.addEventListener('focus', onResume);
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onResume);
     return () => {
       stopped = true;
       alive.current = false;
       clearInterval(interval);
       clearInterval(typingExpiry);
-      if (retryTimer) clearTimeout(retryTimer);
+      if (subscribeRetry) clearTimeout(subscribeRetry);
       if (typingTimer.current) clearTimeout(typingTimer.current);
       if (client.connected)
         client.emit('typing:update', { conversationId, typing: false });
-      client.removeAllListeners();
-      client.disconnect();
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
+      client.off('account:visibility', onAccountVisibility);
+      client.off('connect', onConnect);
+      client.off('message:created', onMessageCreated);
+      client.off('message:reactions', onMessageReactions);
+      client.off('conversation:pins', onConversationPins);
+      client.off('message:updated', onMessageMutated);
+      client.off('message:deleted', onMessageMutated);
+      client.off('message:receipt', onMessageReceipt);
+      client.off('typing:update', onTypingUpdate);
+      client.off('game:updated', onGameUpdated);
+      client.off('sync:required', onSyncRequired);
+      client.off('disconnect', onDisconnect);
+      unsubscribeError();
+      if (socket.current === client) socket.current = undefined;
+      hub.release();
+      window.removeEventListener('focus', onResume);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onResume);
     };
-  }, [conversationId]);
+  }, [conversationId, user.id]);
+  const typingDependency = Object.entries(typing)
+    .filter(([, expiry]) => expiry > Date.now())
+    .map(([id]) => id)
+    .sort()
+    .join(',');
   const {
     list,
     nearBottom,
@@ -653,7 +671,7 @@ export function Chat({
     active,
     conversationId,
     loading,
-    dependencies: [messages, pending],
+    dependencies: [messages, pending, typingDependency],
   });
   async function jumpToPin(target: Message) {
     try {
@@ -982,7 +1000,9 @@ export function Chat({
         <p className="connection-note" role="status">
           {connectionCode === 'ORIGIN_FORBIDDEN'
             ? 'Kết nối realtime bị từ chối. Kiểm tra WEB_ORIGIN của backend khớp địa chỉ đang mở.'
-            : 'Chưa kết nối realtime. Bạn vẫn có thể gửi tin; tin mới đang được cập nhật định kỳ.'}
+            : connectionCode === 'CONNECTION_LIMIT'
+              ? 'Bạn đang mở quá nhiều phiên chat cùng lúc. Đóng bớt tab cũ để bật lại realtime; tin mới vẫn tự cập nhật định kỳ.'
+              : 'Chưa kết nối realtime. Bạn vẫn có thể gửi tin; tin mới đang được cập nhật định kỳ.'}
         </p>
       )}
       {error && (
@@ -1144,6 +1164,7 @@ export function Chat({
             onRetry={() => void send(draft)}
           />
         ))}
+        <TypingNote typing={typing} names={names} />
       </div>
       {receiptMessage && (
         <ReceiptPanel
@@ -1154,7 +1175,6 @@ export function Chat({
           onClose={() => setReceiptMessage(undefined)}
         />
       )}
-      <TypingNote typing={typing} names={names} />
       {replyTo && (
         <ReplyPreview
           message={replyTo}
@@ -1163,29 +1183,14 @@ export function Chat({
         />
       )}
       <div className={`chat-composer-bar${body.trim() ? ' has-draft' : ''}`}>
-        <button
-          className={`composer-game${
-            currentGame &&
-            (currentGame.status === 'invited' ||
-              currentGame.status === 'active')
-              ? ' has-open-game'
-              : ''
-          }`}
-          type="button"
-          disabled={unavailable || !active}
-          aria-label="Mở trung tâm trò chơi"
-          title="Trò chơi trong chat"
-          onClick={() => setGameOpen(true)}
-        >
-          <UiIcon name="game" />
-          {currentGame &&
-            (currentGame.status === 'invited' ||
-              currentGame.status === 'active') && (
-              <span className="composer-game-badge" aria-hidden="true" />
-            )}
-        </button>
         <MediaTools
           disabled={unavailable || !active}
+          hasOpenGame={
+            !!currentGame &&
+            (currentGame.status === 'invited' ||
+              currentGame.status === 'active')
+          }
+          onOpenGame={() => setGameOpen(true)}
           onError={setError}
           onSend={async (media) => {
             setError('');

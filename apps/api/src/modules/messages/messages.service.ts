@@ -409,6 +409,8 @@ export class MessagesService {
               title: 'Bạn được nhắc đến trong một nhóm',
               conversationId,
               messageId: message.id,
+              senderId: actorId,
+              actorId,
             },
             `mention:${message.id}`,
           );

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import * as api from './lib/api';
+import { resolveWorkspaceViewportAction } from './lib/viewport';
 import { AuthPage } from './features/auth/AuthPage';
 
 // Preload Home alongside session restore so signed-in sessions render immediately.
@@ -27,20 +28,35 @@ export function App() {
     return () => window.removeEventListener('popstate', syncRoute);
   }, []);
 
-  // Sync --app-h with visualViewport on mobile so the virtual keyboard never clips the header or composer.
+  const isWorkspaceShell =
+    Boolean(user) && !adminPreview && !(user?.role === 'admin' && adminOpen);
+
+  // Sync --app-h only for the fixed-height mobile workspace shell; auth and admin pages scroll naturally.
   useEffect(() => {
     const vv = window.visualViewport;
-    if (!vv) return;
+    if (!vv || !isWorkspaceShell) {
+      document.documentElement.style.removeProperty('--app-h');
+      return;
+    }
     const syncViewport = () => {
-      if (window.innerWidth <= 900) {
-        document.documentElement.style.setProperty(
-          '--app-h',
-          `${Math.round(vv.height)}px`,
-        );
-        if (vv.offsetTop > 0) window.scrollTo(0, 0);
-      } else {
+      const action = resolveWorkspaceViewportAction({
+        isWorkspaceShell,
+        innerWidth: window.innerWidth,
+        visualHeight: vv.height,
+        offsetTop: vv.offsetTop,
+      });
+      if (action.mode === 'clear') {
         document.documentElement.style.removeProperty('--app-h');
+        return;
       }
+      const nextHeight = `${action.heightPx}px`;
+      if (
+        document.documentElement.style.getPropertyValue('--app-h') !==
+        nextHeight
+      ) {
+        document.documentElement.style.setProperty('--app-h', nextHeight);
+      }
+      if (action.resetWindowScroll) window.scrollTo(0, 0);
     };
     syncViewport();
     vv.addEventListener('resize', syncViewport);
@@ -52,7 +68,7 @@ export function App() {
       window.removeEventListener('resize', syncViewport);
       document.documentElement.style.removeProperty('--app-h');
     };
-  }, []);
+  }, [isWorkspaceShell]);
 
   useEffect(() => {
     async function restore() {

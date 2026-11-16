@@ -133,7 +133,7 @@ export class ChatGateway
     const count = [...this.connections.values()].filter(
       (item) => item.userId === principal.user.id,
     ).length;
-    if (count >= 5 || this.connections.size >= 1000)
+    if (count >= 20 || this.connections.size >= 1000)
       reject(429, 'CONNECTION_LIMIT', 'Too many active connections');
     const claims = JSON.parse(
       Buffer.from(token.split('.')[1]!, 'base64url').toString(),

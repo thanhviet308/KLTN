@@ -190,6 +190,8 @@ export class CallsService {
               : 'Bạn có cuộc gọi thoại nhỡ',
           conversationId: call.conversationId,
           callId: call.id,
+          callerId: call.initiatorId,
+          actorId: call.initiatorId,
         },
         `missed_call:${call.id}`,
       );

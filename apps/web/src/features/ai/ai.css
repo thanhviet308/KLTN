@@ -307,8 +307,8 @@
 .chat-message:not(.mine):has(.voice-transcript) {
   flex-wrap: wrap;
 }
-.chat-message.mine:has(.message-translation) > .message-body,
-.chat-message.mine:has(.voice-transcript) > .message-body {
+.chat-message.mine:has(.message-translation) > .message-bubble-slot,
+.chat-message.mine:has(.voice-transcript) > .message-bubble-slot {
   width: fit-content;
   margin-left: auto;
 }

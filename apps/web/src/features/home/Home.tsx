@@ -6,6 +6,7 @@ import * as api from '../../lib/api';
 import { Conversations } from '../conversations/Conversations';
 import { AiChatbox } from '../ai/AiChatbox';
 import { NotificationCenter } from '../notifications/NotificationCenter';
+import type { NotificationDestination } from '../notifications/notification-model';
 import { ReportButton } from '../reports/ReportDialog';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
@@ -255,6 +256,36 @@ export function Home({
     else setLoading(false);
   }, [tab]);
 
+  function openTabFresh(nextTab: Tab) {
+    cacheRevision.current++;
+    tabCache.current.delete(nextTab);
+    pendingLists.current.clear();
+    if (tab === nextTab) {
+      void load();
+      return;
+    }
+    setTab(nextTab);
+  }
+
+  function handleNotificationNavigate(destination: NotificationDestination) {
+    setAccountOpen(false);
+    if (destination.tab === 'incoming') {
+      openTabFresh('incoming');
+      return;
+    }
+    if (destination.tab === 'friends') {
+      openTabFresh('friends');
+      return;
+    }
+    tabCache.current.delete('friends');
+    tabCache.current.delete('incoming');
+    tabCache.current.delete('outgoing');
+    if (destination.recipientId) {
+      setChatRecipient({ id: destination.recipientId, key: Date.now() });
+    }
+    setTab('conversations');
+  }
+
   async function action(
     work: () => Promise<unknown>,
     message: string,
@@ -331,7 +362,11 @@ export function Home({
             );
           })}
         </nav>
-        <NotificationCenter key={user.id} onExpired={onExpired} />
+        <NotificationCenter
+          key={user.id}
+          onExpired={onExpired}
+          onNavigate={handleNotificationNavigate}
+        />
         <div
           className="account-control"
           ref={accountArea}

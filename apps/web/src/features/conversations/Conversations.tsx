@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './conversation-actions.css';
-import { io, type Socket } from 'socket.io-client';
+import { acquireChatSocket } from '../../lib/realtime';
 import * as api from '../../lib/api';
 import { Chat } from '../chat/Chat';
 import { Avatar } from '../../components/Avatar';
@@ -22,14 +22,7 @@ import { playMessageSound } from '../../lib/notification-sounds';
 import { MessageMedia } from '../chat/ChatMedia';
 import { SharedMediaDialog } from './SharedMediaDialog';
 import { SharedFileRow } from './SharedFileRow';
-import {
-  Bell,
-  BellOff,
-  MoreHorizontal,
-  Pin,
-  Search,
-  Sparkles,
-} from 'lucide-react';
+import { Bell, BellOff, MoreHorizontal, Sparkles } from 'lucide-react';
 import { GroupTools, MessageSearch } from '../workspace/WorkspacePanels';
 import type { Peer, Page } from '../../lib/types';
 import {
@@ -125,6 +118,7 @@ export function Conversations({
   const [creating, setCreating] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const headerMenuButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     setHeaderMenuOpen(false);
   }, [selected?.id]);
@@ -268,7 +262,6 @@ export function Conversations({
   const listRequests = useRef(0);
   const handledRecipient = useRef<number | undefined>(undefined);
   const callStart = useRef<StartCall | undefined>(undefined);
-  const inboxSocket = useRef<Socket | undefined>(undefined);
   const conversationIds = useRef<string[]>([]);
   const selectedId = useRef<string | undefined>(undefined);
   const viewActive = useRef(active);
@@ -402,40 +395,23 @@ export function Conversations({
   }, []);
   useEffect(() => {
     let stopped = false;
-    let currentToken = '';
-    const client = io(`${api.API_ORIGIN}/chat`, {
-      transports: ['websocket'],
-      autoConnect: false,
-      auth: (done) => {
-        void api.accessToken().then(
-          (accessToken) => {
-            if (!stopped) {
-              currentToken = accessToken;
-              done({ accessToken });
-            }
-          },
-          () => done({}),
+    const hub = acquireChatSocket(user.id);
+    const client = hub.socket;
+    const onAccountVisibility = ({
+      userId,
+      status,
+    }: {
+      userId: string;
+      status: string;
+    }) => {
+      if (stopped) return;
+      if (status === 'blocked')
+        setSelected((old) =>
+          old?.type === 'direct' && old.peer?.id === userId ? undefined : old,
         );
-      },
-    });
-    inboxSocket.current = client;
-    client.on(
-      'account:visibility',
-      ({ userId, status }: { userId: string; status: string }) => {
-        if (status === 'blocked')
-          setSelected((old) =>
-            old?.type === 'direct' && old.peer?.id === userId ? undefined : old,
-          );
-        void list(undefined, true).catch(() => {});
-      },
-    );
-    const subscribe = () => {
-      if (!client.connected) return;
-      for (const conversationId of conversationIds.current)
-        client.emit('conversation:subscribe', { conversationId });
+      void list(undefined, true).catch(() => {});
     };
-    client.on('connect', subscribe);
-    client.on('message:created', (message: Message) => {
+    const onMessageCreated = (message: Message) => {
       if (stopped) return;
       applyCachedMessage(`${user.id}:${message.conversationId}`, message);
       const mine = message.senderId === user.id;
@@ -487,33 +463,16 @@ export function Conversations({
             { messageId: message.id },
           )
           .catch(() => {});
-    });
-    client.connect();
-    const refresh = window.setInterval(() => {
-      void api
-        .accessToken()
-        .then((accessToken) => {
-          if (stopped) return;
-          if (client.connected && accessToken !== currentToken) {
-            client.disconnect();
-            client.connect();
-          } else if (!client.connected) client.connect();
-        })
-        .catch(() => {});
-    }, 15000);
+    };
+    client.on('account:visibility', onAccountVisibility);
+    client.on('message:created', onMessageCreated);
     return () => {
       stopped = true;
-      window.clearInterval(refresh);
-      client.removeAllListeners();
-      client.disconnect();
-      if (inboxSocket.current === client) inboxSocket.current = undefined;
+      client.off('account:visibility', onAccountVisibility);
+      client.off('message:created', onMessageCreated);
+      hub.release();
     };
   }, [user.id]);
-  useEffect(() => {
-    if (!inboxSocket.current?.connected) return;
-    for (const conversationId of conversationIds.current)
-      inboxSocket.current.emit('conversation:subscribe', { conversationId });
-  }, [items.map((item) => item.id).join(',')]);
   useEffect(() => {
     if (!active) return;
     const refreshFriends = () => {
@@ -1077,10 +1036,10 @@ export function Conversations({
           </h2>
           {(selected || onToggleAiChat) && (
             <div className="chat-call-actions">
-              {onToggleAiChat && (
+              {!selected && onToggleAiChat && (
                 <button
                   type="button"
-                  className={`chat-info-button ai-toolbar-toggle${selected ? ' header-action-desktop-only' : ''}`}
+                  className="chat-info-button ai-toolbar-toggle"
                   title="Trợ lý PingPong AI"
                   aria-label="Trợ lý PingPong AI"
                   aria-pressed={aiChatOpen}
@@ -1093,35 +1052,8 @@ export function Conversations({
                 <>
                   <button
                     type="button"
-                    className="chat-info-button header-action-desktop-only"
-                    title="Tìm trong cuộc trò chuyện"
-                    aria-label="Tìm trong cuộc trò chuyện"
-                    aria-pressed={workspacePanel === 'search'}
-                    onClick={() => toggleWorkspacePanel('search')}
-                  >
-                    <Search size={18} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="chat-info-button header-action-desktop-only"
-                    title={
-                      selected.type === 'group'
-                        ? 'Ghim & bình chọn'
-                        : 'Tin nhắn đã ghim'
-                    }
-                    aria-label={
-                      selected.type === 'group'
-                        ? 'Ghim & bình chọn'
-                        : 'Tin nhắn đã ghim'
-                    }
-                    aria-pressed={workspacePanel === 'group'}
-                    onClick={() => toggleWorkspacePanel('group')}
-                  >
-                    <Pin size={18} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
                     className="chat-info-button"
+                    title="Gọi thoại"
                     aria-label="Gọi thoại"
                     onClick={() =>
                       void callStart.current?.(selected.id, 'audio')
@@ -1132,6 +1064,7 @@ export function Conversations({
                   <button
                     type="button"
                     className="chat-info-button"
+                    title="Gọi video"
                     aria-label="Gọi video"
                     onClick={() =>
                       void callStart.current?.(selected.id, 'video')
@@ -1140,17 +1073,9 @@ export function Conversations({
                     <UiIcon name="video" />
                   </button>
                   <button
+                    ref={headerMenuButton}
                     type="button"
-                    className="chat-info-button header-action-desktop-only"
-                    aria-label="Thông tin cuộc trò chuyện"
-                    aria-expanded={showInfo}
-                    onClick={toggleConversationInfo}
-                  >
-                    <UiIcon name="info" />
-                  </button>
-                  <button
-                    type="button"
-                    className={`chat-info-button header-more-mobile-only${aiChatOpen || workspacePanel || showInfo ? ' has-active' : ''}`}
+                    className={`chat-info-button header-more-button${aiChatOpen || workspacePanel || showInfo ? ' has-active' : ''}`}
                     title="Thêm tiện ích"
                     aria-label="Thêm tiện ích cuộc trò chuyện"
                     aria-expanded={headerMenuOpen}
@@ -1167,6 +1092,7 @@ export function Conversations({
         {selected && (
           <HeaderOverflowSheet
             open={headerMenuOpen}
+            anchorRef={headerMenuButton}
             title={heading ?? 'Cuộc trò chuyện'}
             isGroup={selected.type === 'group'}
             aiChatOpen={aiChatOpen}
@@ -1614,8 +1540,11 @@ export function Conversations({
           memberCount={members.length}
           presence={presence}
           muted={!!muted[selected.id]}
+          searchActive={workspacePanel === 'search'}
+          pinsActive={workspacePanel === 'group'}
           sharedMessages={sharedMessages}
-          onCall={(kind) => void callStart.current?.(selected.id, kind)}
+          onToggleSearch={() => toggleWorkspacePanel('search')}
+          onTogglePins={() => toggleWorkspacePanel('group')}
           onToggleMute={() => toggleMute(selected.id)}
           onOpenInfo={() => {
             setShowInfo(true);

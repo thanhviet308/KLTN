@@ -2,28 +2,55 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bell,
   CheckCheck,
+  MessageCircle,
   PhoneMissed,
   Sparkles,
+  UserCheck,
   UserPlus,
   X,
 } from 'lucide-react';
+import { Avatar } from '../../components/Avatar';
 import * as api from '../../lib/api';
+import {
+  formatNoticeContent,
+  formatRelativeNoticeTime,
+  resolveNoticeActor,
+  resolveNoticeDestination,
+  type Notice,
+  type NotificationDestination,
+} from './notification-model';
 import './notifications.css';
 
-interface Notice {
-  id: string;
-  type: string;
-  payload: { title?: string };
-  createdAt: string;
-  readAt: string | null;
+interface NoticeVisual {
+  Icon: typeof Bell;
+  tone: string;
 }
+
+const NOTICE_VISUALS: Record<string, NoticeVisual> = {
+  friend_request: { Icon: UserPlus, tone: 'friend-request' },
+  friend_accepted: { Icon: UserCheck, tone: 'friend-accepted' },
+  call: { Icon: PhoneMissed, tone: 'call' },
+  message: { Icon: MessageCircle, tone: 'message' },
+};
+
+function noticeVisual(type: string): NoticeVisual {
+  if (type.startsWith('ai_')) return { Icon: Sparkles, tone: 'ai' };
+  return NOTICE_VISUALS[type] ?? { Icon: Bell, tone: 'default' };
+}
+
 interface NoticePage {
   items: Notice[];
   nextCursor: string | null;
   unreadCount: number;
 }
 
-export function NotificationCenter({ onExpired }: { onExpired: () => void }) {
+export function NotificationCenter({
+  onExpired,
+  onNavigate,
+}: {
+  onExpired: () => void;
+  onNavigate?: (destination: NotificationDestination, notice: Notice) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notice[]>([]);
   const [count, setCount] = useState(0);
@@ -102,6 +129,20 @@ export function NotificationCenter({ onExpired }: { onExpired: () => void }) {
   }, [open, load]);
 
   async function markRead(id?: string) {
+    const unreadHit = id
+      ? items.some((item) => item.id === id && !item.readAt)
+      : count > 0;
+    const nowIso = new Date().toISOString();
+    if (unreadHit) {
+      setItems((previous) =>
+        previous.map((item) =>
+          !id || item.id === id
+            ? { ...item, readAt: item.readAt ?? nowIso }
+            : item,
+        ),
+      );
+      setCount((previous) => (id ? Math.max(0, previous - 1) : 0));
+    }
     setBusy(true);
     setError('');
     try {
@@ -111,23 +152,27 @@ export function NotificationCenter({ onExpired }: { onExpired: () => void }) {
         'PATCH',
       );
       if (!alive.current) return;
-      setItems((previous) =>
-        previous.map((item) =>
-          !id || item.id === id
-            ? { ...item, readAt: item.readAt ?? new Date().toISOString() }
-            : item,
-        ),
-      );
       // Reload from the server so another device's changes are also reflected.
       await load();
     } catch (cause) {
       if (!alive.current) return;
       if (cause instanceof api.ApiError && cause.status === 401)
         expired.current();
+      else void load();
       setError('Chưa thể đánh dấu đã đọc. Vui lòng thử lại.');
     } finally {
       if (alive.current) setBusy(false);
     }
+  }
+
+  function handleSelectNotice(
+    item: Notice,
+    destination: NotificationDestination | null,
+  ) {
+    if (!item.readAt) void markRead(item.id);
+    if (!destination) return;
+    setOpen(false);
+    onNavigate?.(destination, item);
   }
 
   const visible = filter ? items.filter((item) => !item.readAt) : items;
@@ -223,41 +268,82 @@ export function NotificationCenter({ onExpired }: { onExpired: () => void }) {
               </div>
             )}
             {visible.map((item) => {
-              const Icon = item.type.startsWith('friend')
-                ? UserPlus
-                : item.type === 'call'
-                  ? PhoneMissed
-                  : item.type.startsWith('ai_')
-                    ? Sparkles
-                    : Bell;
+              const { Icon, tone } = noticeVisual(item.type);
+              const actor = resolveNoticeActor(item);
+              const formatted = formatNoticeContent(item);
+              const destination = resolveNoticeDestination(item);
               return (
                 <article
                   key={item.id}
-                  className={`notification-item${item.readAt ? '' : ' is-unread'}`}
+                  className={`notification-item${item.readAt ? '' : ' is-unread'}${destination ? ' is-clickable' : ''}`}
                 >
-                  <span className="notification-type">
-                    <Icon size={20} aria-hidden="true" />
-                  </span>
-                  <div>
-                    <strong>
-                      {item.payload.title ?? 'Bạn có thông báo mới'}
-                    </strong>
-                    <time dateTime={item.createdAt}>
-                      {new Date(item.createdAt).toLocaleString('vi-VN')}
-                    </time>
-                    {item.readAt ? (
-                      <span className="notification-read-label">Đã đọc</span>
-                    ) : (
+                  <button
+                    type="button"
+                    className="notification-main"
+                    onClick={() => handleSelectNotice(item, destination)}
+                  >
+                    <span className="notification-visual">
+                      {actor ? (
+                        <span className="notification-avatar">
+                          <Avatar peer={actor} />
+                        </span>
+                      ) : (
+                        <span className={`notification-type is-${tone}`}>
+                          <Icon size={20} aria-hidden="true" />
+                        </span>
+                      )}
+                      {actor && (
+                        <span
+                          className={`notification-kind-badge is-${tone}`}
+                          aria-hidden="true"
+                        >
+                          <Icon size={12} strokeWidth={2.4} />
+                        </span>
+                      )}
+                    </span>
+                    <span className="notification-content">
+                      <span className="notification-message">
+                        {formatted.actorName ? (
+                          <>
+                            <strong className="notification-actor">
+                              {formatted.actorName}
+                            </strong>{' '}
+                            <span>{formatted.body}</span>
+                          </>
+                        ) : (
+                          <strong>{formatted.body}</strong>
+                        )}
+                      </span>
+                      {formatted.hint && (
+                        <span className="notification-hint">
+                          {formatted.hint}
+                        </span>
+                      )}
+                      <time
+                        dateTime={item.createdAt}
+                        title={new Date(item.createdAt).toLocaleString('vi-VN')}
+                      >
+                        {formatRelativeNoticeTime(item.createdAt)}
+                      </time>
+                    </span>
+                    {!item.readAt && (
+                      <span
+                        className="notification-dot"
+                        aria-label="Chưa đọc"
+                      />
+                    )}
+                  </button>
+                  {!item.readAt && (
+                    <div className="notification-item-footer">
                       <button
+                        type="button"
+                        className="notification-read-btn"
                         disabled={busy || loading}
                         onClick={() => void markRead(item.id)}
                       >
                         Đánh dấu đã đọc
                       </button>
-                    )}
-                  </div>
-                  {!item.readAt && (
-                    <span className="notification-dot" aria-label="Chưa đọc" />
+                    </div>
                   )}
                 </article>
               );

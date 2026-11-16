@@ -41,6 +41,30 @@ export class FriendshipsService {
     ) {
       fail(404, 'USER_UNAVAILABLE', 'User is unavailable');
     }
+    return users;
+  }
+
+  private async writeFriendRequestNotice(
+    manager: EntityManager,
+    recipientId: string,
+    actor: Pick<User, 'id' | 'displayName'> | undefined,
+    actorId: string,
+    requestId: string,
+  ) {
+    const actorName = actor?.displayName.trim() || 'Một người dùng';
+    await writeNotification(
+      manager,
+      recipientId,
+      'friend_request',
+      {
+        title: `${actorName} đã gửi cho bạn lời mời kết bạn`,
+        requesterId: actorId,
+        actorId,
+        actorName,
+        requestId,
+      },
+      `friend_request:${requestId}`,
+    );
   }
 
   private view(row: Friendship) {
@@ -69,7 +93,8 @@ export class FriendshipsService {
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
         [`friendship:${pairKey}`],
       );
-      await this.lockUsers(manager, [actorId, recipientId]);
+      const users = await this.lockUsers(manager, [actorId, recipientId]);
+      const actor = users.find((user) => user.id === actorId);
       const repository = manager.getRepository(Friendship);
       // Unique generated pair + ON CONFLICT serializes even when no row exists.
       await repository
@@ -92,16 +117,12 @@ export class FriendshipsService {
             'INCOMING_REQUEST_EXISTS',
             'Respond to the existing incoming request',
           );
-        await writeNotification(
+        await this.writeFriendRequestNotice(
           manager,
           recipientId,
-          'friend_request',
-          {
-            title: 'Bạn có lời mời kết bạn mới',
-            requesterId: actorId,
-            requestId: row.id,
-          },
-          `friend_request:${row.id}`,
+          actor,
+          actorId,
+          row.id,
         );
         return { request: this.view(row) };
       }
@@ -112,16 +133,12 @@ export class FriendshipsService {
         recipientId,
         status: 'pending',
       });
-      await writeNotification(
+      await this.writeFriendRequestNotice(
         manager,
         recipientId,
-        'friend_request',
-        {
-          title: 'Bạn có lời mời kết bạn mới',
-          requesterId: actorId,
-          requestId: fresh.id,
-        },
-        `friend_request:${fresh.id}`,
+        actor,
+        actorId,
+        fresh.id,
       );
       return { request: this.view(fresh) };
     });
@@ -145,7 +162,10 @@ export class FriendshipsService {
           [`conversation:direct:${low}:${high}`],
         );
       }
-      await this.lockUsers(manager, [found.requesterId, found.recipientId]);
+      const users = await this.lockUsers(manager, [
+        found.requesterId,
+        found.recipientId,
+      ]);
       const row = await repository.findOne({
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -180,13 +200,17 @@ export class FriendshipsService {
       row.status = next;
       const saved = await repository.save(row);
       if (next === 'accepted') {
+        const actor = users.find((user) => user.id === actorId);
+        const actorName = actor?.displayName.trim() || 'Một người dùng';
         await writeNotification(
           manager,
           row.requesterId,
           'friend_accepted',
           {
-            title: 'Lời mời kết bạn đã được chấp nhận',
+            title: `${actorName} đã chấp nhận lời mời kết bạn của bạn`,
             userId: actorId,
+            actorId,
+            actorName,
           },
           `friend_accepted:${row.id}`,
         );

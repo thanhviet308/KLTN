@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalTrack, RemoteTrack, Room } from 'livekit-client';
-import { io, type Socket } from 'socket.io-client';
 import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
 import * as api from '../../lib/api';
+import { acquireChatSocket } from '../../lib/realtime';
+import { isEmbeddedInAppBrowser } from '../chat/location-helper';
+import {
+  extractMediaErrorInfo,
+  formatCallMediaError,
+  isOverconstrainedMediaError,
+} from './call-media';
 import { Avatar } from '../../components/Avatar';
 import { startIncomingCallRingtone } from '../../lib/notification-sounds';
 import type { Peer } from '../../lib/types';
@@ -73,9 +79,12 @@ function AttachedTrack({
     element.autoplay = true;
     if (element instanceof HTMLVideoElement) {
       element.playsInline = true;
+      element.setAttribute('playsinline', '');
+      element.setAttribute('webkit-playsinline', '');
       element.muted = item.local;
     }
     holder.current?.append(element);
+    void element.play().catch(() => {});
     return () => {
       item.track.detach(element);
       element.remove();
@@ -98,28 +107,63 @@ const terminal = new Set<CallStatus>([
   'cancelled',
 ]);
 
-function callErrorMessage(failure: unknown) {
+function mediaEnvironment() {
+  const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  return {
+    mediaSupported:
+      typeof navigator !== 'undefined' &&
+      typeof navigator.mediaDevices?.getUserMedia === 'function',
+    secureContext:
+      typeof window === 'undefined' ? true : window.isSecureContext,
+    userAgent,
+    embedded: isEmbeddedInAppBrowser(userAgent),
+  };
+}
+
+function describeMediaFailure(
+  callType: 'audio' | 'video',
+  failure?: unknown,
+  missingDevices?: ('microphone' | 'camera')[],
+) {
+  return formatCallMediaError({
+    failure,
+    missingDevices,
+    callType,
+    ...mediaEnvironment(),
+  });
+}
+
+async function enableCameraTrack(localParticipant: Room['localParticipant']) {
+  try {
+    await localParticipant.setCameraEnabled(true);
+  } catch (failure) {
+    if (!isOverconstrainedMediaError(failure)) throw failure;
+    await localParticipant.setCameraEnabled(true, {
+      facingMode: 'user',
+      resolution: { width: 640, height: 480, frameRate: 24 },
+    });
+  }
+}
+
+function callErrorMessage(
+  failure: unknown,
+  callType: 'audio' | 'video' = 'video',
+) {
   if (failure instanceof api.ApiError) return api.errorMessage(failure);
-  if (failure instanceof DOMException) {
-    if (failure.name === 'NotAllowedError')
-      return 'Trình duyệt chưa được cấp quyền dùng microphone hoặc camera.';
-    if (failure.name === 'NotFoundError')
-      return 'Không tìm thấy microphone hoặc camera phù hợp trên thiết bị.';
-    if (failure.name === 'NotReadableError')
-      return 'Microphone hoặc camera đang được ứng dụng khác sử dụng.';
+  const { name, message } = extractMediaErrorInfo(failure);
+  const detail = `${name} ${message}`.toLowerCase();
+  if (
+    name === 'ConnectionError' ||
+    detail.includes('signal') ||
+    detail.includes('websocket') ||
+    detail.includes('unauthorized') ||
+    detail.includes('401') ||
+    detail.includes('livekit') ||
+    (detail.includes('connect') && !detail.includes('disconnect'))
+  ) {
+    return 'Không thể kết nối LiveKit. Hãy kiểm tra URL, API key và API secret có thuộc cùng một project.';
   }
-  if (failure instanceof Error) {
-    const detail = `${failure.name} ${failure.message}`.toLowerCase();
-    if (
-      detail.includes('signal') ||
-      detail.includes('websocket') ||
-      detail.includes('unauthorized') ||
-      detail.includes('401') ||
-      detail.includes('connect')
-    )
-      return 'Không thể kết nối LiveKit. Hãy kiểm tra URL, API key và API secret có thuộc cùng một project.';
-  }
-  return 'Không thể khởi tạo cuộc gọi. Vui lòng kiểm tra thiết bị và thử lại.';
+  return describeMediaFailure(callType, failure);
 }
 
 export function CallExperience({
@@ -142,7 +186,6 @@ export function CallExperience({
   const [camera, setCamera] = useState(true);
   const [pipBottom, setPipBottom] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const socket = useRef<Socket | undefined>(undefined);
   const currentCall = useRef<Call | undefined>(undefined);
   const roomRef = useRef<Room | undefined>(undefined);
 
@@ -219,27 +262,67 @@ export function CallExperience({
     }
     setRoom(mediaRoom);
     syncTracks();
-    const unavailable: string[] = [];
-    try {
-      await mediaRoom.localParticipant.setMicrophoneEnabled(true);
-      setMicrophone(true);
-    } catch {
+    await mediaRoom.startAudio().catch(() => {});
+    if (!mediaEnvironment().mediaSupported) {
       setMicrophone(false);
-      unavailable.push('microphone');
+      setCamera(false);
+      const missing: ('microphone' | 'camera')[] =
+        credentials.callType === 'video'
+          ? ['microphone', 'camera']
+          : ['microphone'];
+      setError(describeMediaFailure(credentials.callType, undefined, missing));
+      syncTracks();
+      return;
     }
+    const unavailable: ('microphone' | 'camera')[] = [];
+    let lastMediaFailure: unknown;
     if (credentials.callType === 'video') {
+      let combinedSucceeded = false;
       try {
-        await mediaRoom.localParticipant.setCameraEnabled(true);
+        await mediaRoom.localParticipant.enableCameraAndMicrophone();
+        combinedSucceeded = true;
+        setMicrophone(true);
         setCamera(true);
-      } catch {
-        setCamera(false);
-        unavailable.push('camera');
+      } catch (failure) {
+        lastMediaFailure = failure;
       }
-    } else setCamera(false);
+      if (!combinedSucceeded) {
+        try {
+          await mediaRoom.localParticipant.setMicrophoneEnabled(true);
+          setMicrophone(true);
+        } catch (failure) {
+          lastMediaFailure = failure;
+          setMicrophone(false);
+          unavailable.push('microphone');
+        }
+        try {
+          await enableCameraTrack(mediaRoom.localParticipant);
+          setCamera(true);
+        } catch (failure) {
+          lastMediaFailure = failure;
+          setCamera(false);
+          unavailable.push('camera');
+        }
+      }
+    } else {
+      setCamera(false);
+      try {
+        await mediaRoom.localParticipant.setMicrophoneEnabled(true);
+        setMicrophone(true);
+      } catch (failure) {
+        lastMediaFailure = failure;
+        setMicrophone(false);
+        unavailable.push('microphone');
+      }
+    }
     syncTracks();
     if (unavailable.length)
       setError(
-        `Đã vào cuộc gọi nhưng không sử dụng được ${unavailable.join(' và ')}. Bạn vẫn có thể xem và nghe người kia.`,
+        describeMediaFailure(
+          credentials.callType,
+          lastMediaFailure,
+          unavailable,
+        ),
       );
   }, []);
 
@@ -299,38 +382,34 @@ export function CallExperience({
 
   useEffect(() => {
     let disposed = false;
-    async function connect() {
+    let syncingCalls = false;
+    const hub = acquireChatSocket(user.id);
+    const client = hub.socket;
+    const receive = (event: CallResponse, incoming: boolean) => {
+      if (disposed) return;
+      const next = event.call;
+      if (incoming && next.initiatorId === user.id) return;
+      if (
+        !currentCall.current ||
+        currentCall.current.id === next.id ||
+        terminal.has(currentCall.current.status)
+      ) {
+        currentCall.current = next;
+        setCall(next);
+        if (terminal.has(next.status)) void closeMedia();
+      }
+    };
+    const onIncoming = (event: CallResponse) => receive(event, true);
+    const onUpdated = (event: CallResponse) => receive(event, false);
+    const syncCalls = async () => {
+      if (disposed || syncingCalls) return;
+      syncingCalls = true;
       try {
-        const accessToken = await api.accessToken();
-        if (disposed) return;
-        const client = io(`${api.API_ORIGIN}/chat`, {
-          transports: ['websocket'],
-          auth: { accessToken },
-        });
-        socket.current = client;
-        const receive = (event: CallResponse, incoming: boolean) => {
-          const next = event.call;
-          if (incoming && next.initiatorId === user.id) return;
-          if (
-            !currentCall.current ||
-            currentCall.current.id === next.id ||
-            terminal.has(currentCall.current.status)
-          ) {
-            currentCall.current = next;
-            setCall(next);
-            if (terminal.has(next.status)) void closeMedia();
-          }
-        };
-        client.on('call:incoming', (event: CallResponse) =>
-          receive(event, true),
-        );
-        client.on('call:updated', (event: CallResponse) =>
-          receive(event, false),
-        );
         const history = await api.authenticated<{
           items: Call[];
           nextCursor: string | null;
         }>('/calls?limit=20');
+        if (disposed) return;
         const pending = history.items.find(
           (item) =>
             ['ringing', 'active'].includes(item.status) &&
@@ -347,13 +426,23 @@ export function CallExperience({
       } catch (failure) {
         if (failure instanceof api.ApiError && failure.status === 401)
           onExpired();
+      } finally {
+        syncingCalls = false;
       }
-    }
-    void connect();
+    };
+    const onConnect = () => {
+      void syncCalls();
+    };
+    client.on('call:incoming', onIncoming);
+    client.on('call:updated', onUpdated);
+    client.on('connect', onConnect);
+    void syncCalls();
     return () => {
       disposed = true;
-      socket.current?.disconnect();
-      socket.current = undefined;
+      client.off('call:incoming', onIncoming);
+      client.off('call:updated', onUpdated);
+      client.off('connect', onConnect);
+      hub.release();
     };
   }, [closeMedia, onExpired, user.id]);
 
@@ -400,30 +489,42 @@ export function CallExperience({
   async function toggleMicrophone() {
     if (!room) return;
     const enabled = !microphone;
+    if (enabled && !mediaEnvironment().mediaSupported) {
+      setMicrophone(false);
+      setError(
+        describeMediaFailure(call?.type ?? 'audio', undefined, ['microphone']),
+      );
+      return;
+    }
     try {
       await room.localParticipant.setMicrophoneEnabled(enabled);
+      if (enabled) void room.startAudio().catch(() => {});
       setMicrophone(enabled);
       setError('');
     } catch (failure) {
       setMicrophone(false);
-      setError(callErrorMessage(failure));
+      setError(
+        describeMediaFailure(call?.type ?? 'audio', failure, ['microphone']),
+      );
     }
   }
 
   async function toggleCamera() {
     if (!room || call?.type !== 'video') return;
     const enabled = !camera;
+    if (enabled && !mediaEnvironment().mediaSupported) {
+      setCamera(false);
+      setError(describeMediaFailure('video', undefined, ['camera']));
+      return;
+    }
     try {
-      await room.localParticipant.setCameraEnabled(enabled);
+      if (enabled) await enableCameraTrack(room.localParticipant);
+      else await room.localParticipant.setCameraEnabled(false);
       setCamera(enabled);
       setError('');
     } catch (failure) {
       setCamera(false);
-      setError(
-        failure instanceof DOMException
-          ? callErrorMessage(failure)
-          : 'Không thể bật camera. Bạn vẫn đang kết nối với cuộc gọi.',
-      );
+      setError(describeMediaFailure('video', failure, ['camera']));
     }
   }
 
