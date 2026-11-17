@@ -23,8 +23,54 @@ import { SpamDetectionService } from './spam-detection.service';
 import { writeNotification } from '../notifications/notification-writer';
 
 const MAX_SEQUENCE = 9223372036854775807n;
+const LEGACY_QUOTE_PATTERN =
+  /^> [^:\n]{1,100}: ?(?:[^\n]*(?:\n> [^\n]*)*)\n\n([\s\S]+)$/;
+const GAME_INVITE_PATTERN =
+  /^🎮\s*\[GAME_INVITE:[a-z0-9_]+(?::[a-f0-9-]+)?\]\s*(.*)$/i;
+
 function fail(status: number, code: string, message: string): never {
   throw new HttpException({ code, message }, status);
+}
+
+function buildReplyExcerpt(
+  target: Message,
+): NonNullable<NonNullable<Message['content']>['replyTo']> {
+  if (target.deletedAt) {
+    return {
+      messageId: target.id,
+      senderId: target.senderId,
+      type: 'deleted',
+      excerpt: 'Tin nhắn đã thu hồi',
+    };
+  }
+  let text = '';
+  if (target.type === 'text') {
+    const raw = (target.editedBody ?? target.body ?? '').trim();
+    const legacy = LEGACY_QUOTE_PATTERN.exec(raw);
+    const unwrapped = legacy ? legacy[1]!.trim() : raw;
+    const invite = GAME_INVITE_PATTERN.exec(unwrapped);
+    text = invite ? `🎮 ${invite[1] || 'Lời mời chơi trò chơi'}` : unwrapped;
+  } else if (target.type === 'voice') {
+    text = 'Tin nhắn thoại';
+  } else if (target.type === 'image') {
+    text = 'Ảnh';
+  } else if (target.type === 'location') {
+    text = 'Vị trí được chia sẻ';
+  } else if (target.type === 'file') {
+    text = target.content?.fileName ?? 'Tệp đính kèm';
+  } else if (target.type === 'call') {
+    const video = target.content?.callType === 'video';
+    text = `Cuộc gọi ${video ? 'video' : 'thoại'}`;
+  }
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const excerpt =
+    clean.length > 140 ? `${clean.slice(0, 139)}…` : clean || 'Tin nhắn';
+  return {
+    messageId: target.id,
+    senderId: target.senderId,
+    type: target.type,
+    excerpt,
+  };
 }
 
 @Injectable()
@@ -134,15 +180,24 @@ export class MessagesService {
     query.andWhere(
       "EXISTS (SELECT 1 FROM users visible_sender WHERE visible_sender.id = message.sender_id AND visible_sender.status = 'active')",
     );
-    return query.andWhere(
-      `EXISTS (
+    return query
+      .andWhere(
+        `EXISTS (
       SELECT 1 FROM conversation_member_periods period
       WHERE period.conversation_id = message.conversation_id AND period.user_id = :actorId
         AND message.sequence > period.joined_after_sequence
         AND (period.left_after_sequence IS NULL OR message.sequence <= period.left_after_sequence)
     )`,
-      { actorId },
-    );
+        { actorId },
+      )
+      .andWhere(
+        `EXISTS (
+      SELECT 1 FROM conversation_members member
+      WHERE member.conversation_id = message.conversation_id AND member.user_id = :actorId
+        AND message.sequence > member.cleared_after_sequence
+    )`,
+        { actorId },
+      );
   }
 
   private async findVisible(
@@ -179,6 +234,7 @@ export class MessagesService {
       size: number;
       sha256: string;
       type: 'image' | 'file' | 'voice';
+      durationSeconds?: number;
     },
     source?: {
       conversationId: string;
@@ -199,6 +255,12 @@ export class MessagesService {
       );
     if (!media && input.type === 'text' && input.location !== undefined)
       fail(400, 'INVALID_PAYLOAD', 'Text cannot contain coordinates');
+    if (input.replyToMessageId && (media || source || input.type !== 'text'))
+      fail(
+        400,
+        'INVALID_PAYLOAD',
+        'Replies require a non-forwarded text message',
+      );
     const type = media?.type ?? input.type;
     const body = type === 'text' ? input.body! : null;
     const content: Message['content'] = media
@@ -208,6 +270,9 @@ export class MessagesService {
           mimeType: media.mimeType,
           size: media.size,
           sha256: media.sha256,
+          ...(media.type === 'voice' && media.durationSeconds !== undefined
+            ? { durationSeconds: media.durationSeconds }
+            : {}),
         }
       : input.type === 'location'
         ? {
@@ -284,6 +349,8 @@ export class MessagesService {
           existing.body !== body ||
           JSON.stringify(existing.content?.mentions ?? []) !==
             JSON.stringify(content?.mentions ?? []) ||
+          (existing.content?.replyTo?.messageId ?? null) !==
+            (input.replyToMessageId ?? null) ||
           (media
             ? existing.content?.sha256 !== media.sha256 ||
               existing.content?.fileName !== media.fileName ||
@@ -365,6 +432,20 @@ export class MessagesService {
             'Attachment storage limit reached',
           );
       }
+      let finalContent = content;
+      if (input.replyToMessageId) {
+        const replied = await this.findVisible(
+          manager,
+          actorId,
+          conversationId,
+          input.replyToMessageId,
+          true,
+        );
+        finalContent = {
+          ...(content ?? {}),
+          replyTo: buildReplyExcerpt(replied),
+        };
+      }
       const sequence = BigInt(conversation.lastMessageSequence) + 1n;
       if (sequence > MAX_SEQUENCE)
         fail(
@@ -378,7 +459,7 @@ export class MessagesService {
         clientMessageId: input.clientMessageId,
         type,
         body,
-        content,
+        content: finalContent,
         sequence: sequence.toString(),
         spamLabel: spamPrediction?.label ?? null,
         spamScore: spamPrediction?.score ?? null,
@@ -396,8 +477,8 @@ export class MessagesService {
           mimeType: media.mimeType,
           size: String(media.size),
           status: 'attached',
-          uploadExpiresAt: new Date(Date.now() + 3600000),
-          completedAt: new Date(),
+          uploadExpiresAt: () => "CURRENT_TIMESTAMP + INTERVAL '1 hour'",
+          completedAt: () => 'CURRENT_TIMESTAMP',
         });
       for (const userId of input.mentions ?? []) {
         if (userId !== actorId)

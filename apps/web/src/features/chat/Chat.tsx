@@ -32,15 +32,18 @@ import {
 } from '../ai/ai-model';
 import {
   cachedHistory,
+  clearConversationHistoryCache,
   loadRecentHistory,
   rememberHistory,
 } from '../../lib/chat-history-cache';
 import {
+  buildReplyDraftSummary,
   mergeMessages,
   mergeReceipt,
+  type History,
   type Message,
   type Receipt,
-  type History,
+  type ReplySummary,
 } from '../../lib/chat-model';
 import type { Peer } from '../../lib/types';
 import { CaroGame, GAME_INFO, type CaroSession } from '../games/CaroGame';
@@ -49,6 +52,11 @@ interface Draft {
   clientMessageId: string;
   body: string;
   mentions?: string[];
+  replyToMessageId?: string;
+  replyPreview?: {
+    replyTo: ReplySummary;
+    label: string;
+  };
   media?: MediaDraft;
   status: 'sending' | 'failed';
   error?: string;
@@ -578,6 +586,43 @@ export function Chat({
     const onSyncRequired = () => {
       void sync();
     };
+    const applyClearedHistory = (clearedAfterSequence: string) => {
+      if (stopped || !alive.current) return;
+      const cutoff = BigInt(clearedAfterSequence || '0');
+      if (cutoff > BigInt(latest.current))
+        latest.current = clearedAfterSequence;
+      started.current = true;
+      messageCache.current = messageCache.current.filter(
+        (item) => BigInt(item.sequence) > cutoff,
+      );
+      setMessages(messageCache.current);
+      setOlder(null);
+      setPins([]);
+      setReplyTo(undefined);
+      setTranslations({});
+      setVoiceTranscripts({});
+      setReceipts({});
+      unreadCount.current = 0;
+      clearConversationHistoryCache(draftKey);
+      pinRefresh.current();
+    };
+    const onHistoryCleared = (event: {
+      conversationId: string;
+      clearedAfterSequence: string;
+    }) => {
+      if (event.conversationId === conversationId)
+        applyClearedHistory(event.clearedAfterSequence);
+    };
+    const onLocalHistoryCleared = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          conversationId?: string;
+          clearedAfterSequence?: string;
+        }>
+      ).detail;
+      if (detail?.conversationId === conversationId)
+        applyClearedHistory(detail.clearedAfterSequence ?? '0');
+    };
     const onDisconnect = () => {
       if (!stopped) setConnected(false);
     };
@@ -586,6 +631,7 @@ export function Chat({
     client.on('message:created', onMessageCreated);
     client.on('message:reactions', onMessageReactions);
     client.on('conversation:pins', onConversationPins);
+    client.on('conversation:history-cleared', onHistoryCleared);
     client.on('message:updated', onMessageMutated);
     client.on('message:deleted', onMessageMutated);
     client.on('message:receipt', onMessageReceipt);
@@ -593,6 +639,7 @@ export function Chat({
     client.on('game:updated', onGameUpdated);
     client.on('sync:required', onSyncRequired);
     client.on('disconnect', onDisconnect);
+    window.addEventListener('chat:history-cleared', onLocalHistoryCleared);
     const unsubscribeError = hub.subscribeError((code) => {
       if (stopped) return;
       setConnected(false);
@@ -643,6 +690,7 @@ export function Chat({
       client.off('message:created', onMessageCreated);
       client.off('message:reactions', onMessageReactions);
       client.off('conversation:pins', onConversationPins);
+      client.off('conversation:history-cleared', onHistoryCleared);
       client.off('message:updated', onMessageMutated);
       client.off('message:deleted', onMessageMutated);
       client.off('message:receipt', onMessageReceipt);
@@ -650,6 +698,7 @@ export function Chat({
       client.off('game:updated', onGameUpdated);
       client.off('sync:required', onSyncRequired);
       client.off('disconnect', onDisconnect);
+      window.removeEventListener('chat:history-cleared', onLocalHistoryCleared);
       unsubscribeError();
       if (socket.current === client) socket.current = undefined;
       hub.release();
@@ -673,11 +722,14 @@ export function Chat({
     loading,
     dependencies: [messages, pending, typingDependency],
   });
-  async function jumpToPin(target: Message) {
+  async function jumpToMessage(
+    messageId: string,
+    notFoundMessage = 'Không tìm thấy tin nhắn gốc.',
+  ) {
     try {
       nearBottom.current = false;
       let cursor = older;
-      while (!messageCache.current.some((m) => m.id === target.id) && cursor) {
+      while (!messageCache.current.some((m) => m.id === messageId) && cursor) {
         const page = await api.authenticated<History>(
           `/conversations/${conversationId}/messages?direction=backward&limit=50&cursor=${cursor}`,
         );
@@ -691,15 +743,21 @@ export function Chat({
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
       const element = list.current?.querySelector<HTMLElement>(
-        `[data-message-id="${target.id}"]`,
+        `[data-message-id="${messageId}"]`,
       );
-      if (!element) throw new Error('Không tìm thấy tin nhắn đã ghim.');
+      if (!element) {
+        setError(notFoundMessage);
+        return;
+      }
       element.scrollIntoView({ block: 'center', behavior: 'instant' });
       element.classList.add('pin-highlight');
       window.setTimeout(() => element.classList.remove('pin-highlight'), 2500);
     } catch (e) {
       fail(e);
     }
+  }
+  function jumpToPin(target: Message) {
+    return jumpToMessage(target.id, 'Không tìm thấy tin nhắn đã ghim.');
   }
   useEffect(() => {
     const container = list.current;
@@ -790,6 +848,7 @@ export function Chat({
             draft.clientMessageId,
             draft.media.file,
             draft.media.type as 'image' | 'file' | 'voice',
+            draft.media.durationSeconds,
           )
         : await api.authenticated<{ message: Message }>(
             `/conversations/${conversationId}/messages`,
@@ -803,6 +862,9 @@ export function Chat({
                   clientMessageId: draft.clientMessageId,
                   body: draft.body,
                   mentions: draft.mentions,
+                  ...(draft.replyToMessageId
+                    ? { replyToMessageId: draft.replyToMessageId }
+                    : {}),
                 },
           );
       accept([result.message]);
@@ -826,21 +888,29 @@ export function Chat({
       setError('Vui lòng nhập nội dung tin nhắn.');
       return;
     }
+    if (body.length > 10000) {
+      setError('Tin nhắn tối đa 10.000 ký tự.');
+      return;
+    }
     const original = replyTo
       ? (messageCache.current.find((message) => message.id === replyTo.id) ??
         replyTo)
       : undefined;
-    const content = original
-      ? `> ${names(original.senderId)}: ${original.deletedAt ? 'Tin nhắn đã thu hồi' : (original.body ?? '').slice(0, 300).replace(/\n/g, '\n> ')}\n\n${body}`
-      : body;
-    if (content.length > 10000) {
-      setError('Tin nhắn tối đa 10.000 ký tự.');
-      return;
-    }
+    const replyPreview = original
+      ? {
+          replyTo: buildReplyDraftSummary(original),
+          label:
+            original.senderId === user.id
+              ? 'Bạn đã trả lời chính mình'
+              : `Bạn đã trả lời ${names(original.senderId)}`,
+        }
+      : undefined;
     const draft: Draft = {
       clientMessageId: crypto.randomUUID(),
-      body: content,
-      mentions: mentions.filter((id) => content.includes(`@${names(id)}`)),
+      body,
+      mentions: mentions.filter((id) => body.includes(`@${names(id)}`)),
+      replyToMessageId: original?.id,
+      replyPreview,
       status: 'sending',
     };
     setBody('');
@@ -887,6 +957,9 @@ export function Chat({
   }
   const names = (id: string) =>
     peers.find((peer) => peer.id === id)?.displayName ?? 'Thành viên';
+  const deletedMessageIds = new Set(
+    messages.filter((item) => !!item.deletedAt).map((item) => item.id),
+  );
   const lastSentId = pending.length
     ? undefined
     : [...messages].reverse().find((message) => message.senderId === user.id)
@@ -1006,8 +1079,18 @@ export function Chat({
         </p>
       )}
       {error && (
-        <div className="message error" role="alert">
-          {error}
+        <div className="message error chat-inline-error" role="alert">
+          <span>{error}</span>
+          {!unavailable && (
+            <button
+              type="button"
+              className="retry chat-error-close"
+              aria-label="Đóng thông báo lỗi"
+              onClick={() => setError('')}
+            >
+              ×
+            </button>
+          )}
         </div>
       )}
       <PinnedMessages
@@ -1090,9 +1173,15 @@ export function Chat({
               <MessageBubble
                 message={message}
                 mine={mine}
+                currentUserId={user.id}
                 isGroup={isGroup}
                 pinned={pins.some((pin) => pin.id === message.id)}
                 continuesGroup={continuesGroup}
+                replyTargetDeleted={
+                  !!message.content?.replyTo?.messageId &&
+                  deletedMessageIds.has(message.content.replyTo.messageId)
+                }
+                onJumpToMessage={(messageId) => void jumpToMessage(messageId)}
                 peers={peers}
                 names={names}
                 active={active}
@@ -1158,6 +1247,8 @@ export function Chat({
           <PendingMessage
             key={draft.clientMessageId}
             body={draft.body}
+            replyTo={draft.replyPreview?.replyTo}
+            replyLabel={draft.replyPreview?.label}
             status={draft.status}
             error={draft.error}
             retryDisabled={unavailable}

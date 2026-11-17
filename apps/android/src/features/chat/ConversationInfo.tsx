@@ -24,6 +24,7 @@ export function ConversationInfo({
   members,
   user,
   onClose,
+  onClearHistory,
   onExpired,
   onLeave,
   onMembers,
@@ -34,6 +35,7 @@ export function ConversationInfo({
   members: ConversationMember[];
   user: api.User;
   onClose: () => void;
+  onClearHistory: (clearedAfterSequence: string) => void;
   onExpired: () => void;
   onLeave: () => void;
   onMembers: (members: ConversationMember[]) => void;
@@ -402,6 +404,40 @@ export function ConversationInfo({
             );
           })}
         </View>
+        <Pressable
+          disabled={busy}
+          onPress={() =>
+            Alert.alert(
+              'Xóa lịch sử trò chuyện?',
+              'Toàn bộ tin nhắn trước thời điểm này sẽ bị xóa khỏi tài khoản và thiết bị của bạn. Người khác vẫn giữ nguyên lịch sử của họ.',
+              [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                  text: 'Xóa lịch sử',
+                  style: 'destructive',
+                  onPress: () =>
+                    void run(
+                      async () => {
+                        const result = await api.authenticated<{
+                          clearedAfterSequence: string;
+                        }>(
+                          `/conversations/${conversation.id}/history`,
+                          undefined,
+                          'DELETE',
+                        );
+                        onClearHistory(result.clearedAfterSequence);
+                      },
+                      '',
+                      false,
+                    ),
+                },
+              ],
+            )
+          }
+          style={[styles.dangerWide, isGroup && !owner && { marginBottom: 10 }]}
+        >
+          <Text style={styles.dangerWideText}>Xóa lịch sử trò chuyện</Text>
+        </Pressable>
         {isGroup && !owner && (
           <Pressable
             disabled={busy}

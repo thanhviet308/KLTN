@@ -1,4 +1,5 @@
-import { Bell, BellOff, Pin, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bell, BellOff, Pin, Search, Trash2 } from 'lucide-react';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
 import { presenceLabel, type Presence } from '../../hooks/usePresence';
@@ -31,6 +32,7 @@ export function ConversationSummaryPanel({
   memberCount,
   presence,
   muted,
+  clearingHistory,
   searchActive,
   pinsActive,
   sharedMessages,
@@ -38,6 +40,7 @@ export function ConversationSummaryPanel({
   onTogglePins,
   onToggleMute,
   onOpenInfo,
+  onClearHistory,
   onViewAll,
 }: {
   conversationId: string;
@@ -46,6 +49,7 @@ export function ConversationSummaryPanel({
   memberCount: number;
   presence: Record<string, Presence>;
   muted: boolean;
+  clearingHistory?: boolean;
   searchActive?: boolean;
   pinsActive?: boolean;
   sharedMessages: Message[];
@@ -53,8 +57,13 @@ export function ConversationSummaryPanel({
   onTogglePins: () => void;
   onToggleMute: () => void;
   onOpenInfo: () => void;
+  onClearHistory: () => Promise<void>;
   onViewAll: (type: 'image' | 'file') => void;
 }) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  useEffect(() => {
+    setConfirmClear(false);
+  }, [conversationId]);
   const images = sharedOfType(sharedMessages, conversationId, 'image');
   const files = sharedOfType(sharedMessages, conversationId, 'file');
   return (
@@ -146,18 +155,58 @@ export function ConversationSummaryPanel({
           </p>
         )}
       </section>
-      {peer && (
-        <section className="summary-section">
-          <h3>Quyền riêng tư & hỗ trợ</h3>
-          <ReportButton
-            target={{
-              targetType: 'user',
-              targetId: peer.id,
-              label: `Báo cáo ${peer.displayName}`,
-            }}
-          />
-        </section>
-      )}
+      <section className="summary-section">
+        <h3>Quyền riêng tư & hỗ trợ</h3>
+        <div className="summary-privacy-actions">
+          {!confirmClear ? (
+            <button
+              type="button"
+              className="summary-danger-trigger"
+              disabled={clearingHistory}
+              onClick={() => setConfirmClear(true)}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+              <span>Xóa lịch sử trò chuyện</span>
+            </button>
+          ) : (
+            <div className="summary-confirm-box" role="alert">
+              <p>
+                Xóa toàn bộ lịch sử trò chuyện trên tài khoản của bạn? Người
+                khác vẫn giữ nguyên tin nhắn của họ.
+              </p>
+              <div className="summary-confirm-buttons">
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={clearingHistory}
+                  onClick={() =>
+                    void onClearHistory().then(() => setConfirmClear(false))
+                  }
+                >
+                  {clearingHistory ? 'Đang xóa…' : 'Xác nhận xóa'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={clearingHistory}
+                  onClick={() => setConfirmClear(false)}
+                >
+                  Hủy
+                </button>
+              </div>
+            </div>
+          )}
+          {peer && (
+            <ReportButton
+              target={{
+                targetType: 'user',
+                targetId: peer.id,
+                label: `Báo cáo ${peer.displayName}`,
+              }}
+            />
+          )}
+        </div>
+      </section>
     </aside>
   );
 }

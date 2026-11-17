@@ -70,6 +70,13 @@ export class Message {
     callType?: 'audio' | 'video';
     callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
     durationSeconds?: number;
+    replyTo?: {
+      messageId: string;
+      senderId: string;
+      type:
+        'text' | 'image' | 'file' | 'voice' | 'location' | 'call' | 'deleted';
+      excerpt: string;
+    };
   } | null;
   @Column({ type: 'text', nullable: true, transformer: messageTextTransformer })
   body!: string | null;

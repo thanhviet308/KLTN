@@ -164,7 +164,7 @@ export class PasswordResetService {
         return null; // Commit the failed attempt, then return the public error.
       }
       // Follow refresh/change-password's session-before-user lock order.
-      await manager
+      const activeSessions = await manager
         .getRepository(Session)
         .createQueryBuilder('session')
         .where('session.userId = :userId AND session.revokedAt IS NULL', {
@@ -190,12 +190,17 @@ export class PasswordResetService {
       const passwordHash = await this.passwords.hash(input.newPassword);
       if (record.expiresAt.getTime() <= Date.now()) return null;
       await manager.getRepository(User).update(user.id, { passwordHash });
+      const revokedAt = new Date(
+        Math.max(
+          Date.now(),
+          ...activeSessions.map(
+            (session) => session.createdAt?.getTime?.() ?? 0,
+          ),
+        ),
+      );
       await manager
         .getRepository(Session)
-        .update(
-          { userId: user.id, revokedAt: IsNull() },
-          { revokedAt: new Date() },
-        );
+        .update({ userId: user.id, revokedAt: IsNull() }, { revokedAt });
       await repository.update(record.email, { consumedAt: new Date() });
       return record.email;
     });

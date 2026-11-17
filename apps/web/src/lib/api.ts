@@ -285,6 +285,7 @@ export async function uploadChatFile<T>(
   clientMessageId: string,
   file: File,
   type: 'image' | 'file' | 'voice',
+  durationSeconds?: number,
 ) {
   const query = new URLSearchParams({
     clientMessageId,
@@ -292,12 +293,53 @@ export async function uploadChatFile<T>(
     type,
     mimeType: file.type || 'application/octet-stream',
   });
+  if (
+    type === 'voice' &&
+    typeof durationSeconds === 'number' &&
+    Number.isInteger(durationSeconds) &&
+    durationSeconds >= 0
+  ) {
+    query.set('durationSeconds', String(durationSeconds));
+  }
   return (
     await binaryRequest(
       `/conversations/${conversationId}/messages/upload?${query}`,
       file,
     )
   ).json() as Promise<T>;
+}
+
+export async function uploadCallSummary(callId: string, audio: Blob) {
+  const attempt = (bearer: string) =>
+    fetch(`${API_ORIGIN}/api/v1/calls/${callId}/summary`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        'X-Auth-Client': 'web',
+        'Content-Type': audio.type || 'application/octet-stream',
+      },
+      body: audio,
+      signal: AbortSignal.timeout(90000),
+    });
+  try {
+    const attemptedToken = await accessToken();
+    let response = await attempt(attemptedToken);
+    if (response.status === 401) {
+      if (token === attemptedToken) await refresh();
+      response = await attempt(await accessToken());
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new ApiError(
+        response.status,
+        error.code ?? (response.status === 429 ? 'RATE_LIMITED' : 'UNKNOWN'),
+      );
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(0, 'NETWORK_ERROR');
+  }
 }
 
 export function currentUserId() {
@@ -436,6 +478,14 @@ export async function logout() {
   }
   clearSession();
 }
+const sessionClearListeners = new Set<() => void>();
+export function onSessionClear(listener: () => void) {
+  sessionClearListeners.add(listener);
+  return () => {
+    sessionClearListeners.delete(listener);
+  };
+}
+
 export function clearSession() {
   sessionGeneration++;
   sessionUserId = undefined;
@@ -446,6 +496,7 @@ export function clearSession() {
   pendingFiles.clear();
   fileCacheBytes = 0;
   clearHistoryCache();
+  sessionClearListeners.forEach((listener) => listener());
   token = undefined;
   expiresAt = 0;
 }
@@ -526,6 +577,8 @@ export function errorMessage(error: unknown) {
       OWNER_TRANSFER_REQUIRED: 'Hãy chuyển quyền chủ nhóm trước khi rời nhóm.',
       CALL_ALREADY_OPEN:
         'Hội thoại đang có một cuộc gọi khác. Hãy tiếp tục hoặc kết thúc cuộc gọi đó.',
+      CALL_SUMMARY_NOT_READY:
+        'Cuộc gọi chưa kết thúc hoặc không bật tính năng tóm tắt AI.',
       GAME_DIRECT_ONLY:
         'Trò chơi hiện chỉ hỗ trợ trong cuộc trò chuyện riêng giữa hai người.',
       GAME_ALREADY_OPEN: 'Cuộc trò chuyện đang có một ván đấu chưa kết thúc.',

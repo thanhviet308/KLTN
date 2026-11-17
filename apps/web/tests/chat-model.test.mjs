@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeMessages, newestMessagesFirst } from '../src/lib/chat-model.ts';
+import {
+  buildReplyDraftSummary,
+  extractMessageReply,
+  mergeMessages,
+  messageSummary,
+  newestMessagesFirst,
+} from '../src/lib/chat-model.ts';
 
 const original = {
   id: 'message-1',
@@ -69,4 +75,51 @@ test('shared media lists put the newest message first', () => {
     middle,
     original,
   ]);
+});
+
+test('structured and legacy replies separate quoted metadata from reply body cleanly', () => {
+  const structured = {
+    ...original,
+    body: 'Sao thế?',
+    content: {
+      replyTo: {
+        messageId: 'voice-1',
+        senderId: 'user-2',
+        type: 'voice',
+        excerpt: 'Tin nhắn thoại',
+      },
+    },
+  };
+  assert.deepEqual(extractMessageReply(structured), {
+    reply: structured.content.replyTo,
+    body: 'Sao thế?',
+  });
+  assert.equal(messageSummary(structured), 'Sao thế?');
+
+  const legacyEmptyQuote = {
+    ...original,
+    body: '> Bảo Trân: \n\nlà sao',
+  };
+  assert.deepEqual(extractMessageReply(legacyEmptyQuote), {
+    reply: {
+      legacySenderName: 'Bảo Trân',
+      type: 'text',
+      excerpt: 'Tin nhắn đã trích dẫn',
+    },
+    body: 'là sao',
+  });
+  assert.equal(messageSummary(legacyEmptyQuote), 'là sao');
+
+  const voiceOriginal = {
+    ...original,
+    id: 'voice-1',
+    type: 'voice',
+    body: null,
+  };
+  assert.deepEqual(buildReplyDraftSummary(voiceOriginal), {
+    messageId: 'voice-1',
+    senderId: 'user-1',
+    type: 'voice',
+    excerpt: 'Tin nhắn thoại',
+  });
 });

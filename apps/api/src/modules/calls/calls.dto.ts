@@ -1,6 +1,10 @@
-import { IsIn, IsUUID } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsUUID } from 'class-validator';
 
 export class CreateCallDto {
+  @IsOptional()
+  @IsBoolean()
+  summaryEnabled?: boolean;
+
   @IsUUID('4')
   clientRequestId!: string;
 

@@ -9,6 +9,7 @@ import { presenceLabel, type Presence } from '../../hooks/usePresence';
 import {
   applyCachedMessage,
   cachedHistory,
+  clearConversationHistoryCache,
   loadRecentHistory,
 } from '../../lib/chat-history-cache';
 import {
@@ -252,6 +253,7 @@ export function Conversations({
     body?: unknown;
     method: string;
     leave?: boolean;
+    clearHistory?: boolean;
   }>();
   const requestKey = useRef<{ fingerprint: string; id: string } | undefined>(
     undefined,
@@ -385,6 +387,75 @@ export function Conversations({
       if (live.current) setBusy(false);
     }
   }
+  function applyClearedHistoryState(
+    conversationId: string,
+    clearedAfterSequence: string,
+  ) {
+    const cutoff = BigInt(clearedAfterSequence || '0');
+    clearConversationHistoryCache(`${user.id}:${conversationId}`);
+    setItems((previous) =>
+      previous.map((item) => {
+        if (item.id !== conversationId) return item;
+        const clearsPreview =
+          item.lastMessage && BigInt(item.lastMessage.sequence) <= cutoff;
+        return {
+          ...item,
+          membership: {
+            ...item.membership,
+            clearedAfterSequence,
+          },
+          lastMessage: clearsPreview ? null : item.lastMessage,
+          unreadCount: 0,
+        };
+      }),
+    );
+    setSelected((previous) =>
+      previous && previous.id === conversationId
+        ? {
+            ...previous,
+            membership: {
+              ...previous.membership,
+              clearedAfterSequence,
+            },
+          }
+        : previous,
+    );
+    setSearchedMessages((previous) =>
+      previous.filter(
+        (hit) =>
+          hit.conversationId !== conversationId ||
+          BigInt(hit.sequence) > cutoff,
+      ),
+    );
+    if (selectedId.current === conversationId) {
+      setSharedMessages((previous) =>
+        previous.filter((message) => BigInt(message.sequence) > cutoff),
+      );
+    }
+    setIncomingNotice((previous) =>
+      previous?.conversationId === conversationId &&
+      BigInt(previous.sequence) <= cutoff
+        ? undefined
+        : previous,
+    );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('chat:history-cleared', {
+          detail: { conversationId, clearedAfterSequence },
+        }),
+      );
+    }
+  }
+  async function clearConversationHistory(conversationId: string) {
+    await run(async () => {
+      const result = await api.authenticated<{
+        conversation: Conversation;
+        clearedAfterSequence: string;
+      }>(`/conversations/${conversationId}/history`, undefined, 'DELETE');
+      applyClearedHistoryState(conversationId, result.clearedAfterSequence);
+      setWorkspacePanel(undefined);
+    }, 'Đã xóa lịch sử trò chuyện phía bạn.');
+  }
   useEffect(() => {
     live.current = true;
     return () => {
@@ -464,12 +535,24 @@ export function Conversations({
           )
           .catch(() => {});
     };
+    const onHistoryCleared = (event: {
+      conversationId: string;
+      clearedAfterSequence: string;
+    }) => {
+      if (stopped) return;
+      applyClearedHistoryState(
+        event.conversationId,
+        event.clearedAfterSequence,
+      );
+    };
     client.on('account:visibility', onAccountVisibility);
     client.on('message:created', onMessageCreated);
+    client.on('conversation:history-cleared', onHistoryCleared);
     return () => {
       stopped = true;
       client.off('account:visibility', onAccountVisibility);
       client.off('message:created', onMessageCreated);
+      client.off('conversation:history-cleared', onHistoryCleared);
       hub.release();
     };
   }, [user.id]);
@@ -1328,33 +1411,60 @@ export function Conversations({
                   className="danger"
                   disabled={busy}
                   onClick={() =>
-                    void run(async () => {
-                      try {
-                        await api.authenticated(
-                          confirmation.path,
-                          confirmation.body,
-                          confirmation.method,
-                        );
-                      } catch (e) {
-                        if (
-                          confirmation.leave &&
-                          e instanceof api.ApiError &&
-                          e.status === 404
-                        ) {
-                          /* Already left. */
-                        } else {
-                          if (!confirmation.leave)
-                            await detail(selected.id).catch(() => {});
-                          throw e;
+                    void run(
+                      async () => {
+                        let clearedResult:
+                          | {
+                              conversation: Conversation;
+                              clearedAfterSequence: string;
+                            }
+                          | undefined;
+                        try {
+                          const res = await api.authenticated(
+                            confirmation.path,
+                            confirmation.body,
+                            confirmation.method,
+                          );
+                          if (confirmation.clearHistory)
+                            clearedResult = res as {
+                              conversation: Conversation;
+                              clearedAfterSequence: string;
+                            };
+                        } catch (e) {
+                          if (
+                            confirmation.leave &&
+                            e instanceof api.ApiError &&
+                            e.status === 404
+                          ) {
+                            /* Already left. */
+                          } else {
+                            if (!confirmation.leave)
+                              await detail(selected.id).catch(() => {});
+                            throw e;
+                          }
                         }
-                      }
-                      setConfirmation(undefined);
-                      if (confirmation.leave) {
-                        setSelected(undefined);
-                        setMembers([]);
-                      } else await detail(selected.id);
-                      await list();
-                    }, 'Đã cập nhật hội thoại.')
+                        const wasClearHistory = !!confirmation.clearHistory;
+                        const wasLeave = !!confirmation.leave;
+                        setConfirmation(undefined);
+                        if (wasLeave) {
+                          setSelected(undefined);
+                          setMembers([]);
+                        } else if (wasClearHistory && clearedResult) {
+                          applyClearedHistoryState(
+                            selected.id,
+                            clearedResult.clearedAfterSequence,
+                          );
+                          setWorkspacePanel(undefined);
+                          setShowInfo(false);
+                        } else {
+                          await detail(selected.id);
+                        }
+                        await list();
+                      },
+                      confirmation.clearHistory
+                        ? 'Đã xóa lịch sử trò chuyện phía bạn.'
+                        : 'Đã cập nhật hội thoại.',
+                    )
                   }
                 >
                   Xác nhận
@@ -1508,27 +1618,44 @@ export function Conversations({
                 )}
               </div>
             )}
-            {isGroup &&
-              (owner ? (
-                <p className="hint">
-                  Chuyển quyền chủ nhóm cho một thành viên trước khi rời nhóm.
-                </p>
-              ) : (
-                <button
-                  className="danger"
-                  disabled={busy}
-                  onClick={() =>
-                    setConfirmation({
-                      text: 'Rời nhóm này? Bạn sẽ không còn truy cập được hội thoại.',
-                      path: `/conversations/${selected.id}/members/${user.id}`,
-                      method: 'DELETE',
-                      leave: true,
-                    })
-                  }
-                >
-                  Rời nhóm
-                </button>
-              ))}
+            <div className="conversation-danger-zone">
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() =>
+                  setConfirmation({
+                    text: 'Xóa lịch sử trò chuyện phía bạn? Toàn bộ tin nhắn trước thời điểm này sẽ bị ẩn khỏi tài khoản của bạn. Người khác vẫn giữ nguyên lịch sử của họ.',
+                    path: `/conversations/${selected.id}/history`,
+                    method: 'DELETE',
+                    clearHistory: true,
+                  })
+                }
+              >
+                Xóa lịch sử trò chuyện
+              </button>
+              {isGroup &&
+                (owner ? (
+                  <p className="hint">
+                    Chuyển quyền chủ nhóm cho một thành viên trước khi rời nhóm.
+                  </p>
+                ) : (
+                  <button
+                    className="danger"
+                    disabled={busy}
+                    onClick={() =>
+                      setConfirmation({
+                        text: 'Rời nhóm này? Bạn sẽ không còn truy cập được hội thoại.',
+                        path: `/conversations/${selected.id}/members/${user.id}`,
+                        method: 'DELETE',
+                        leave: true,
+                      })
+                    }
+                  >
+                    Rời nhóm
+                  </button>
+                ))}
+            </div>
           </section>
         )}
       </div>
@@ -1540,6 +1667,7 @@ export function Conversations({
           memberCount={members.length}
           presence={presence}
           muted={!!muted[selected.id]}
+          clearingHistory={busy}
           searchActive={workspacePanel === 'search'}
           pinsActive={workspacePanel === 'group'}
           sharedMessages={sharedMessages}
@@ -1550,6 +1678,7 @@ export function Conversations({
             setShowInfo(true);
             void run(() => detail(selected.id));
           }}
+          onClearHistory={() => clearConversationHistory(selected.id)}
           onViewAll={(type) => setMediaView({ id: selected.id, type })}
         />
       )}

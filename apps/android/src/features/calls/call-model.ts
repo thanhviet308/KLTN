@@ -1,5 +1,6 @@
 export type CallType = 'audio' | 'video';
 export interface Call {
+  summaryEnabled?: boolean;
   id: string;
   conversationId: string;
   initiatorId: string;

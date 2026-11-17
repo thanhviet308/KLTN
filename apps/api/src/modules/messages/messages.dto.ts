@@ -54,6 +54,15 @@ export class UploadMessageDto {
   @IsString()
   @Length(1, 127)
   mimeType?: string;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value,
+  )
+  @IsInt()
+  @Min(0)
+  @Max(86400)
+  durationSeconds?: number;
 }
 
 export class SendMessageDto {
@@ -83,6 +92,13 @@ export class SendMessageDto {
   @ValidateNested()
   @Type(() => LocationDto)
   location?: LocationDto;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsUUID('4')
+  replyToMessageId?: string;
 }
 
 export class MessageHistoryDto {

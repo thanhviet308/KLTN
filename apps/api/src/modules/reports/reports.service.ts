@@ -45,6 +45,12 @@ export class ReportsService {
         AND (period.left_after_sequence IS NULL OR message.sequence <= period.left_after_sequence))`,
         { actorId },
       )
+      .andWhere(
+        `EXISTS (SELECT 1 FROM conversation_members member
+        WHERE member.conversation_id = message.conversation_id AND member.user_id = :actorId
+        AND message.sequence > member.cleared_after_sequence)`,
+        { actorId },
+      )
       .getOne();
     if (!message) fail(404, 'REPORT_TARGET_UNAVAILABLE');
     await this.conversations.requireAccess(

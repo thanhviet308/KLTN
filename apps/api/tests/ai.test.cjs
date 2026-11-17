@@ -17,6 +17,7 @@ const {
   AiProviderService,
   normalizeAudioMime,
   validateAiChatResult,
+  validateAiCombinedVoiceResult,
   validateAiResult,
   validateAiTranscriptResult,
 } = require('../dist/modules/ai/ai-provider.service');
@@ -648,6 +649,91 @@ test('voice transcription reads authorized audio, caches results, extends into t
         includeReplies: true,
       }),
       code('AI_SOURCE_UNAVAILABLE'),
+    );
+
+    // Uncached voice with translation + replies combines into a single provider call and warms caches
+    let combinedCalls = 0;
+    let replyGenerateCalls = 0;
+    const fastProvider = {
+      available: () => true,
+      transcribeAudio: async () => {
+        throw new Error('should use combined call');
+      },
+      transcribeAndAssistAudio: async (_b64, _mime, options) => {
+        combinedCalls++;
+        assert.equal(options.translateTo, 'vi');
+        assert.equal(options.includeReplies, true);
+        assert.equal(options.tone, 'concise');
+        return {
+          transcript: 'I do not know.',
+          language: 'en',
+          translation: 'Tôi không biết.',
+          replies: ['Sao thế?', 'Là sao nhỉ?'],
+        };
+      },
+      generate: async () => {
+        replyGenerateCalls++;
+        return {
+          summary: '',
+          decisions: [],
+          tasks: [],
+          replies: ['Để mình giải thích thêm nhé.', 'Bạn cần hỏi phần nào?'],
+          translation: '',
+        };
+      },
+    };
+    const fastService = new AiService(
+      { transaction: (work) => work(manager) },
+      { requireAccess: async () => {} },
+      fastProvider,
+      { path: () => audioPath },
+    );
+    voiceMessage = { ...voiceMessage, deletedAt: null };
+    const firstFast = await fastService.transcribeVoice(
+      'me',
+      'conversation',
+      voiceMessage.id,
+      { translateTo: 'vi', includeReplies: true },
+    );
+    assert.equal(combinedCalls, 1);
+    assert.equal(replyGenerateCalls, 0);
+    assert.deepEqual(firstFast.result, {
+      transcript: 'I do not know.',
+      language: 'en',
+      translation: 'Tôi không biết.',
+      replies: ['Sao thế?', 'Là sao nhỉ?'],
+    });
+    const secondFast = await fastService.transcribeVoice(
+      'me',
+      'conversation',
+      voiceMessage.id,
+      { translateTo: 'vi', includeReplies: true },
+    );
+    assert.equal(combinedCalls, 1);
+    assert.equal(replyGenerateCalls, 0);
+    assert.deepEqual(secondFast.result, firstFast.result);
+
+    // Another member shares immutable transcript/translation cache, never actor-specific replies
+    const otherMemberFast = await fastService.transcribeVoice(
+      'peer-2',
+      'conversation',
+      voiceMessage.id,
+      { translateTo: 'vi', includeReplies: true },
+    );
+    assert.equal(combinedCalls, 1);
+    assert.equal(replyGenerateCalls, 1);
+    assert.deepEqual(otherMemberFast.result.replies, [
+      'Để mình giải thích thêm nhé.',
+      'Bạn cần hỏi phần nào?',
+    ]);
+
+    assert.throws(
+      () =>
+        validateAiCombinedVoiceResult(
+          { transcript: 'Hi', language: 'en', translation: '', replies: [] },
+          { translateTo: 'vi' },
+        ),
+      code('AI_INVALID_OUTPUT'),
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

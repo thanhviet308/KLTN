@@ -38,7 +38,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     const publicServiceError =
-      status === 503 &&
+      [502, 503, 504].includes(status) &&
       exception instanceof HttpException &&
       typeof exception.getResponse() === 'object' &&
       [
@@ -46,6 +46,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
         'MAIL_DELIVERY_FAILED',
         'AUTH_BUSY',
         'LIVEKIT_NOT_CONFIGURED',
+        'UPLOAD_BUSY',
+        'AI_NOT_CONFIGURED',
+        'AI_UNAVAILABLE',
+        'AI_BUSY',
+        'AI_TIMEOUT',
+        'AI_INVALID_OUTPUT',
+        'AI_INCOMPLETE',
       ].includes(String((exception.getResponse() as { code?: unknown }).code));
     if (
       (status < 500 || publicServiceError) &&

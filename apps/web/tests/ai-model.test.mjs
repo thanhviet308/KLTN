@@ -3,9 +3,15 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   AI_LANGUAGES,
+  buildAiCacheKey,
   buildVoiceTranscribePayload,
+  cacheAiResult,
+  cachedAiEnabled,
+  clearAiCache,
+  getCachedAiResult,
   initialSelection,
   reduceVoiceTranscriptSuccess,
+  resolveAiEnabled,
   sourceRevision,
   sourceVersion,
   textMessages,
@@ -135,4 +141,53 @@ test('voice transcription helpers build strict payloads and merge incremental AI
   assert.equal(withReplies.translation, 'Team meeting at 3 PM this afternoon.');
   assert.equal(withReplies.translatedLanguage, 'en');
   assert.deepEqual(withReplies.replies, ['Ok, 3h mình có mặt']);
+});
+
+test('AI model helpers cache generated outputs by revision and deduplicate status checks', async () => {
+  const key = buildAiCacheKey({
+    conversationId: 'conv-1',
+    kind: 'translate',
+    sourceRevisions: ['rev-1'],
+    language: 'vi',
+  });
+  const sample = {
+    summary: '',
+    decisions: [],
+    tasks: [],
+    replies: [],
+    translation: 'Xin chào',
+  };
+  assert.equal(getCachedAiResult(key), undefined);
+  cacheAiResult(key, sample);
+  assert.deepEqual(getCachedAiResult(key), sample);
+
+  let statusCalls = 0;
+  const loader = async () => {
+    statusCalls++;
+    return { enabled: true };
+  };
+  const [firstCheck, secondCheck] = await Promise.all([
+    resolveAiEnabled(loader),
+    resolveAiEnabled(loader),
+  ]);
+  assert.equal(firstCheck, true);
+  assert.equal(secondCheck, true);
+  assert.equal(cachedAiEnabled(), true);
+  assert.equal(statusCalls, 1);
+  assert.equal(await resolveAiEnabled(loader), true);
+  assert.equal(statusCalls, 1);
+
+  const otherUserKey = buildAiCacheKey({
+    userId: 'user-2',
+    conversationId: 'conv-1',
+    kind: 'translate',
+    sourceRevisions: ['rev-1'],
+    language: 'vi',
+  });
+  assert.notEqual(otherUserKey, key);
+  assert.equal(getCachedAiResult(otherUserKey), undefined);
+
+  clearAiCache();
+  assert.equal(cachedAiEnabled(), undefined);
+  assert.equal(getCachedAiResult(key), undefined);
 });

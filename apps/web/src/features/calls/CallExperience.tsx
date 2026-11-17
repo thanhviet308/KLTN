@@ -12,11 +12,16 @@ import {
 import { Avatar } from '../../components/Avatar';
 import { startIncomingCallRingtone } from '../../lib/notification-sounds';
 import type { Peer } from '../../lib/types';
+import { clearAiCache, resolveAiEnabled } from '../ai/ai-model';
+import { CallRecorder } from './call-recorder';
+
+api.onSessionClear(clearAiCache);
 
 type CallStatus =
   'ringing' | 'active' | 'ended' | 'rejected' | 'missed' | 'cancelled';
 
 interface Call {
+  summaryEnabled?: boolean;
   id: string;
   conversationId: string;
   initiatorId: string;
@@ -188,6 +193,44 @@ export function CallExperience({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const currentCall = useRef<Call | undefined>(undefined);
   const roomRef = useRef<Room | undefined>(undefined);
+  const recorderRef = useRef<
+    { callId: string; recorder: CallRecorder } | undefined
+  >(undefined);
+  const recordings = useRef(new Map<string, Promise<Blob>>());
+  const recorderFailed = useRef(new Set<string>());
+  const submitted = useRef(new Set<string>());
+  const [summaryStatus, setSummaryStatus] = useState('');
+  const [summaryRetry, setSummaryRetry] = useState<{
+    callId: string;
+    audio: Blob;
+  }>();
+
+  const submitSummary = useCallback(async (callId: string, audio: Blob) => {
+    setSummaryRetry(undefined);
+    if (!audio.size) {
+      setSummaryStatus(
+        'Cuộc gọi quá ngắn nên chưa thu được âm thanh để tóm tắt.',
+      );
+      return;
+    }
+    setSummaryStatus(
+      'Đang tạo bản tóm tắt cuộc gọi… Bạn có thể tiếp tục nhắn tin.',
+    );
+    try {
+      await api.uploadCallSummary(callId, audio);
+      setSummaryStatus('Đã lưu bản tóm tắt cuộc gọi vào đoạn chat.');
+    } catch (failure) {
+      const nonRetryable =
+        failure instanceof api.ApiError &&
+        [400, 403, 404, 409, 413, 415].includes(failure.status);
+      setSummaryStatus(
+        `Chưa tạo được bản tóm tắt. ${failure instanceof api.ApiError ? api.errorMessage(failure) : 'Kiểm tra kết nối và thử lại.'}`,
+      );
+      if (!nonRetryable) {
+        setSummaryRetry({ callId, audio });
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!room) {
@@ -203,6 +246,13 @@ export function CallExperience({
   }, [room]);
 
   const closeMedia = useCallback(async () => {
+    const recording = recorderRef.current;
+    recorderRef.current = undefined;
+    if (recording) {
+      const audio = recording.recorder.stop();
+      recordings.current.set(recording.callId, audio);
+      void audio.catch(() => {});
+    }
     const activeRoom = roomRef.current;
     roomRef.current = undefined;
     setRoom(undefined);
@@ -210,83 +260,166 @@ export function CallExperience({
     if (activeRoom) await activeRoom.disconnect();
   }, []);
 
-  const connectMedia = useCallback(async (next: Call) => {
-    const { Room, RoomEvent, Track } = await import('livekit-client');
-    const credentials = await api.authenticated<TokenResponse>(
-      `/calls/${next.id}/token`,
-      {},
-    );
-    const mediaRoom = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-      disconnectOnPageLeave: true,
-    });
-    const syncTracks = () => {
-      const values: MediaTrack[] = [];
-      for (const publication of mediaRoom.localParticipant.trackPublications.values())
-        if (publication.track?.kind === Track.Kind.Video)
-          values.push({
-            key: `local:${publication.trackSid}`,
-            track: publication.track,
-            local: true,
-            kind: 'video',
-          });
-      for (const participant of mediaRoom.remoteParticipants.values())
-        for (const publication of participant.trackPublications.values())
-          if (publication.track)
-            values.push({
-              key: `remote:${participant.identity}:${publication.trackSid}`,
-              track: publication.track,
-              local: false,
-              kind:
-                publication.track.kind === Track.Kind.Video ? 'video' : 'audio',
-            });
-      setTracks(values);
-    };
-    mediaRoom.on(RoomEvent.TrackSubscribed, syncTracks);
-    mediaRoom.on(RoomEvent.TrackUnsubscribed, syncTracks);
-    mediaRoom.on(RoomEvent.LocalTrackPublished, syncTracks);
-    mediaRoom.on(RoomEvent.LocalTrackUnpublished, syncTracks);
-    mediaRoom.on(RoomEvent.Disconnected, () => {
-      if (roomRef.current === mediaRoom) roomRef.current = undefined;
-      setTracks([]);
-      setRoom((active) => (active === mediaRoom ? undefined : active));
-    });
-    roomRef.current = mediaRoom;
-    try {
-      await mediaRoom.connect(credentials.url, credentials.token);
-    } catch (failure) {
-      if (roomRef.current === mediaRoom) roomRef.current = undefined;
-      await mediaRoom.disconnect();
-      throw failure;
-    }
-    setRoom(mediaRoom);
-    syncTracks();
-    await mediaRoom.startAudio().catch(() => {});
-    if (!mediaEnvironment().mediaSupported) {
-      setMicrophone(false);
-      setCamera(false);
-      const missing: ('microphone' | 'camera')[] =
-        credentials.callType === 'video'
-          ? ['microphone', 'camera']
-          : ['microphone'];
-      setError(describeMediaFailure(credentials.callType, undefined, missing));
-      syncTracks();
+  useEffect(() => {
+    if (
+      !room ||
+      call?.status !== 'active' ||
+      !call.summaryEnabled ||
+      call.initiatorId !== user.id ||
+      recorderRef.current
+    )
       return;
+    if (recordings.current.has(call.id) || recorderFailed.current.has(call.id))
+      return;
+    try {
+      recorderRef.current = {
+        callId: call.id,
+        recorder: new CallRecorder(room, setError),
+      };
+    } catch {
+      recorderFailed.current.add(call.id);
+      setError(
+        'Trình duyệt không hỗ trợ thu âm; cuộc gọi này sẽ không có bản tóm tắt.',
+      );
     }
-    const unavailable: ('microphone' | 'camera')[] = [];
-    let lastMediaFailure: unknown;
-    if (credentials.callType === 'video') {
-      let combinedSucceeded = false;
+  }, [room, call, user.id]);
+
+  useEffect(() => {
+    if (!call || !terminal.has(call.status)) return;
+    void closeMedia().then(async () => {
+      const audio = recordings.current.get(call.id);
+      if (!audio || submitted.current.has(call.id)) return;
+      submitted.current.add(call.id);
+      recordings.current.delete(call.id);
+      if (call.status !== 'ended') return;
       try {
-        await mediaRoom.localParticipant.enableCameraAndMicrophone();
-        combinedSucceeded = true;
-        setMicrophone(true);
-        setCamera(true);
+        await submitSummary(call.id, await audio);
       } catch (failure) {
-        lastMediaFailure = failure;
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : 'Không thể thu âm cuộc gọi.',
+        );
       }
-      if (!combinedSucceeded) {
+    });
+  }, [call, closeMedia, submitSummary]);
+
+  useEffect(
+    () => () => {
+      void recorderRef.current?.recorder.stop().catch(() => {});
+      void roomRef.current?.disconnect();
+    },
+    [],
+  );
+
+  const connectMedia = useCallback(
+    async (next: Call) => {
+      const { Room, RoomEvent, Track } = await import('livekit-client');
+      const credentials = await api.authenticated<TokenResponse>(
+        `/calls/${next.id}/token`,
+        {},
+      );
+      const mediaRoom = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        disconnectOnPageLeave: true,
+      });
+      const syncTracks = () => {
+        recorderRef.current?.recorder.sync();
+        const values: MediaTrack[] = [];
+        for (const publication of mediaRoom.localParticipant.trackPublications.values())
+          if (publication.track?.kind === Track.Kind.Video)
+            values.push({
+              key: `local:${publication.trackSid}`,
+              track: publication.track,
+              local: true,
+              kind: 'video',
+            });
+        for (const participant of mediaRoom.remoteParticipants.values())
+          for (const publication of participant.trackPublications.values())
+            if (publication.track)
+              values.push({
+                key: `remote:${participant.identity}:${publication.trackSid}`,
+                track: publication.track,
+                local: false,
+                kind:
+                  publication.track.kind === Track.Kind.Video
+                    ? 'video'
+                    : 'audio',
+              });
+        setTracks(values);
+      };
+      mediaRoom.on(RoomEvent.TrackSubscribed, syncTracks);
+      mediaRoom.on(RoomEvent.TrackUnsubscribed, syncTracks);
+      mediaRoom.on(RoomEvent.LocalTrackPublished, syncTracks);
+      mediaRoom.on(RoomEvent.LocalTrackUnpublished, syncTracks);
+      mediaRoom.on(RoomEvent.Disconnected, () => {
+        if (roomRef.current === mediaRoom) {
+          recorderRef.current?.recorder.invalidate(
+            'Kết nối cuộc gọi bị ngắt; không tạo bản tóm tắt thiếu nội dung.',
+          );
+          void closeMedia();
+        }
+        if (roomRef.current === mediaRoom) roomRef.current = undefined;
+        setTracks([]);
+        setRoom((active) => (active === mediaRoom ? undefined : active));
+      });
+      roomRef.current = mediaRoom;
+      try {
+        await mediaRoom.connect(credentials.url, credentials.token);
+      } catch (failure) {
+        if (roomRef.current === mediaRoom) roomRef.current = undefined;
+        await mediaRoom.disconnect();
+        throw failure;
+      }
+      setRoom(mediaRoom);
+      syncTracks();
+      await mediaRoom.startAudio().catch(() => {});
+      if (!mediaEnvironment().mediaSupported) {
+        setMicrophone(false);
+        setCamera(false);
+        const missing: ('microphone' | 'camera')[] =
+          credentials.callType === 'video'
+            ? ['microphone', 'camera']
+            : ['microphone'];
+        setError(
+          describeMediaFailure(credentials.callType, undefined, missing),
+        );
+        syncTracks();
+        return;
+      }
+      const unavailable: ('microphone' | 'camera')[] = [];
+      let lastMediaFailure: unknown;
+      if (credentials.callType === 'video') {
+        let combinedSucceeded = false;
+        try {
+          await mediaRoom.localParticipant.enableCameraAndMicrophone();
+          combinedSucceeded = true;
+          setMicrophone(true);
+          setCamera(true);
+        } catch (failure) {
+          lastMediaFailure = failure;
+        }
+        if (!combinedSucceeded) {
+          try {
+            await mediaRoom.localParticipant.setMicrophoneEnabled(true);
+            setMicrophone(true);
+          } catch (failure) {
+            lastMediaFailure = failure;
+            setMicrophone(false);
+            unavailable.push('microphone');
+          }
+          try {
+            await enableCameraTrack(mediaRoom.localParticipant);
+            setCamera(true);
+          } catch (failure) {
+            lastMediaFailure = failure;
+            setCamera(false);
+            unavailable.push('camera');
+          }
+        }
+      } else {
+        setCamera(false);
         try {
           await mediaRoom.localParticipant.setMicrophoneEnabled(true);
           setMicrophone(true);
@@ -295,36 +428,19 @@ export function CallExperience({
           setMicrophone(false);
           unavailable.push('microphone');
         }
-        try {
-          await enableCameraTrack(mediaRoom.localParticipant);
-          setCamera(true);
-        } catch (failure) {
-          lastMediaFailure = failure;
-          setCamera(false);
-          unavailable.push('camera');
-        }
       }
-    } else {
-      setCamera(false);
-      try {
-        await mediaRoom.localParticipant.setMicrophoneEnabled(true);
-        setMicrophone(true);
-      } catch (failure) {
-        lastMediaFailure = failure;
-        setMicrophone(false);
-        unavailable.push('microphone');
-      }
-    }
-    syncTracks();
-    if (unavailable.length)
-      setError(
-        describeMediaFailure(
-          credentials.callType,
-          lastMediaFailure,
-          unavailable,
-        ),
-      );
-  }, []);
+      syncTracks();
+      if (unavailable.length)
+        setError(
+          describeMediaFailure(
+            credentials.callType,
+            lastMediaFailure,
+            unavailable,
+          ),
+        );
+    },
+    [closeMedia],
+  );
 
   const start = useCallback<StartCall>(
     async (conversationId, type) => {
@@ -334,10 +450,19 @@ export function CallExperience({
       }
       setBusy(true);
       setError('');
+      setSummaryStatus('');
+      setSummaryRetry(undefined);
       try {
+        const aiEnabled = await resolveAiEnabled(() =>
+          api.authenticated<{ enabled: boolean }>('/ai/status'),
+        ).catch(() => false);
+        const summaryEnabled =
+          aiEnabled &&
+          typeof MediaRecorder !== 'undefined' &&
+          typeof AudioContext !== 'undefined';
         const result = await api.authenticated<CallResponse>(
           `/conversations/${conversationId}/calls`,
-          { clientRequestId: crypto.randomUUID(), type },
+          { clientRequestId: crypto.randomUUID(), type, summaryEnabled },
         );
         currentCall.current = result.call;
         setCall(result.call);
@@ -456,10 +581,16 @@ export function CallExperience({
       setCall(undefined);
       await closeMedia();
       try {
-        await api.authenticated<CallResponse>(
+        const result = await api.authenticated<CallResponse>(
           `/calls/${ending.id}/${action}`,
           {},
         );
+        if (terminal.has(result.call.status)) {
+          currentCall.current = result.call;
+          setCall(result.call);
+        } else {
+          recordings.current.delete(ending.id);
+        }
       } catch (failure) {
         currentCall.current = ending;
         setCall(ending);
@@ -557,6 +688,21 @@ export function CallExperience({
     return () => window.clearTimeout(timer);
   }, [call, closeMedia]);
 
+  useEffect(() => {
+    if (!call || terminal.has(call.status)) return;
+    const timer = window.setInterval(() => {
+      void api
+        .authenticated<CallResponse>(`/calls/${call.id}`)
+        .then((result) => {
+          if (currentCall.current?.id !== call.id) return;
+          currentCall.current = result.call;
+          setCall(result.call);
+        })
+        .catch(() => {});
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [call?.id, call?.status]);
+
   const incoming =
     call?.status === 'ringing' && call.initiatorId !== user.id && !room;
   useEffect(() => {
@@ -565,10 +711,27 @@ export function CallExperience({
   }, [incoming, call?.id]);
 
   if (!call || terminal.has(call.status))
-    return error ? (
-      <div className="call-error-toast" role="alert">
-        <span>{error}</span>
-        <button type="button" onClick={() => setError('')}>
+    return error || summaryStatus ? (
+      <div className="call-error-toast" role="status" aria-live="polite">
+        <span>{error || summaryStatus}</span>
+        {summaryRetry && (
+          <button
+            type="button"
+            onClick={() =>
+              void submitSummary(summaryRetry.callId, summaryRetry.audio)
+            }
+          >
+            Thử lại tóm tắt
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setError('');
+            setSummaryStatus('');
+            setSummaryRetry(undefined);
+          }}
+        >
           Đóng
         </button>
       </div>
@@ -610,6 +773,7 @@ export function CallExperience({
               <small>
                 {room && <span className="call-live-dot" aria-hidden="true" />}
                 {statusSubtitle}
+                {call.summaryEnabled && ' · Thu âm để AI tóm tắt sau cuộc gọi'}
               </small>
             </div>
           </div>

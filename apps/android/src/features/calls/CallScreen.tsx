@@ -349,6 +349,14 @@ export function CallScreen({
               </View>
             </View>
 
+            {call?.summaryEnabled && (
+              <View style={[s.errorBanner, { bottom: insets.bottom + 180 }]}>
+                <Text accessibilityLiveRegion="polite" style={s.errorText}>
+                  Cuộc gọi được thu âm để AI tóm tắt sau khi kết thúc.
+                </Text>
+              </View>
+            )}
+
             {!!combinedError && (
               <View style={[s.errorBanner, { bottom: insets.bottom + 122 }]}>
                 <Text accessibilityRole="alert" style={s.errorText}>
@@ -408,6 +416,11 @@ export function CallScreen({
               <Text accessibilityLiveRegion="polite" style={s.stageStatus}>
                 {status}
               </Text>
+              {call?.summaryEnabled && (
+                <Text style={s.stageStatus}>
+                  Cuộc gọi sẽ được thu âm để AI tóm tắt.
+                </Text>
+              )}
               {busy && (
                 <ActivityIndicator
                   color="#f3d2b8"

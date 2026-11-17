@@ -22,7 +22,12 @@ import {
   type Peer,
   type Presence,
 } from '../../presence';
-import { clientMessageId, conversationName, shortTime } from '../../utils';
+import {
+  clientMessageId,
+  conversationName,
+  shortTime,
+  unwrapReplyPreviewBody,
+} from '../../utils';
 import { styles } from '../../styles';
 
 type MessageRequestRow = {
@@ -172,7 +177,7 @@ export function ConversationList({
       conversationName(item)
         .toLocaleLowerCase('vi')
         .includes(normalizedQuery) ||
-      (item.lastMessage?.body ?? '')
+      (unwrapReplyPreviewBody(item.lastMessage?.body) ?? '')
         .toLocaleLowerCase('vi')
         .includes(normalizedQuery);
     const matchesCategory =
@@ -825,7 +830,8 @@ export function ConversationList({
                       !!item.unreadCount && styles.previewUnread,
                     ]}
                   >
-                    {item.lastMessage?.body ?? 'Bắt đầu trò chuyện ngay'}
+                    {unwrapReplyPreviewBody(item.lastMessage?.body) ??
+                      'Bắt đầu trò chuyện ngay'}
                   </Text>
                   {!!item.unreadCount && (
                     <View style={styles.badge}>

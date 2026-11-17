@@ -131,12 +131,14 @@ const {
       actor = 0,
       mimeType = 'text/plain',
       fileName = 'test.txt',
+      extraQuery = {},
     ) => {
       const query = new URLSearchParams({
         type,
         clientMessageId: key,
         mimeType,
         fileName,
+        ...extraQuery,
       });
       return call(`/upload?${query}`, actor, {
         method: 'POST',
@@ -250,6 +252,101 @@ const {
     );
     assert.equal(response.status, 200);
     assert.equal((await response.json()).message.type, 'voice');
+    const webm = Buffer.concat([
+      Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+      Buffer.alloc(20),
+      Buffer.from('webm'),
+      Buffer.alloc(20),
+    ]);
+    response = await upload(
+      webm,
+      'voice',
+      randomUUID(),
+      0,
+      'audio/webm;codecs=opus',
+      'voice.webm',
+      { durationSeconds: '-1' },
+    );
+    assert.equal(response.status, 400);
+    response = await upload(
+      webm,
+      'voice',
+      randomUUID(),
+      0,
+      'audio/webm;codecs=opus',
+      'voice.webm',
+      { durationSeconds: '9' },
+    );
+    assert.equal(
+      response.status,
+      200,
+      response.status !== 200 ? await response.text() : '',
+    );
+    const webmMessage = (await response.json()).message;
+    assert.equal(webmMessage.type, 'voice');
+    assert.equal(webmMessage.content.mimeType, 'audio/webm');
+    assert.equal(webmMessage.content.durationSeconds, 9);
+    const [storedAttachment] = await db.query(
+      'SELECT created_at, completed_at, upload_expires_at FROM attachments WHERE message_id = $1',
+      [webmMessage.id],
+    );
+    assert.ok(storedAttachment);
+    assert.ok(
+      storedAttachment.completed_at.getTime() >=
+        storedAttachment.created_at.getTime(),
+      'completed_at must stay monotonic with DB created_at across clock skew',
+    );
+    assert.ok(
+      storedAttachment.upload_expires_at.getTime() >
+        storedAttachment.created_at.getTime(),
+    );
+    const replyKey = randomUUID();
+    response = await post({
+      clientMessageId: replyKey,
+      body: 'Nghe rõ rồi nhé',
+      replyToMessageId: webmMessage.id,
+    });
+    assert.equal(response.status, 200);
+    const replyMsg = (await response.json()).message;
+    assert.equal(replyMsg.body, 'Nghe rõ rồi nhé');
+    assert.deepEqual(replyMsg.content?.replyTo, {
+      messageId: webmMessage.id,
+      senderId: ids[0],
+      type: 'voice',
+      excerpt: 'Tin nhắn thoại',
+    });
+    assert.equal(
+      (
+        await (
+          await post({
+            clientMessageId: replyKey,
+            body: 'Nghe rõ rồi nhé',
+            replyToMessageId: webmMessage.id,
+          })
+        ).json()
+      ).message.id,
+      replyMsg.id,
+    );
+    assert.equal(
+      (
+        await post({
+          clientMessageId: replyKey,
+          body: 'Nghe rõ rồi nhé',
+          replyToMessageId: located.id,
+        })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await post({
+          clientMessageId: randomUUID(),
+          body: 'Missing target',
+          replyToMessageId: randomUUID(),
+        })
+      ).status,
+      404,
+    );
     response = await call(`/${sent.id}`, 0, { method: 'DELETE' });
     assert.equal(response.status, 200);
     assert.equal((await call(`/${sent.id}/file`, 1)).status, 404);

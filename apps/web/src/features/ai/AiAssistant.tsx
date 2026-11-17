@@ -4,13 +4,21 @@ import * as api from '../../lib/api';
 import type { Message } from '../../lib/chat-model';
 import {
   AI_LANGUAGES,
+  buildAiCacheKey,
+  cacheAiResult,
+  cachedAiEnabled,
+  clearAiCache,
+  getCachedAiResult,
   initialSelection,
+  resolveAiEnabled,
   sourceRevision,
   sourceVersion,
   textMessages,
   type AiKind,
   type AiResult,
 } from './ai-model';
+
+api.onSessionClear(clearAiCache);
 
 const titles = {
   summary: 'Tóm tắt hội thoại',
@@ -64,7 +72,9 @@ export function AiAssistant({
   const [consent, setConsent] = useState(quickStart);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [enabled, setEnabled] = useState<boolean>();
+  const [enabled, setEnabled] = useState<boolean | undefined>(() =>
+    cachedAiEnabled(),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -79,17 +89,20 @@ export function AiAssistant({
     alive.current = true;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     dialog.current?.showModal();
-    void api
-      .authenticated<{ enabled: boolean }>('/ai/status')
-      .then((result) => {
-        if (alive.current) setEnabled(result.enabled);
-      })
-      .catch((failure) => {
-        if (alive.current) {
-          setEnabled(false);
-          setError(api.errorMessage(failure));
-        }
-      });
+    if (cachedAiEnabled() !== true) {
+      void resolveAiEnabled(() =>
+        api.authenticated<{ enabled: boolean }>('/ai/status'),
+      )
+        .then((nextEnabled) => {
+          if (alive.current) setEnabled(nextEnabled);
+        })
+        .catch((failure) => {
+          if (alive.current) {
+            setEnabled(false);
+            setError(api.errorMessage(failure));
+          }
+        });
+    }
     return () => {
       alive.current = false;
       dialog.current?.close();
@@ -155,19 +168,33 @@ export function AiAssistant({
     try {
       const sourceRevisions = await Promise.all(snapshot.map(sourceRevision));
       if (!alive.current) return;
-      const response = await api.authenticated<{ result: AiResult }>(
-        `/conversations/${conversationId}/ai`,
-        {
-          kind,
-          messageIds: snapshot.map((item) => item.id),
-          sourceRevisions,
-          tone,
-          language,
-          ...(kind === 'replies' ? { targetMessageId: targetId } : {}),
-        },
-        'POST',
-        35000,
-      );
+      const cacheKey = buildAiCacheKey({
+        userId: api.currentUserId(),
+        conversationId,
+        kind,
+        sourceRevisions,
+        targetId,
+        tone,
+        language,
+      });
+      const cachedResult = getCachedAiResult(cacheKey);
+      const nextResult =
+        cachedResult ??
+        (
+          await api.authenticated<{ result: AiResult }>(
+            `/conversations/${conversationId}/ai`,
+            {
+              kind,
+              messageIds: snapshot.map((item) => item.id),
+              sourceRevisions,
+              tone,
+              language,
+              ...(kind === 'replies' ? { targetMessageId: targetId } : {}),
+            },
+            'POST',
+            35000,
+          )
+        ).result;
       if (!alive.current) return;
       if (
         snapshot.some((source) => {
@@ -182,9 +209,10 @@ export function AiAssistant({
         setError('Tin nhắn đã thay đổi. Hãy kiểm tra và tạo lại kết quả.');
         return;
       }
-      setOutput({ result: response.result, sources: snapshot });
+      cacheAiResult(cacheKey, nextResult);
+      setOutput({ result: nextResult, sources: snapshot });
       if (kind === 'translate')
-        onTranslation(snapshot[0], response.result.translation, language);
+        onTranslation(snapshot[0], nextResult.translation, language);
     } catch (failure) {
       if (alive.current) setError(api.errorMessage(failure));
     } finally {

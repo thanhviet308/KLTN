@@ -23,6 +23,22 @@ function fail(status: number, code: string, message: string): never {
   throw new HttpException({ code, message }, status);
 }
 
+function monotonicCallTime(
+  call: Call,
+  participant?: CallParticipant,
+  reference = new Date(),
+) {
+  return new Date(
+    Math.max(
+      reference.getTime(),
+      call.createdAt.getTime(),
+      call.startedAt?.getTime() ?? 0,
+      participant?.invitedAt.getTime() ?? 0,
+      participant?.joinedAt?.getTime() ?? 0,
+    ),
+  );
+}
+
 @Injectable()
 export class CallsService {
   constructor(
@@ -135,6 +151,7 @@ export class CallsService {
       initiatorId: call.initiatorId,
       type: call.type,
       status: call.status,
+      summaryEnabled: call.summaryEnabled ?? false,
       ringExpiresAt: call.ringExpiresAt,
       startedAt: call.startedAt,
       endedAt: call.endedAt,
@@ -160,7 +177,7 @@ export class CallsService {
   private async expire(manager: EntityManager, call: Call, now = new Date()) {
     if (call.status !== 'ringing' || call.ringExpiresAt > now) return undefined;
     call.status = 'missed';
-    call.endedAt = now;
+    call.endedAt = monotonicCallTime(call, undefined, now);
     await manager.getRepository(Call).save(call);
     await manager
       .getRepository(CallParticipant)
@@ -307,6 +324,7 @@ export class CallsService {
         initiatorId: actorId,
         roomName: `call_${randomUUID()}`,
         type: input.type,
+        summaryEnabled: input.summaryEnabled === true,
         status: 'ringing',
         ringExpiresAt: new Date(now.getTime() + RING_TTL_MS),
         startedAt: null,
@@ -461,25 +479,27 @@ export class CallsService {
         participant.status !== 'invited'
       )
         fail(409, 'CALL_STATE_CONFLICT', 'Call can no longer be accepted');
-      const now = new Date();
+      const now = monotonicCallTime(call, participant);
       if (call.status === 'ringing') {
         call.status = 'active';
         call.startedAt = now;
         await manager.getRepository(Call).save(call);
       }
-      await manager
-        .getRepository(CallParticipant)
-        .update(
-          { callId: id, userId: actorId },
-          { status: 'joined', joinedAt: now },
-        );
+      await manager.getRepository(CallParticipant).update(
+        { callId: id, userId: actorId },
+        {
+          status: 'joined',
+          joinedAt: () => 'GREATEST(CURRENT_TIMESTAMP, invited_at)',
+        },
+      );
       if (actorId !== call.initiatorId)
-        await manager
-          .getRepository(CallParticipant)
-          .update(
-            { callId: id, userId: call.initiatorId, status: 'accepted' },
-            { status: 'joined', joinedAt: now },
-          );
+        await manager.getRepository(CallParticipant).update(
+          { callId: id, userId: call.initiatorId, status: 'accepted' },
+          {
+            status: 'joined',
+            joinedAt: () => 'GREATEST(CURRENT_TIMESTAMP, invited_at)',
+          },
+        );
       return this.result(manager, call);
     });
     return this.publish('call:updated', actorId, result);
@@ -507,7 +527,7 @@ export class CallsService {
         fail(409, 'CALL_STATE_CONFLICT', 'Call can no longer be rejected');
       const participants = manager.getRepository(CallParticipant);
       if (actorId === call.initiatorId) {
-        const now = new Date();
+        const now = monotonicCallTime(call);
         call.status = 'cancelled';
         call.endedAt = now;
         await manager.getRepository(Call).save(call);
@@ -525,7 +545,7 @@ export class CallsService {
           where: { callId: id, status: 'invited' },
         });
         if (remaining === 0 && call.status === 'ringing') {
-          const now = new Date();
+          const now = monotonicCallTime(call);
           call.status = 'rejected';
           call.endedAt = now;
           await manager.getRepository(Call).save(call);
@@ -562,7 +582,7 @@ export class CallsService {
           'CALL_STATE_CONFLICT',
           'Participant is not in an active call',
         );
-      const now = new Date();
+      const now = monotonicCallTime(call, participant);
       participant.status = 'left';
       participant.leftAt = now;
       await manager.getRepository(CallParticipant).save(participant);
@@ -608,7 +628,7 @@ export class CallsService {
         fail(403, 'CALL_FORBIDDEN', 'Only the initiator can end the call');
       if (call.status === 'ringing') {
         call.status = 'cancelled';
-        call.endedAt = new Date();
+        call.endedAt = monotonicCallTime(call);
         await manager.getRepository(Call).save(call);
         await manager
           .getRepository(CallParticipant)
@@ -619,7 +639,11 @@ export class CallsService {
           .andWhere("status IN ('invited', 'accepted')")
           .execute();
       } else if (call.status === 'active') {
-        const message = await this.finish(manager, call, new Date());
+        const message = await this.finish(
+          manager,
+          call,
+          monotonicCallTime(call),
+        );
         return {
           result: await this.result(manager, call),
           message: expiredMessage ?? message,
@@ -646,7 +670,7 @@ export class CallsService {
         status: () =>
           "CASE WHEN status = 'joined' THEN 'left' ELSE 'cancelled' END",
         leftAt: () =>
-          "CASE WHEN status = 'joined' THEN CURRENT_TIMESTAMP ELSE left_at END",
+          "CASE WHEN status = 'joined' THEN GREATEST(CURRENT_TIMESTAMP, joined_at) ELSE left_at END",
       })
       .where('call_id = :id', { id: call.id })
       .andWhere("status IN ('joined', 'invited', 'accepted')")

@@ -40,6 +40,9 @@ import { ConversationMember } from './conversation-member.entity';
   where: "status = 'ringing'",
 })
 export class Call {
+  @Column({ name: 'summary_enabled', type: 'boolean', default: false })
+  summaryEnabled!: boolean;
+
   @Column({ name: 'client_request_id', type: 'uuid' }) clientRequestId!: string;
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;

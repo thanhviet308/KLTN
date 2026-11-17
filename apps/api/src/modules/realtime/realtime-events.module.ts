@@ -8,6 +8,7 @@ export interface ChatEvent {
     | 'message:reactions'
     | 'message:receipt'
     | 'conversation:pins'
+    | 'conversation:history-cleared'
     | 'typing:update'
     | 'call:incoming'
     | 'call:updated'

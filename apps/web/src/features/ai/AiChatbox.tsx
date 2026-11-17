@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Sparkles, X, Send, RotateCcw, Copy, Check } from 'lucide-react';
 import * as api from '../../lib/api';
+import { cachedAiEnabled, clearAiCache, resolveAiEnabled } from './ai-model';
+
+api.onSessionClear(clearAiCache);
 
 interface ChatTurn {
   id: string;
@@ -26,7 +29,9 @@ export function AiChatbox({
   userName: string;
   onExpired: () => void;
 }) {
-  const [enabled, setEnabled] = useState<boolean>();
+  const [enabled, setEnabled] = useState<boolean | undefined>(() =>
+    cachedAiEnabled(),
+  );
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -45,10 +50,11 @@ export function AiChatbox({
 
   useEffect(() => {
     if (!open || enabled !== undefined) return;
-    void api
-      .authenticated<{ enabled: boolean }>('/ai/status')
+    void resolveAiEnabled(() =>
+      api.authenticated<{ enabled: boolean }>('/ai/status'),
+    )
       .then((res) => {
-        if (mounted.current) setEnabled(res.enabled);
+        if (mounted.current) setEnabled(res);
       })
       .catch((err) => {
         if (!mounted.current) return;

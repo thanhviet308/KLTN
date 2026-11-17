@@ -20,6 +20,7 @@ import { Message } from './message.entity';
   'members_read_sequence',
   'last_read_sequence IS NULL OR last_read_sequence > 0',
 )
+@Check('members_cleared_sequence', 'cleared_after_sequence >= 0')
 @Index('members_user_idx', ['userId', 'conversationId'])
 export class ConversationMember {
   @PrimaryColumn({ name: 'conversation_id', type: 'uuid' })
@@ -35,6 +36,8 @@ export class ConversationMember {
     'owner' | 'admin' | 'member';
   @Column({ name: 'last_read_sequence', type: 'bigint', nullable: true })
   lastReadSequence!: string | null;
+  @Column({ name: 'cleared_after_sequence', type: 'bigint', default: '0' })
+  clearedAfterSequence!: string;
   @ManyToOne(() => Message, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },

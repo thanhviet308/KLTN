@@ -150,4 +150,10 @@ export class ConversationsController {
   ) {
     return this.conversations.transfer(user.id, id.toLowerCase(), input.userId);
   }
+
+  @Delete(':id/history')
+  @HttpCode(200)
+  clearHistory(@CurrentUser() user: User, @Param('id', uuid()) id: string) {
+    return this.conversations.clearHistory(user.id, id.toLowerCase());
+  }
 }

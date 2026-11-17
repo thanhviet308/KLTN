@@ -4,6 +4,8 @@ import { UiIcon } from '../../components/UiIcon';
 import { LocationMap } from './LocationMap';
 import {
   decodeVoiceDuration,
+  measureVoiceDurationSeconds,
+  resolveVoiceDuration,
   validVoiceDuration,
   voiceTimeline,
 } from './voice-timeline';
@@ -24,6 +26,7 @@ import {
 export interface MediaDraft {
   type: 'image' | 'file' | 'voice' | 'location';
   file?: File;
+  durationSeconds?: number;
   location?: { latitude: number; longitude: number };
 }
 
@@ -149,6 +152,13 @@ export function MediaTools({
           return;
         }
         nextDraft = { ...draft, file: prepared.file, type: prepared.type };
+      } else if (draft.file && draft.type === 'voice') {
+        const durationSeconds = await measureVoiceDurationSeconds(
+          draft.file,
+          draft.durationSeconds,
+        );
+        if (!alive.current) return;
+        nextDraft = { ...draft, durationSeconds };
       }
       await onSend(nextDraft);
     } finally {
@@ -184,6 +194,10 @@ export function MediaTools({
       const next = new MediaRecorder(media, { mimeType: mime });
       const chunks: Blob[] = [];
       let size = 0;
+      let startedAt = 0;
+      next.onstart = () => {
+        startedAt = Date.now();
+      };
       next.ondataavailable = (event) => {
         chunks.push(event.data);
         size += event.data.size;
@@ -203,6 +217,12 @@ export function MediaTools({
         media.getTracks().forEach((track) => track.stop());
         if (!alive.current || version !== generation.current) return;
         setRecording(false);
+        const durationSeconds = startedAt
+          ? Math.min(
+              60,
+              Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
+            )
+          : undefined;
         const extension = mime.startsWith('audio/mp4')
           ? 'm4a'
           : mime.startsWith('audio/ogg')
@@ -210,12 +230,14 @@ export function MediaTools({
             : 'webm';
         void send({
           type: 'voice',
+          durationSeconds,
           file: new File(chunks, `voice-${Date.now()}.${extension}`, {
             type: mime,
           }),
         });
       };
       recorder.current = next;
+      startedAt = Date.now();
       next.start(1000);
       setSeconds(0);
       setRecording(true);
@@ -636,42 +658,84 @@ export function MediaTools({
 
 function VoicePlayer({
   url,
+  initialDuration,
   onLoad,
 }: {
   url: string;
+  initialDuration?: number;
   onLoad: () => Promise<string | undefined>;
 }) {
+  const storedDuration = validVoiceDuration(initialDuration)
+    ? initialDuration
+    : 0;
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(storedDuration);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const durationRequest = useRef<AbortController | null>(null);
+  const decodedSrc = useRef('');
   const decodedDuration = useRef(0);
+  const decodeFinished = useRef(false);
+  const pendingSeek = useRef<number | null>(null);
+  const storedDurationRef = useRef(storedDuration);
+  storedDurationRef.current = storedDuration;
   useEffect(() => () => durationRequest.current?.abort(), []);
+  useEffect(() => {
+    setDuration(
+      resolveVoiceDuration({
+        decodedDuration: decodedDuration.current,
+        storedDuration,
+        elementDuration: audio.current?.duration,
+        decodeFinished: decodeFinished.current,
+      }),
+    );
+  }, [storedDuration]);
+
+  function refreshDuration(element: HTMLAudioElement) {
+    setDuration(
+      resolveVoiceDuration({
+        decodedDuration: decodedDuration.current,
+        storedDuration: storedDurationRef.current,
+        elementDuration: element.duration,
+        decodeFinished: decodeFinished.current,
+      }),
+    );
+  }
+
+  function ensureDecoded(element: HTMLAudioElement, source: string) {
+    if (!source || decodedSrc.current === source) return;
+    durationRequest.current?.abort();
+    const controller = new AbortController();
+    durationRequest.current = controller;
+    decodedSrc.current = source;
+    decodedDuration.current = 0;
+    decodeFinished.current = false;
+    void decodeVoiceDuration(source, controller.signal)
+      .then((value) => {
+        if (controller.signal.aborted || audio.current !== element) return;
+        decodedDuration.current = value;
+        decodeFinished.current = true;
+        refreshDuration(element);
+      })
+      .catch(() => {
+        // Playback still works when decoding is unsupported. Fall back to any
+        // stored duration or media element metadata once decoding settles.
+        if (controller.signal.aborted || audio.current !== element) return;
+        decodeFinished.current = true;
+        refreshDuration(element);
+      });
+  }
 
   function syncDuration() {
     const element = audio.current;
     if (!element) return;
-    if (validVoiceDuration(element.duration)) {
-      setDuration(decodedDuration.current || element.duration);
-      return;
+    const source = element.getAttribute('src') || element.src;
+    if (source && decodedSrc.current !== source) {
+      ensureDecoded(element, source);
     }
-    if (!element.src || durationRequest.current) return;
-    const controller = new AbortController();
-    durationRequest.current = controller;
-    void decodeVoiceDuration(element.src, controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted && audio.current === element && value) {
-          decodedDuration.current = value;
-          setDuration(value);
-        }
-      })
-      .catch(() => {
-        // Playback still works when decoding is unsupported. Keep the seek
-        // control unavailable until the media element learns its duration.
-      });
+    refreshDuration(element);
   }
   async function toggle() {
     if (!audio.current || loading) return;
@@ -689,11 +753,23 @@ function VoicePlayer({
       if (audio.current.getAttribute('src') !== source) {
         durationRequest.current?.abort();
         durationRequest.current = null;
+        decodedSrc.current = '';
         decodedDuration.current = 0;
-        setCurrent(0);
-        setDuration(0);
+        decodeFinished.current = false;
+        setDuration(storedDurationRef.current);
         audio.current.src = source;
+        if (pendingSeek.current !== null) {
+          audio.current.currentTime = pendingSeek.current;
+          setCurrent(pendingSeek.current);
+          pendingSeek.current = null;
+        } else {
+          setCurrent(0);
+        }
+      } else if (pendingSeek.current !== null) {
+        audio.current.currentTime = pendingSeek.current;
+        pendingSeek.current = null;
       }
+      ensureDecoded(audio.current, source);
       if (audio.current.ended) audio.current.currentTime = 0;
       await audio.current.play();
     } catch (cause) {
@@ -725,7 +801,13 @@ function VoicePlayer({
           const element = audio.current;
           if (element) {
             setCurrent(element.currentTime);
-            if (!validVoiceDuration(duration) && element.currentTime > 0)
+            if (
+              decodeFinished.current &&
+              !validVoiceDuration(decodedDuration.current) &&
+              !validVoiceDuration(storedDurationRef.current) &&
+              !validVoiceDuration(duration) &&
+              element.currentTime > 0
+            )
               setDuration(element.currentTime);
           }
         }}
@@ -780,9 +862,14 @@ function VoicePlayer({
         disabled={!timeline.known}
         aria-valuetext={`${time(timeline.elapsed)} / ${timeline.known ? time(duration) : 'Đang xác định thời lượng'}`}
         onChange={(event) => {
-          if (audio.current) {
-            audio.current.currentTime = Number(event.target.value);
+          const nextTime = Number(event.target.value);
+          if (audio.current && audio.current.getAttribute('src')) {
+            pendingSeek.current = null;
+            audio.current.currentTime = nextTime;
             setCurrent(audio.current.currentTime);
+          } else {
+            pendingSeek.current = nextTime;
+            setCurrent(nextTime);
           }
         }}
       />
@@ -949,7 +1036,11 @@ export function MessageMedia({
         </a>
       ) : message.type === 'voice' ? (
         <>
-          <VoicePlayer url={url} onLoad={() => load()} />
+          <VoicePlayer
+            url={url}
+            initialDuration={message.content?.durationSeconds}
+            onLoad={() => load()}
+          />
           {onTranscribe && !transcribed && (
             <button
               type="button"

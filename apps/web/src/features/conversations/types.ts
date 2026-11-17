@@ -28,7 +28,11 @@ export interface Conversation {
   id: string;
   type: 'direct' | 'group';
   title: string | null;
-  membership: { role: Role; lastReadSequence: string };
+  membership: {
+    role: Role;
+    lastReadSequence: string;
+    clearedAfterSequence?: string;
+  };
   lastMessageSequence: string;
   createdAt: string;
   updatedAt?: string;

@@ -32,6 +32,7 @@ export interface Conversation {
   membership: {
     role: 'owner' | 'admin' | 'member';
     lastReadSequence: string | null;
+    clearedAfterSequence?: string | null;
   };
   peer: { id: string; displayName: string; avatarUrl?: string | null } | null;
   lastMessage: {
@@ -66,6 +67,13 @@ export interface Message {
     callType?: 'audio' | 'video';
     callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
     durationSeconds?: number;
+    replyTo?: {
+      messageId: string;
+      senderId: string;
+      type:
+        'text' | 'image' | 'file' | 'voice' | 'location' | 'call' | 'deleted';
+      excerpt: string;
+    };
   } | null;
   createdAt: string;
   editedAt: string | null;
@@ -328,12 +336,19 @@ export async function uploadChatFile(
   id: string,
   file: LocalUpload,
   type: 'image' | 'file' | 'voice',
+  durationSeconds?: number,
 ) {
   const query = queryString({
     clientMessageId: id,
     fileName: file.name,
     type,
     mimeType: file.mimeType || 'application/octet-stream',
+    ...(type === 'voice' &&
+    typeof durationSeconds === 'number' &&
+    Number.isInteger(durationSeconds) &&
+    durationSeconds >= 0
+      ? { durationSeconds: String(durationSeconds) }
+      : {}),
   });
   const path = `/conversations/${conversationId}/messages/upload?${query}`;
   const attempted = await accessToken();

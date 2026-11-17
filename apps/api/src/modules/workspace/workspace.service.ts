@@ -106,6 +106,11 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
           AND message.sequence>p.joined_after_sequence AND (p.left_after_sequence IS NULL OR message.sequence<=p.left_after_sequence))`,
           { actorId },
         )
+        .andWhere(
+          `EXISTS (SELECT 1 FROM conversation_members cm WHERE cm.conversation_id=message.conversation_id AND cm.user_id=:actorId
+          AND message.sequence>cm.cleared_after_sequence)`,
+          { actorId },
+        )
         .orderBy('message.id', 'ASC')
         .take(input.limit + 1);
       if (input.conversationId)

@@ -8,7 +8,10 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
+import { CallSummaryService } from './call-summary.service';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
 import { PageDto } from '../../common/page.dto';
 import { CurrentUser } from '../auth/auth.decorators';
@@ -21,7 +24,20 @@ const uuid = () => new ParseUUIDPipe({ version: '4' });
 
 @Controller()
 export class CallsController {
-  constructor(@Inject(CallsService) private readonly calls: CallsService) {}
+  constructor(
+    @Inject(CallsService) private readonly calls: CallsService,
+    @Inject(CallSummaryService) private readonly summaries: CallSummaryService,
+  ) {}
+
+  @Post('calls/:id/summary')
+  @HttpCode(200)
+  summarize(
+    @CurrentUser() user: User,
+    @Param('id', uuid()) id: string,
+    @Req() request: Request,
+  ) {
+    return this.summaries.summarize(user.id, id.toLowerCase(), request);
+  }
 
   @Post('conversations/:conversationId/calls')
   @HttpCode(200)

@@ -42,6 +42,50 @@ export function mergeMessages(current: api.Message[], incoming: api.Message[]) {
   );
 }
 
+export type ReplyTargetType =
+  'text' | 'image' | 'file' | 'voice' | 'location' | 'call' | 'deleted';
+
+export interface ReplySummary {
+  messageId?: string;
+  senderId?: string;
+  legacySenderName?: string;
+  type: ReplyTargetType;
+  excerpt: string;
+}
+
+const LEGACY_QUOTE_PATTERN =
+  /^> ([^:\n]{1,100}): ?([^\n]*(?:\n> [^\n]*)*)\n\n([\s\S]+)$/;
+
+export function extractMessageReply(
+  message: Pick<api.Message, 'body' | 'deletedAt' | 'content'>,
+): { reply?: ReplySummary; body: string | null } {
+  if (message.deletedAt) return { body: message.body };
+  if (message.content?.replyTo) {
+    return { reply: message.content.replyTo, body: message.body };
+  }
+  if (message.body) {
+    const match = LEGACY_QUOTE_PATTERN.exec(message.body);
+    if (match) {
+      return {
+        reply: {
+          legacySenderName: match[1]!.trim(),
+          type: 'text',
+          excerpt:
+            match[2]!.replace(/\n> /g, '\n').trim() || 'Tin nhắn đã trích dẫn',
+        },
+        body: match[3]!,
+      };
+    }
+  }
+  return { body: message.body };
+}
+
+export function unwrapReplyPreviewBody(body?: string | null): string | null {
+  if (!body) return body ?? null;
+  const match = LEGACY_QUOTE_PATTERN.exec(body);
+  return match ? match[3]! : body;
+}
+
 export function clientMessageId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
     const random = Math.floor(Math.random() * 16);

@@ -947,11 +947,29 @@
 }
 .home-shell .reply-preview {
   border-left-color: #b75020;
+  border-radius: 12px;
   background: #f6eee3;
   color: var(--ink);
 }
 .home-shell .reply-preview p {
   color: #8d7866;
+}
+.home-shell .reply-preview strong {
+  color: #8f471f;
+  font-size: 12px;
+}
+.home-shell .reply-preview .reply-preview-close:hover {
+  background: #ead9c6;
+}
+.home-shell .message-reply-quote {
+  border-color: rgba(226, 212, 196, 0.92);
+  border-left-color: #b75020;
+  background: rgba(255, 253, 249, 0.88);
+  color: #5b4534;
+}
+.home-shell .message-reply-quote:not(.is-static):hover {
+  background: #fffdf9;
+  border-color: #d9b69a;
 }
 .home-shell .receipt-panel {
   border-color: #e6d9cb;
@@ -974,12 +992,28 @@
 .home-shell .forward-preview {
   background: #f6eee3;
 }
-.home-shell .chat-composer-bar .media-tools > button:hover:not(:disabled),
+.home-shell
+  .chat-composer-bar
+  .media-tools:not(.is-recording)
+  > button:hover:not(:disabled),
 .home-shell
   .chat-composer-bar
   .message-composer
   .composer-emoji:hover:not(:disabled) {
   background: #f4e6d5;
+}
+.home-shell
+  .chat-composer-bar
+  .media-tools.is-recording
+  .record-stop:hover:not(:disabled) {
+  background: #c12d37;
+  color: #fff;
+}
+.home-shell
+  .chat-composer-bar
+  .media-tools.is-recording
+  .record-cancel:hover:not(:disabled) {
+  background: #f9d8dc;
 }
 .home-shell .location-preview {
   background: #fffdf9;
@@ -2092,18 +2126,37 @@
     color: #b75020;
   }
   .home-shell .chat-composer-bar .media-tools.is-recording {
-    flex-wrap: nowrap;
-    gap: 6px;
+    flex-wrap: wrap;
+    gap: 6px 8px;
     padding: 8px 10px;
   }
   .home-shell .chat-composer-bar .media-tools.is-recording .recording-info {
+    flex: 1 1 165px;
     min-width: 0;
     font-size: 12.5px;
+    white-space: nowrap;
   }
   .home-shell .chat-composer-bar .media-tools.is-recording > button {
+    width: auto;
+    height: auto;
     min-height: 34px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
     padding: 6px 10px;
     white-space: nowrap;
+  }
+  .home-shell .chat-composer-bar .media-tools.is-recording > button svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .home-shell .chat-composer-bar .media-tools.is-recording .record-cancel {
+    color: #a13239;
+  }
+  .home-shell .chat-composer-bar .media-tools.is-recording .record-stop {
+    background: #dc3f49;
+    color: #fff;
   }
   .home-shell .location-preview {
     padding: 18px;

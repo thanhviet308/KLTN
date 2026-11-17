@@ -30,6 +30,7 @@ import { allPages, type Peer } from '../../presence';
 import {
   clientMessageId,
   conversationName,
+  extractMessageReply,
   mergeMessages,
   shortTime,
 } from '../../utils';
@@ -110,11 +111,15 @@ export function Chat({
   const [mediaLoading, setMediaLoading] = useState<Record<string, boolean>>({});
   const [recording, setRecording] = useState(false);
   const [recordingMs, setRecordingMs] = useState(0);
+  const recordingMsRef = useRef(0);
+  const recordingStartRef = useRef(0);
   const [playingMessage, setPlayingMessage] = useState<string>();
   useEffect(() => {
     if (!calls.busy) return;
     setRecording(false);
     setRecordingMs(0);
+    recordingMsRef.current = 0;
+    recordingStartRef.current = 0;
     setPlayingMessage(undefined);
     Sound.removeRecordBackListener();
     Sound.removePlayBackListener();
@@ -181,6 +186,34 @@ export function Chat({
   const accept = useCallback((incoming: api.Message[]) => {
     messagesRef.current = mergeMessages(messagesRef.current, incoming);
     setMessages(messagesRef.current);
+  }, []);
+  const applyClearedHistory = useCallback((clearedAfterSequence: string) => {
+    const cutoff = BigInt(clearedAfterSequence || '0');
+    for (const [id, path] of Object.entries(mediaPathsRef.current)) {
+      const msg = messagesRef.current.find(item => item.id === id);
+      if (!msg || BigInt(msg.sequence) <= cutoff) {
+        ReactNativeBlobUtil.fs
+          .unlink(path.replace(/^file:\/\//, ''))
+          .catch(() => undefined);
+        delete mediaPathsRef.current[id];
+      }
+    }
+    setMediaPaths({ ...mediaPathsRef.current });
+    setPlayingMessage(undefined);
+    Sound.removePlayBackListener();
+    Sound.removePlaybackEndListener();
+    void Sound.stopPlayer().catch(() => undefined);
+    messagesRef.current = messagesRef.current.filter(
+      item => BigInt(item.sequence) > cutoff,
+    );
+    setMessages(messagesRef.current);
+    setOlder(null);
+    setReplyTo(undefined);
+    setEditing(undefined);
+    setActionTarget(undefined);
+    setSearchedHits([]);
+    setVoiceTranscripts({});
+    setReactions({});
   }, []);
   const fail = useCallback(
     (next: unknown) => {
@@ -366,6 +399,13 @@ export function Chat({
       },
     );
     socket.on(
+      'conversation:history-cleared',
+      (event: { conversationId: string; clearedAfterSequence: string }) => {
+        if (event.conversationId === conversation.id)
+          applyClearedHistory(event.clearedAfterSequence);
+      },
+    );
+    socket.on(
       'typing:update',
       (event: {
         conversationId: string;
@@ -425,7 +465,15 @@ export function Chat({
       socket.disconnect();
       socketRef.current = undefined;
     };
-  }, [accept, conversation.id, fail, loadMembers, sync, user.id]);
+  }, [
+    accept,
+    applyClearedHistory,
+    conversation.id,
+    fail,
+    loadMembers,
+    sync,
+    user.id,
+  ]);
 
   useEffect(
     () => () => {
@@ -473,18 +521,18 @@ export function Chat({
       const original = replyTo
         ? (messagesRef.current.find(item => item.id === replyTo.id) ?? replyTo)
         : undefined;
-      const content = original
-        ? `> ${memberName(original.senderId)}: ${messageLabel(original)
-            .slice(0, 300)
-            .replace(/\n/g, '\n> ')}\n\n${text}`
-        : text;
-      if (content.length > 10000) {
-        setError('Tin nhắn sau khi trích dẫn vượt quá 10.000 ký tự.');
+      if (text.length > 10000) {
+        setError('Tin nhắn tối đa 10.000 ký tự.');
         return;
       }
       const result = await api.authenticated<{ message: api.Message }>(
         `/conversations/${conversation.id}/messages`,
-        { clientMessageId: clientMessageId(), type: 'text', body: content },
+        {
+          clientMessageId: clientMessageId(),
+          type: 'text',
+          body: text,
+          ...(original ? { replyToMessageId: original.id } : {}),
+        },
       );
       accept([result.message]);
       setBody('');
@@ -500,6 +548,7 @@ export function Chat({
   async function sendFile(
     file: api.LocalUpload,
     type: 'image' | 'file' | 'voice',
+    durationSeconds?: number,
   ) {
     if (sending) return;
     setSending(true);
@@ -510,6 +559,7 @@ export function Chat({
         clientMessageId(),
         file,
         type,
+        durationSeconds,
       );
       accept([result.message]);
     } catch (next) {
@@ -611,8 +661,14 @@ export function Chat({
     Sound.removePlayBackListener();
     Sound.removePlaybackEndListener();
     setPlayingMessage(undefined);
-    Sound.addRecordBackListener(event => setRecordingMs(event.currentPosition));
+    recordingMsRef.current = 0;
+    recordingStartRef.current = 0;
+    Sound.addRecordBackListener(event => {
+      recordingMsRef.current = event.currentPosition;
+      setRecordingMs(event.currentPosition);
+    });
     await Sound.startRecorder();
+    recordingStartRef.current = Date.now();
     setRecordingMs(0);
     setRecording(true);
   }
@@ -621,6 +677,10 @@ export function Chat({
     if (!recording) return;
     setRecording(false);
     Sound.removeRecordBackListener();
+    const elapsedMs = Math.max(
+      recordingMsRef.current,
+      recordingStartRef.current ? Date.now() - recordingStartRef.current : 0,
+    );
     try {
       const path = await Sound.stopRecorder();
       if (!sendRecording) {
@@ -629,7 +689,7 @@ export function Chat({
           .catch(() => undefined);
         return;
       }
-      if (recordingMs < 500) {
+      if (elapsedMs < 500) {
         setError('Tin nhắn thoại quá ngắn. Hãy ghi âm lâu hơn một chút.');
         return;
       }
@@ -640,10 +700,13 @@ export function Chat({
           mimeType: 'audio/mp4',
         },
         'voice',
+        Math.max(1, Math.round(elapsedMs / 1000)),
       );
     } catch (next) {
       fail(next);
     } finally {
+      recordingMsRef.current = 0;
+      recordingStartRef.current = 0;
       setRecordingMs(0);
     }
   }
@@ -779,11 +842,29 @@ export function Chat({
 
   function messageLabel(message: api.Message) {
     if (message.deletedAt) return 'Tin nhắn đã được thu hồi';
-    if (message.body) return message.body;
+    const extracted = extractMessageReply(message).body;
+    if (extracted) return extracted;
     if (message.type === 'location') return '📍 Vị trí được chia sẻ';
     if (message.type === 'voice') return '🎤 Tin nhắn thoại';
     if (message.type === 'image') return '🖼 Ảnh';
     return `📎 ${message.content?.fileName ?? 'Tệp đính kèm'}`;
+  }
+
+  function jumpToQuotedMessage(messageId: string, listItems: api.Message[]) {
+    const index = listItems.findIndex(item => item.id === messageId);
+    if (index < 0) {
+      setError('Không tìm thấy tin nhắn gốc trong danh sách đang hiển thị.');
+      return;
+    }
+    try {
+      messageList.current?.scrollToIndex({
+        index,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    } catch {
+      /* Item layout not measured yet. */
+    }
   }
 
   const scheduleFocus = useCallback(
@@ -922,6 +1003,10 @@ export function Chat({
         conversation={conversation}
         currentTitle={title}
         members={members}
+        onClearHistory={clearedAfterSequence => {
+          applyClearedHistory(clearedAfterSequence);
+          setInfoOpen(false);
+        }}
         onClose={() => setInfoOpen(false)}
         onExpired={onExpired}
         onLeave={onBack}
@@ -1120,6 +1205,32 @@ export function Chat({
             }
             renderItem={({ item }) => {
               const mine = item.senderId === user.id;
+              const { reply } = extractMessageReply(item);
+              const quotedTarget = reply?.messageId
+                ? messagesRef.current.find(m => m.id === reply.messageId)
+                : undefined;
+              const quotedDeleted =
+                reply?.type === 'deleted' || !!quotedTarget?.deletedAt;
+              const senderLabel = memberName(item.senderId);
+              const targetLabel = reply?.senderId
+                ? reply.senderId === user.id
+                  ? undefined
+                  : memberName(reply.senderId)
+                : reply?.legacySenderName;
+              const replyContext = reply
+                ? mine
+                  ? reply.senderId === user.id
+                    ? 'Bạn đã trả lời chính mình'
+                    : `Bạn đã trả lời ${targetLabel ?? 'thành viên'}`
+                  : reply.senderId === user.id
+                    ? `${senderLabel} đã trả lời bạn`
+                    : reply.senderId === item.senderId
+                      ? `${senderLabel} đã trả lời chính mình`
+                      : `${senderLabel} đã trả lời ${targetLabel ?? 'thành viên'}`
+                : '';
+              const replyExcerpt = quotedDeleted
+                ? 'Tin nhắn đã thu hồi'
+                : (reply?.excerpt ?? '');
               return (
                 <View
                   style={[styles.messageRow, mine && styles.messageRowMine]}
@@ -1128,6 +1239,35 @@ export function Chat({
                     <Text style={styles.messageSender}>
                       {memberName(item.senderId)}
                     </Text>
+                  )}
+                  {!!reply && !item.deletedAt && (
+                    <View
+                      style={[styles.replyStack, mine && styles.replyStackMine]}
+                    >
+                      <Text numberOfLines={1} style={styles.replyContextText}>
+                        ↩ {replyContext}
+                      </Text>
+                      <Pressable
+                        disabled={!reply.messageId}
+                        onPress={() => {
+                          if (reply.messageId) {
+                            jumpToQuotedMessage(
+                              reply.messageId,
+                              displayedMessages,
+                            );
+                          }
+                        }}
+                        style={({ pressed }) => [
+                          styles.replyQuoteBox,
+                          mine && styles.replyQuoteBoxMine,
+                          pressed && !!reply.messageId && styles.bubblePressed,
+                        ]}
+                      >
+                        <Text numberOfLines={2} style={styles.replyQuoteText}>
+                          {replyExcerpt}
+                        </Text>
+                      </Pressable>
+                    </View>
                   )}
                   <SwipeableMessageBubble
                     disabled={!!item.deletedAt || item.type === 'call'}

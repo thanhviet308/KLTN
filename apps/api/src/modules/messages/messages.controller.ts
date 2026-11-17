@@ -90,6 +90,10 @@ export class MessagesController {
           size: Number(attachment.size),
           sha256: message.content!.sha256!,
           type: message.type,
+          durationSeconds:
+            message.type === 'voice'
+              ? message.content?.durationSeconds
+              : undefined,
         },
         source,
       );
@@ -163,7 +167,11 @@ export class MessagesController {
         user.id,
         id,
         { clientMessageId: input.clientMessageId.toLowerCase(), type: 'text' },
-        media,
+        {
+          ...media,
+          durationSeconds:
+            media.type === 'voice' ? input.durationSeconds : undefined,
+        },
       );
       if (result.message.content?.attachmentId !== media.id)
         await this.files.remove(media.id);

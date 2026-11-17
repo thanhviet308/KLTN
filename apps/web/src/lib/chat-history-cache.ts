@@ -8,6 +8,7 @@ export interface CachedHistory {
 }
 const histories = new Map<string, CachedHistory>();
 const pending = new Map<string, Promise<History>>();
+const keyGenerations = new Map<string, number>();
 let generation = 0;
 export function loadRecentHistory(
   key: string,
@@ -16,9 +17,10 @@ export function loadRecentHistory(
   const existing = pending.get(key);
   if (existing) return existing;
   const current = generation;
+  const keyGen = keyGenerations.get(key) ?? 0;
   const request = fetchHistory()
     .then((page) => {
-      if (current === generation)
+      if (current === generation && (keyGenerations.get(key) ?? 0) === keyGen)
         rememberHistory(key, {
           verifiedAt: Date.now(),
           messages: page.items,
@@ -89,8 +91,14 @@ export function applyCachedMessage(key: string, message: Message) {
     receipts: existing.receipts,
   });
 }
+export function clearConversationHistoryCache(key: string) {
+  keyGenerations.set(key, (keyGenerations.get(key) ?? 0) + 1);
+  pending.delete(key);
+  histories.delete(key);
+}
 export function clearHistoryCache() {
   generation++;
+  keyGenerations.clear();
   pending.clear();
   histories.clear();
 }

@@ -1,3 +1,14 @@
+export type ReplyTargetType =
+  'text' | 'image' | 'file' | 'voice' | 'location' | 'call' | 'deleted';
+
+export interface ReplySummary {
+  messageId?: string;
+  senderId?: string;
+  legacySenderName?: string;
+  type: ReplyTargetType;
+  excerpt: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -19,6 +30,12 @@ export interface Message {
     callType?: 'audio' | 'video';
     callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
     durationSeconds?: number;
+    replyTo?: {
+      messageId: string;
+      senderId: string;
+      type: ReplyTargetType;
+      excerpt: string;
+    };
   } | null;
   editedAt?: string | null;
   deletedAt?: string | null;
@@ -97,14 +114,69 @@ export function parseGameInviteBody(body: string | null | undefined): {
   };
 }
 
+const LEGACY_QUOTE_PATTERN =
+  /^> ([^:\n]{1,100}): ?([^\n]*(?:\n> [^\n]*)*)\n\n([\s\S]+)$/;
+
+export function extractMessageReply(
+  message: Pick<Message, 'body' | 'deletedAt' | 'content'>,
+): { reply?: ReplySummary; body: string | null } {
+  if (message.deletedAt) return { body: message.body };
+  if (message.content?.replyTo) {
+    return {
+      reply: message.content.replyTo,
+      body: message.body,
+    };
+  }
+  if (message.body) {
+    const match = LEGACY_QUOTE_PATTERN.exec(message.body);
+    if (match) {
+      const legacySenderName = match[1]!.trim();
+      const rawQuote = match[2]!.replace(/\n> /g, '\n').trim();
+      const cleanBody = match[3]!;
+      return {
+        reply: {
+          legacySenderName,
+          type: 'text',
+          excerpt: rawQuote || 'Tin nhắn đã trích dẫn',
+        },
+        body: cleanBody,
+      };
+    }
+  }
+  return { body: message.body };
+}
+
+export function buildReplyDraftSummary(
+  target: Pick<
+    Message,
+    'id' | 'senderId' | 'deletedAt' | 'body' | 'type' | 'content'
+  >,
+): ReplySummary {
+  const type: ReplyTargetType = target.deletedAt
+    ? 'deleted'
+    : (target.type ?? 'text');
+  const cleanSummary = messageSummary(target).replace(/\s+/g, ' ').trim();
+  const excerpt =
+    cleanSummary.length > 140
+      ? `${cleanSummary.slice(0, 139)}…`
+      : cleanSummary || 'Tin nhắn';
+  return {
+    messageId: target.id,
+    senderId: target.senderId,
+    type,
+    excerpt,
+  };
+}
+
 export function messageSummary(
   message: Pick<Message, 'deletedAt' | 'body' | 'type' | 'content'>,
 ) {
   if (message.deletedAt) return 'Tin nhắn đã thu hồi';
-  if (message.body) {
-    const gameInvite = parseGameInviteBody(message.body);
+  const cleanBody = extractMessageReply(message).body;
+  if (cleanBody) {
+    const gameInvite = parseGameInviteBody(cleanBody);
     if (gameInvite) return `🎮 ${gameInvite.text}`;
-    return message.body;
+    return cleanBody;
   }
   if (message.type === 'location') return 'Vị trí được chia sẻ';
   if (message.type === 'voice') return 'Tin nhắn thoại';

@@ -1,3 +1,4 @@
+import { CornerUpLeft, X } from 'lucide-react';
 import { messageSummary, type Message } from '../../lib/chat-model';
 
 export function ReplyPreview({
@@ -12,16 +13,19 @@ export function ReplyPreview({
   return (
     <div className="reply-preview">
       <div>
-        <strong>Trả lời {senderName}</strong>
+        <strong>
+          <CornerUpLeft size={13} aria-hidden="true" />
+          Đang trả lời {senderName}
+        </strong>
         <p>{messageSummary(message).slice(0, 300)}</p>
       </div>
       <button
         type="button"
-        className="retry"
+        className="retry reply-preview-close"
         aria-label="Hủy trả lời"
         onClick={onCancel}
       >
-        ×
+        <X size={16} aria-hidden="true" />
       </button>
     </div>
   );

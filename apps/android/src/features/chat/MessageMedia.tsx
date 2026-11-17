@@ -132,6 +132,11 @@ export function MessageMedia({
     );
   }
   if (message.type === 'voice') {
+    const seconds = message.content?.durationSeconds ?? 0;
+    const durationLabel =
+      seconds > 0
+        ? `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')} · `
+        : '';
     return (
       <View style={styles.voiceMediaWrap}>
         <Pressable
@@ -157,6 +162,7 @@ export function MessageMedia({
               numberOfLines={1}
               style={[styles.mediaCaption, mine && styles.mediaCaptionMine]}
             >
+              {durationLabel}
               {localPath ? 'Chạm để phát' : 'Chạm để tải'}
             </Text>
           </View>

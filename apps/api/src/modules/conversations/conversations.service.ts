@@ -1,4 +1,4 @@
-import { HttpException, Inject, Injectable } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Optional } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { createHash } from 'node:crypto';
@@ -13,6 +13,7 @@ import { decryptMessageText } from '../database/message-encryption';
 import { pageResult } from '../../common/page.dto';
 import type { PageDto } from '../../common/page.dto';
 import { publicUserView } from '../users/user-view';
+import { RealtimeEvents } from '../realtime/realtime-events.module';
 import type { CreateConversationDto } from './conversations.dto';
 
 function fail(status: number, code: string, message: string): never {
@@ -22,7 +23,12 @@ const GROUP_LIMIT = 50;
 
 @Injectable()
 export class ConversationsService {
-  constructor(@Inject(DataSource) private readonly db: DataSource) {}
+  constructor(
+    @Inject(DataSource) private readonly db: DataSource,
+    @Optional()
+    @Inject(RealtimeEvents)
+    private readonly events?: RealtimeEvents,
+  ) {}
 
   private view(conversation: Conversation, member: ConversationMember) {
     return {
@@ -40,6 +46,7 @@ export class ConversationsService {
       membership: {
         role: member.role,
         lastReadSequence: member.lastReadSequence,
+        clearedAfterSequence: member.clearedAfterSequence ?? '0',
       },
     };
   }
@@ -362,6 +369,7 @@ export class ConversationsService {
         JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
         WHERE m.conversation_id = ANY($1::uuid[]) AND m.sender_id <> $2
           AND EXISTS (SELECT 1 FROM users u WHERE u.id=m.sender_id AND u.status='active') AND m.deleted_at IS NULL AND m.sequence > COALESCE(cm.last_read_sequence, 0)
+          AND m.sequence > cm.cleared_after_sequence
           AND EXISTS (
             SELECT 1 FROM conversation_member_periods p
             WHERE p.conversation_id = m.conversation_id AND p.user_id = $2
@@ -399,7 +407,9 @@ export class ConversationsService {
             ELSE NULL END AS body,
           m.created_at AS "createdAt", m.deleted_at AS "deletedAt"
         FROM messages m
+        JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
         WHERE m.conversation_id = requested.conversation_id AND EXISTS (SELECT 1 FROM users u WHERE u.id=m.sender_id AND u.status='active')
+          AND m.sequence > cm.cleared_after_sequence
           AND EXISTS (
             SELECT 1 FROM conversation_member_periods p
             WHERE p.conversation_id = m.conversation_id AND p.user_id = $2
@@ -639,7 +649,7 @@ export class ConversationsService {
           'Transfer ownership before leaving the group',
         );
       await manager.getRepository(ConversationMemberPeriod).update(period.id, {
-        leftAt: new Date(),
+        leftAt: () => 'GREATEST(CURRENT_TIMESTAMP, joined_at)',
         leftAfterSequence: conversation.lastMessageSequence,
       });
     });
@@ -716,5 +726,44 @@ export class ConversationsService {
       }
       return { ownerId: userId };
     });
+  }
+
+  async clearHistory(actorId: string, id: string) {
+    const result = await this.db.transaction(async (manager) => {
+      const { conversation, member } = await this.requireAccess(
+        manager,
+        id,
+        actorId,
+        true,
+      );
+      const latestSequence = BigInt(conversation.lastMessageSequence ?? '0');
+      const currentCleared = BigInt(member.clearedAfterSequence ?? '0');
+      const clearedAfterSequence = (
+        latestSequence > currentCleared ? latestSequence : currentCleared
+      ).toString();
+      if (clearedAfterSequence !== (member.clearedAfterSequence ?? '0')) {
+        await manager
+          .getRepository(ConversationMember)
+          .update(
+            { conversationId: id, userId: actorId },
+            { clearedAfterSequence },
+          );
+        member.clearedAfterSequence = clearedAfterSequence;
+      }
+      return {
+        conversation: this.view(conversation, member),
+        clearedAfterSequence,
+      };
+    });
+    this.events?.publish({
+      name: 'conversation:history-cleared',
+      conversationId: id,
+      targetUserIds: [actorId],
+      payload: {
+        conversationId: id,
+        clearedAfterSequence: result.clearedAfterSequence,
+      },
+    });
+    return result;
   }
 }

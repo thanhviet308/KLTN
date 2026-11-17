@@ -108,6 +108,75 @@ export async function sourceRevision(message: Message) {
     value.toString(16).padStart(2, '0'),
   ).join('');
 }
+const MAX_AI_RESULT_CACHE = 120;
+const aiResultCache = new Map<string, AiResult>();
+let cachedEnabled: boolean | undefined;
+let pendingStatus: Promise<boolean> | undefined;
+let statusGeneration = 0;
+
+export function cachedAiEnabled(): boolean | undefined {
+  return cachedEnabled;
+}
+
+export function clearAiCache() {
+  statusGeneration++;
+  cachedEnabled = undefined;
+  pendingStatus = undefined;
+  aiResultCache.clear();
+}
+
+export async function resolveAiEnabled(
+  loader: () => Promise<{ enabled: boolean }>,
+): Promise<boolean> {
+  if (cachedEnabled === true) return true;
+  if (!pendingStatus) {
+    const currentGen = statusGeneration;
+    const request = loader()
+      .then((res) => {
+        if (currentGen === statusGeneration && res.enabled)
+          cachedEnabled = true;
+        return res.enabled;
+      })
+      .finally(() => {
+        if (pendingStatus === request) pendingStatus = undefined;
+      });
+    pendingStatus = request;
+  }
+  return pendingStatus;
+}
+
+export function buildAiCacheKey(params: {
+  userId?: string;
+  conversationId: string;
+  kind: AiKind;
+  sourceRevisions: string[];
+  targetId?: string;
+  tone?: string;
+  language?: string;
+}) {
+  return JSON.stringify([
+    params.userId ?? '',
+    params.conversationId,
+    params.kind,
+    params.sourceRevisions,
+    params.targetId ?? '',
+    params.kind === 'replies' ? (params.tone ?? 'concise') : '',
+    params.kind === 'translate' ? (params.language ?? 'vi') : '',
+  ]);
+}
+
+export function getCachedAiResult(key: string): AiResult | undefined {
+  return aiResultCache.get(key);
+}
+
+export function cacheAiResult(key: string, value: AiResult) {
+  if (!aiResultCache.has(key) && aiResultCache.size >= MAX_AI_RESULT_CACHE) {
+    const oldest = aiResultCache.keys().next().value;
+    if (oldest !== undefined) aiResultCache.delete(oldest);
+  }
+  aiResultCache.set(key, value);
+}
+
 export function initialSelection(
   messages: Message[],
   kind: AiKind,

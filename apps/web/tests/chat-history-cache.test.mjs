@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   applyCachedMessage,
   cachedHistory,
+  clearConversationHistoryCache,
   clearHistoryCache,
   loadRecentHistory,
 } from '../src/lib/chat-history-cache.ts';
@@ -73,4 +74,71 @@ test('descending backward pages are cached chronologically with newest messages 
     cachedHistory('user:chat').messages.map((m) => m.id),
     ['m1', 'm2', 'm3', 'm4'],
   );
+});
+
+test('clearConversationHistoryCache clears only the targeted conversation cache', async () => {
+  clearHistoryCache();
+  const base = {
+    senderId: 'user',
+    clientMessageId: 'client',
+    createdAt: '2026-10-07T10:00:00Z',
+  };
+  await loadRecentHistory('user:chat-a', async () => ({
+    items: [
+      {
+        ...base,
+        conversationId: 'chat-a',
+        id: 'a1',
+        sequence: '1',
+        body: 'hi',
+      },
+    ],
+    nextCursor: null,
+    highWatermark: '1',
+  }));
+  await loadRecentHistory('user:chat-b', async () => ({
+    items: [
+      {
+        ...base,
+        conversationId: 'chat-b',
+        id: 'b1',
+        sequence: '1',
+        body: 'yo',
+      },
+    ],
+    nextCursor: null,
+    highWatermark: '1',
+  }));
+  clearConversationHistoryCache('user:chat-a');
+  assert.equal(cachedHistory('user:chat-a'), undefined);
+  assert.deepEqual(
+    cachedHistory('user:chat-b').messages.map((m) => m.id),
+    ['b1'],
+  );
+
+  // An in-flight preload started before clearConversationHistoryCache cannot repopulate stale history
+  let resolveInFlight;
+  const inFlight = loadRecentHistory(
+    'user:chat-a',
+    () =>
+      new Promise((resolve) => {
+        resolveInFlight = resolve;
+      }),
+  );
+  clearConversationHistoryCache('user:chat-a');
+  resolveInFlight({
+    items: [
+      {
+        ...base,
+        conversationId: 'chat-a',
+        id: 'stale-1',
+        sequence: '1',
+        body: 'old',
+      },
+    ],
+    nextCursor: null,
+    highWatermark: '1',
+  });
+  await inFlight;
+  assert.equal(cachedHistory('user:chat-a'), undefined);
 });

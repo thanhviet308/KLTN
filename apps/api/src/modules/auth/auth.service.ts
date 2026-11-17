@@ -79,7 +79,10 @@ export class AuthService {
       await manager.getRepository(User).update(userId, { passwordHash });
       await manager
         .getRepository(Session)
-        .update({ userId, revokedAt: IsNull() }, { revokedAt: new Date() });
+        .update(
+          { userId, revokedAt: IsNull() },
+          { revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)' },
+        );
     });
   }
   private readonly logger = new Logger(AuthService.name);
@@ -250,9 +253,9 @@ export class AuthService {
       if (!session || session.revokedAt) return null;
       const token = await tokens.findOneByOrFail({ id: found.id });
       if (token.consumedAt) {
-        await manager
-          .getRepository(Session)
-          .update(session.id, { revokedAt: new Date() });
+        await manager.getRepository(Session).update(session.id, {
+          revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+        });
         this.logger.warn({
           code: 'REFRESH_TOKEN_REUSED',
           sessionId: session.id,
@@ -268,12 +271,14 @@ export class AuthService {
         session.expiresAt.getTime() <= Date.now() ||
         token.expiresAt.getTime() <= Date.now()
       ) {
-        await manager
-          .getRepository(Session)
-          .update(session.id, { revokedAt: new Date() });
+        await manager.getRepository(Session).update(session.id, {
+          revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+        });
         return null;
       }
-      await tokens.update(token.id, { consumedAt: new Date() });
+      await tokens.update(token.id, {
+        consumedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+      });
       return this.issue(manager, session, user);
     });
     if (!result)
@@ -296,9 +301,9 @@ export class AuthService {
         lock: { mode: 'pessimistic_write' },
       });
       if (session && !session.revokedAt) {
-        await manager
-          .getRepository(Session)
-          .update(session.id, { revokedAt: new Date() });
+        await manager.getRepository(Session).update(session.id, {
+          revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+        });
       }
     });
     this.logger.log({ code: 'LOGOUT_COMPLETED', requestId });

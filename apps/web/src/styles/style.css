@@ -1207,6 +1207,19 @@ input:focus {
   margin: 18px 0;
   overflow-wrap: anywhere;
 }
+.chat-inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.chat-inline-error .chat-error-close {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 2px 8px;
+  margin: 0;
+  line-height: 1;
+}
 .error {
   background: #fff0ed;
   color: #993c31;
@@ -1459,14 +1472,103 @@ a:focus-visible {
   align-items: center;
   gap: 4px;
 }
+.chat-message:not(.mine):has(.message-reply-stack) {
+  align-items: flex-end;
+}
 .message-bubble-slot {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   width: fit-content;
   max-width: 100%;
   min-width: 0;
 }
 .chat-message.mine .message-bubble-slot {
   margin-left: auto;
+  align-items: flex-end;
+}
+.message-body-anchor {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+}
+.message-reply-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: 100%;
+  margin-bottom: 4px;
+}
+.chat-message.mine .message-reply-stack {
+  align-items: flex-end;
+}
+.message-reply-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding-inline: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #6f5d4f;
+}
+.message-reply-context > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-reply-quote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  max-width: min(300px, 100%);
+  padding: 7px 11px;
+  border: 1px solid rgba(215, 203, 189, 0.9);
+  border-left: 3px solid #c26536;
+  border-radius: 14px 14px 14px 6px;
+  background: rgba(255, 253, 249, 0.84);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #5b483a;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.38;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    border-color 0.14s ease;
+}
+.chat-message.mine .message-reply-quote {
+  border-radius: 14px 14px 6px 14px;
+}
+.message-reply-quote.is-static {
+  cursor: default;
+}
+.message-reply-quote:not(.is-static):hover {
+  background: #fffdf9;
+  border-color: #d7b296;
+}
+.message-reply-quote:focus-visible {
+  outline: 2px solid #b75020;
+  outline-offset: 2px;
+}
+.message-reply-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: #b75020;
+}
+.message-reply-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .chat-message:not(.mine) .message-body {
   min-width: 0;
@@ -1926,7 +2028,7 @@ a:focus-visible {
   border-color: #537565;
   background: #edf5e7;
 }
-.message-bubble-slot:has(.reaction-badges) {
+.message-body-anchor:has(.reaction-badges) {
   /* Reserve space for the lower half of the pill so consecutive messages
      and read receipts clear it while the pill hugs the bubble corner. */
   padding-bottom: 11px;
@@ -1977,6 +2079,11 @@ a:focus-visible {
   flex: 1;
   min-width: 0;
 }
+.reply-preview strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 .reply-preview p {
   margin: 4px 0 0;
   overflow: hidden;
@@ -1984,9 +2091,15 @@ a:focus-visible {
   white-space: nowrap;
   color: #7a8783;
 }
-.reply-preview .retry {
+.reply-preview .reply-preview-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   margin: 0;
-  font-size: 20px;
+  border-radius: 50%;
 }
 .chat-message:hover .message-tools,
 .chat-message:focus-within .message-tools,
