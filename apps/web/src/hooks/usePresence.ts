@@ -57,6 +57,48 @@ export function usePresence(userId: string) {
         },
       );
     };
+    const onPresenceUpdate = (event?: {
+      userId?: string;
+      online?: boolean;
+      lastActiveAt?: string | null;
+    }) => {
+      if (
+        stopped ||
+        !event ||
+        typeof event.userId !== 'string' ||
+        typeof event.online !== 'boolean'
+      )
+        return;
+      const peerId = event.userId;
+      const isOnline = event.online;
+      setPresence((prev) => ({
+        ...prev,
+        [peerId]: {
+          online: isOnline,
+          lastActiveAt:
+            event.lastActiveAt !== undefined
+              ? event.lastActiveAt
+              : (prev[peerId]?.lastActiveAt ?? null),
+        },
+      }));
+    };
+    const onFriendsUpdated = (event?: {
+      peerId?: string;
+      status?: 'accepted' | 'removed';
+    }) => {
+      if (stopped) return;
+      if (event?.status === 'removed' && typeof event.peerId === 'string') {
+        const removedId = event.peerId;
+        setPresence((prev) => {
+          if (!(removedId in prev)) return prev;
+          const next = { ...prev };
+          delete next[removedId];
+          return next;
+        });
+        return;
+      }
+      sync();
+    };
     const onDisconnect = () => {
       syncing = false;
       setPresence({});
@@ -66,6 +108,8 @@ export function usePresence(userId: string) {
       setPresence({});
     };
     client.on('connect', sync);
+    client.on('presence:update', onPresenceUpdate);
+    client.on('friends:updated', onFriendsUpdated);
     client.on('disconnect', onDisconnect);
     client.on('connect_error', onConnectError);
     if (client.connected) sync();
@@ -89,6 +133,8 @@ export function usePresence(userId: string) {
       window.removeEventListener('online', refreshPresence);
       document.removeEventListener('visibilitychange', onVisible);
       client.off('connect', sync);
+      client.off('presence:update', onPresenceUpdate);
+      client.off('friends:updated', onFriendsUpdated);
       client.off('disconnect', onDisconnect);
       client.off('connect_error', onConnectError);
       hub.release();

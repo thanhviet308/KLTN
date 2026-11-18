@@ -545,14 +545,21 @@ export function Conversations({
         event.clearedAfterSequence,
       );
     };
+    const onFriendsUpdated = () => {
+      if (stopped) return;
+      void loadFriends().catch(() => {});
+      void list(undefined, true).catch(() => {});
+    };
     client.on('account:visibility', onAccountVisibility);
     client.on('message:created', onMessageCreated);
     client.on('conversation:history-cleared', onHistoryCleared);
+    client.on('friends:updated', onFriendsUpdated);
     return () => {
       stopped = true;
       client.off('account:visibility', onAccountVisibility);
       client.off('message:created', onMessageCreated);
       client.off('conversation:history-cleared', onHistoryCleared);
+      client.off('friends:updated', onFriendsUpdated);
       hub.release();
     };
   }, [user.id]);

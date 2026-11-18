@@ -161,3 +161,139 @@ test('new message reaches an authorized inbox without subscription and never rea
   assert.deepEqual(checked.sort(), ['outsider', 'recipient']);
   assert.deepEqual(received, [{ id: 'recipient', name: 'message:created' }]);
 });
+
+test('connect, disconnect, rapid reconnect, and friendship changes push realtime presence updates only to friends', async () => {
+  const emitted = [];
+  let pendingTouchResolve = null;
+  const db = {
+    query: async (sql) => {
+      if (sql.includes('UPDATE users SET last_active_at')) {
+        if (pendingTouchResolve) {
+          await new Promise((resolve) => {
+            const release = pendingTouchResolve;
+            pendingTouchResolve = () => {
+              release();
+              resolve();
+            };
+          });
+        }
+        return [];
+      }
+      if (sql.includes('FROM friendships')) {
+        return [{ friend_id: 'friend' }];
+      }
+      return [];
+    },
+  };
+  const gateway = new ChatGateway(db, {}, {}, {}, {});
+  const makeConn = (userId) => ({
+    userId,
+    expiresAt: Date.now() + 60000,
+    token: 'test',
+    window: Date.now(),
+    requests: 0,
+    pending: 0,
+    rooms: new Set(),
+  });
+  const sockets = new Map([
+    [
+      'friend-sock',
+      {
+        connected: true,
+        emit: (name, payload) => emitted.push({ to: 'friend', name, payload }),
+      },
+    ],
+    [
+      'stranger-sock',
+      {
+        connected: true,
+        emit: (name, payload) =>
+          emitted.push({ to: 'stranger', name, payload }),
+      },
+    ],
+    [
+      'me-tab-1',
+      {
+        connected: true,
+        emit: (name, payload) => emitted.push({ to: 'me', name, payload }),
+      },
+    ],
+    [
+      'me-tab-2',
+      {
+        connected: true,
+        emit: (name, payload) => emitted.push({ to: 'me', name, payload }),
+      },
+    ],
+  ]);
+  gateway.server = { sockets };
+  gateway.connections.set('friend-sock', makeConn('friend'));
+  gateway.connections.set('stranger-sock', makeConn('stranger'));
+
+  gateway.connections.set('me-tab-1', makeConn('me'));
+  gateway.handleConnection({ id: 'me-tab-1' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(emitted, [
+    {
+      to: 'friend',
+      name: 'presence:update',
+      payload: { userId: 'me', online: true },
+    },
+  ]);
+
+  emitted.length = 0;
+  gateway.connections.set('me-tab-2', makeConn('me'));
+  gateway.handleConnection({ id: 'me-tab-2' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(emitted.length, 0);
+
+  gateway.handleDisconnect({ id: 'me-tab-1' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(emitted.length, 0);
+
+  // Rapid reconnect while touchActivity is still running must not emit stale offline.
+  pendingTouchResolve = () => {};
+  gateway.handleDisconnect({ id: 'me-tab-2' });
+  gateway.connections.set('me-tab-1', makeConn('me'));
+  pendingTouchResolve();
+  pendingTouchResolve = null;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(emitted.length, 0);
+
+  // Final disconnect pushes online: false with lastActiveAt to accepted friends only.
+  gateway.handleDisconnect({ id: 'me-tab-1' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].to, 'friend');
+  assert.equal(emitted[0].name, 'presence:update');
+  assert.equal(emitted[0].payload.userId, 'me');
+  assert.equal(emitted[0].payload.online, false);
+  assert.match(emitted[0].payload.lastActiveAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  // Accepting friendship pushes immediate friends:updated + presence:update.
+  emitted.length = 0;
+  gateway.connections.set('me-tab-1', makeConn('me'));
+  gateway.handleFriendshipChange('me', 'friend', 'accepted');
+  assert.deepEqual(emitted, [
+    {
+      to: 'me',
+      name: 'friends:updated',
+      payload: { peerId: 'friend', status: 'accepted' },
+    },
+    {
+      to: 'friend',
+      name: 'friends:updated',
+      payload: { peerId: 'me', status: 'accepted' },
+    },
+    {
+      to: 'friend',
+      name: 'presence:update',
+      payload: { userId: 'me', online: true },
+    },
+    {
+      to: 'me',
+      name: 'presence:update',
+      payload: { userId: 'friend', online: true },
+    },
+  ]);
+});

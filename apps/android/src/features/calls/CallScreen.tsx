@@ -203,7 +203,12 @@ function VideoStage({
           <Text style={s.waitingHint}>Đang chờ hình ảnh từ đối phương…</Text>
         </View>
       ) : remoteTracks.length === 1 ? (
-        <VideoTrack trackRef={remoteTracks[0]} style={s.remoteFullVideo} />
+        <VideoTrack
+          objectFit="contain"
+          trackRef={remoteTracks[0]}
+          zOrder={0}
+          style={s.remoteFullVideo}
+        />
       ) : (
         <View
           style={[
@@ -216,7 +221,12 @@ function VideoStage({
               key={`${track.participant.identity}:${track.source}`}
               style={s.groupTile}
             >
-              <VideoTrack trackRef={track} style={s.remoteFullVideo} />
+              <VideoTrack
+                objectFit="contain"
+                trackRef={track}
+                zOrder={0}
+                style={s.remoteFullVideo}
+              />
               <View style={s.tileBadge}>
                 <Text numberOfLines={1} style={s.tileBadgeText}>
                   {track.participant.name || 'Thành viên'}
@@ -234,7 +244,12 @@ function VideoStage({
           onPress={() => setCornerIdx(prev => (prev + 1) % CORNERS.length)}
           style={[s.pipTile, pipPosition]}
         >
-          <VideoTrack trackRef={localTrack} style={s.pipVideo} />
+          <VideoTrack
+            objectFit="cover"
+            trackRef={localTrack}
+            zOrder={1}
+            style={s.pipVideo}
+          />
           <View style={s.pipBadge}>
             <Text style={s.pipBadgeText}>Bạn · Đổi góc</Text>
           </View>

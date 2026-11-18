@@ -1,11 +1,12 @@
 import { ConversationsService } from '../conversations/conversations.service';
 import { writeNotification } from '../notifications/notification-writer';
-import { HttpException, Inject, Injectable } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Optional } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { Friendship } from '../database/entities/friendship.entity';
 import { MessageRequest } from '../database/entities/message-request.entity';
 import { User } from '../database/entities/user.entity';
+import { RealtimeEvents } from '../realtime/realtime-events.module';
 import { publicUserView } from '../users/user-view';
 import { pageResult } from '../../common/page.dto';
 import type { PageDto } from '../../common/page.dto';
@@ -24,6 +25,9 @@ export class FriendshipsService {
     @Inject(DataSource) private readonly db: DataSource,
     @Inject(ConversationsService)
     private readonly conversations: ConversationsService,
+    @Optional()
+    @Inject(RealtimeEvents)
+    private readonly events?: RealtimeEvents,
   ) {}
 
   private async lockUsers(manager: EntityManager, ids: string[]) {
@@ -149,7 +153,8 @@ export class FriendshipsService {
     id: string,
     action: RespondFriendRequestDto['action'],
   ) {
-    return this.db.transaction(async (manager) => {
+    let accepted = false;
+    const response = await this.db.transaction(async (manager) => {
       const repository = manager.getRepository(Friendship);
       const found = await repository.findOneBy({ id });
       if (!found || ![found.requesterId, found.recipientId].includes(actorId))
@@ -226,9 +231,18 @@ export class FriendshipsService {
           row.requesterId,
           row.recipientId,
         );
+        accepted = true;
       }
       return { request: this.view(saved) };
     });
+    if (accepted) {
+      this.events?.friendshipChanged(
+        response.request.requesterId,
+        response.request.recipientId,
+        'accepted',
+      );
+    }
+    return response;
   }
 
   async requests(actorId: string, input: FriendRequestsQueryDto) {
@@ -301,6 +315,7 @@ export class FriendshipsService {
     userId = userId.toLowerCase();
     if (actorId === userId)
       fail(400, 'SELF_FRIEND_REQUEST', 'Cannot remove yourself');
+    let removed = false;
     await this.db.transaction(async (manager) => {
       const [low, high] = [actorId, userId].sort();
       const repository = manager.getRepository(Friendship);
@@ -313,6 +328,8 @@ export class FriendshipsService {
         fail(409, 'FRIENDSHIP_STATE_CONFLICT', 'Users are not friends');
       row.status = 'removed';
       await repository.save(row);
+      removed = true;
     });
+    if (removed) this.events?.friendshipChanged(actorId, userId, 'removed');
   }
 }

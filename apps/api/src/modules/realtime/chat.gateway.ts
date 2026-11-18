@@ -2,7 +2,11 @@ import { HttpException, Inject, Logger } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
-import type { OnGatewayDisconnect, OnGatewayInit } from '@nestjs/websockets';
+import type {
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  OnGatewayInit,
+} from '@nestjs/websockets';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import type { Namespace, Socket } from 'socket.io';
@@ -47,7 +51,11 @@ function reject(status: number, code: string, message: string): never {
   maxHttpBufferSize: 64 * 1024,
 })
 export class ChatGateway
-  implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   private readonly logger = new Logger(ChatGateway.name);
   private server!: Namespace;
@@ -73,6 +81,9 @@ export class ChatGateway
     this.events.onAccessChange((userId, status) => {
       void this.revalidate();
       if (status) this.server.emit('account:visibility', { userId, status });
+    });
+    this.events.onFriendshipChange?.((userA, userB, status) => {
+      this.handleFriendshipChange(userA, userB, status);
     });
     server.use((socket, next) => {
       if (
@@ -153,24 +164,137 @@ export class ChatGateway
     socket.conn.once('close', () => this.handleDisconnect(socket));
   }
 
-  handleDisconnect(socket: Socket) {
-    const connection = this.connections.get(socket.id);
-    this.connections.delete(socket.id);
-    if (
-      connection &&
-      ![...this.connections.values()].some(
-        (item) => item.userId === connection.userId,
+  private isUserOnline(userId: string) {
+    const now = Date.now();
+    for (const [id, item] of this.connections) {
+      if (
+        item.userId === userId &&
+        item.expiresAt > now &&
+        this.server?.sockets?.get(id)?.connected
       )
-    )
-      void this.touchActivity(connection.userId).catch(() =>
-        this.logger.error({ code: 'PRESENCE_SAVE_FAILED' }),
-      );
+        return true;
+    }
+    return false;
   }
 
-  private async touchActivity(userId: string) {
+  private emitToUser(userId: string, event: string, payload: unknown) {
+    if (this.closing || !this.server?.sockets) return;
+    const now = Date.now();
+    for (const [id, conn] of this.connections) {
+      if (conn.userId !== userId || conn.expiresAt <= now) continue;
+      const target = this.server.sockets.get(id);
+      if (target?.connected && typeof target.emit === 'function')
+        target.emit(event, payload);
+    }
+  }
+
+  private handleFriendshipChange(
+    userA: string,
+    userB: string,
+    status: 'accepted' | 'removed',
+  ) {
+    this.emitToUser(userA, 'friends:updated', { peerId: userB, status });
+    this.emitToUser(userB, 'friends:updated', { peerId: userA, status });
+    if (status === 'accepted') {
+      if (this.isUserOnline(userA))
+        this.emitToUser(userB, 'presence:update', {
+          userId: userA,
+          online: true,
+        });
+      if (this.isUserOnline(userB))
+        this.emitToUser(userA, 'presence:update', {
+          userId: userB,
+          online: true,
+        });
+    }
+  }
+
+  private async broadcastPresence(
+    userId: string,
+    online: boolean,
+    lastActiveAt: string | null = null,
+  ) {
+    if (this.closing || !this.server?.sockets) return;
+    const now = Date.now();
+    const peerSockets = new Map<string, string[]>();
+    for (const [id, conn] of this.connections) {
+      if (
+        conn.userId === userId ||
+        conn.expiresAt <= now ||
+        !this.server.sockets.get(id)?.connected
+      )
+        continue;
+      const list = peerSockets.get(conn.userId) ?? [];
+      list.push(id);
+      peerSockets.set(conn.userId, list);
+    }
+    if (!peerSockets.size) return;
+    const rows: { friend_id: string }[] | undefined = await this.db.query(
+      `SELECT recipient_id AS friend_id
+       FROM friendships
+       WHERE requester_id = $1 AND status = 'accepted' AND recipient_id = ANY($2::uuid[])
+       UNION ALL
+       SELECT requester_id AS friend_id
+       FROM friendships
+       WHERE recipient_id = $1 AND status = 'accepted' AND requester_id = ANY($2::uuid[])`,
+      [userId, [...peerSockets.keys()]],
+    );
+    if (this.closing || this.isUserOnline(userId) !== online) return;
+    const payload =
+      lastActiveAt !== null
+        ? { userId, online, lastActiveAt }
+        : { userId, online };
+    for (const row of rows ?? []) {
+      const socketIds = peerSockets.get(row.friend_id);
+      if (!socketIds) continue;
+      for (const socketId of socketIds) {
+        const target = this.server.sockets.get(socketId);
+        if (target?.connected && typeof target.emit === 'function')
+          target.emit('presence:update', payload);
+      }
+    }
+  }
+
+  handleConnection(socket: Socket) {
+    const connection = this.connections.get(socket.id);
+    if (!connection) return;
+    const now = Date.now();
+    const alreadyOnlineElsewhere = [...this.connections.entries()].some(
+      ([id, item]) =>
+        id !== socket.id &&
+        item.userId === connection.userId &&
+        item.expiresAt > now &&
+        this.server?.sockets?.get(id)?.connected,
+    );
+    if (!alreadyOnlineElsewhere) {
+      void this.broadcastPresence(connection.userId, true).catch(() =>
+        this.logger.error({ code: 'PRESENCE_BROADCAST_FAILED' }),
+      );
+    }
+  }
+
+  handleDisconnect(socket: Socket) {
+    const connection = this.connections.get(socket.id);
+    if (!connection) return;
+    this.connections.delete(socket.id);
+    if (!this.isUserOnline(connection.userId)) {
+      const activeAt = new Date();
+      void this.touchActivity(connection.userId, activeAt)
+        .then(() =>
+          this.broadcastPresence(
+            connection.userId,
+            false,
+            activeAt.toISOString(),
+          ),
+        )
+        .catch(() => this.logger.error({ code: 'PRESENCE_SAVE_FAILED' }));
+    }
+  }
+
+  private async touchActivity(userId: string, at = new Date()) {
     await this.db.query(
       'UPDATE users SET last_active_at = GREATEST(last_active_at, $2::timestamptz) WHERE id = $1',
-      [userId, new Date()],
+      [userId, at],
     );
   }
 
