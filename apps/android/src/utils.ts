@@ -31,6 +31,12 @@ export function mergeMessages(current: api.Message[], incoming: api.Message[]) {
     const version = (item: api.Message) =>
       Date.parse(item.deletedAt ?? item.editedAt ?? item.createdAt);
     if (existing && version(existing) > version(message)) continue;
+    if (
+      existing?.content?.summaryAvailable &&
+      !message.content?.summaryAvailable &&
+      !message.deletedAt
+    )
+      continue;
     byId.set(message.id, message);
   }
   return [...byId.values()].sort((left, right) =>

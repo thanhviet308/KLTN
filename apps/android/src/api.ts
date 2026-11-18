@@ -67,6 +67,7 @@ export interface Message {
     callType?: 'audio' | 'video';
     callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
     durationSeconds?: number;
+    summaryAvailable?: boolean;
     replyTo?: {
       messageId: string;
       senderId: string;
@@ -441,6 +442,13 @@ export async function transcribeVoiceMessage(
   );
 }
 
+export function summarizeCall(callId: string) {
+  return authenticated<{
+    callId: string;
+    result: { summary: string; decisions: string[]; tasks: string[] };
+  }>(`/calls/${callId}/summary`, {}, 'POST');
+}
+
 export function user() {
   return currentUser;
 }
@@ -479,6 +487,8 @@ export function errorMessage(error: unknown) {
     AI_INCOMPLETE:
       'AI chưa hoàn tất kết quả. Hãy chọn ít nội dung hơn và thử lại.',
     AI_REFUSED: 'AI không thể xử lý nội dung này. Hãy thử chọn nội dung khác.',
+    CALL_SUMMARY_NOT_READY:
+      'Bản ghi âm cuộc gọi chưa sẵn sàng hoặc cuộc gọi này không hỗ trợ tóm tắt AI.',
   };
   if (messages[error.code]) return messages[error.code];
   if (error.status === 401)

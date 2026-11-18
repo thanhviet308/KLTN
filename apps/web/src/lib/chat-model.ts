@@ -30,6 +30,7 @@ export interface Message {
     callType?: 'audio' | 'video';
     callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
     durationSeconds?: number;
+    summaryAvailable?: boolean;
     replyTo?: {
       messageId: string;
       senderId: string;
@@ -75,6 +76,12 @@ export function mergeMessages(previous: Message[], incoming: Message[]) {
     const version = (item: Message) =>
       Date.parse(item.deletedAt ?? item.editedAt ?? item.createdAt);
     if (existing && version(existing) > version(message)) continue;
+    if (
+      existing?.content?.summaryAvailable &&
+      !message.content?.summaryAvailable &&
+      !message.deletedAt
+    )
+      continue;
     entries.set(message.id, message);
   }
   return [...entries.values()].sort((a, b) =>

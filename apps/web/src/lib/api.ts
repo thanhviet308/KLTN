@@ -309,9 +309,9 @@ export async function uploadChatFile<T>(
   ).json() as Promise<T>;
 }
 
-export async function uploadCallSummary(callId: string, audio: Blob) {
+export async function uploadCallRecording(callId: string, audio: Blob) {
   const attempt = (bearer: string) =>
-    fetch(`${API_ORIGIN}/api/v1/calls/${callId}/summary`, {
+    fetch(`${API_ORIGIN}/api/v1/calls/${callId}/recording`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -578,7 +578,7 @@ export function errorMessage(error: unknown) {
       CALL_ALREADY_OPEN:
         'Hội thoại đang có một cuộc gọi khác. Hãy tiếp tục hoặc kết thúc cuộc gọi đó.',
       CALL_SUMMARY_NOT_READY:
-        'Cuộc gọi chưa kết thúc hoặc không bật tính năng tóm tắt AI.',
+        'Bản ghi âm cuộc gọi chưa sẵn sàng hoặc cuộc gọi này không hỗ trợ tóm tắt AI.',
       GAME_DIRECT_ONLY:
         'Trò chơi hiện chỉ hỗ trợ trong cuộc trò chuyện riêng giữa hai người.',
       GAME_ALREADY_OPEN: 'Cuộc trò chuyện đang có một ván đấu chưa kết thúc.',

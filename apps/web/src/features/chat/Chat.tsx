@@ -6,6 +6,7 @@ import { acquireChatSocket } from '../../lib/realtime';
 import { UiIcon } from '../../components/UiIcon';
 import { MediaTools, type MediaDraft } from './ChatMedia';
 import { MessageBubble, type Translation } from './MessageBubble';
+import type { CallSummaryState } from './CallSummaryNote';
 import { EmojiPicker } from './EmojiPicker';
 import { PendingMessage } from './PendingMessage';
 import { ReceiptPanel } from './ReceiptPanel';
@@ -155,15 +156,76 @@ export function Chat({
   const [voiceTranscripts, setVoiceTranscripts] = useState<
     Record<string, VoiceTranscriptState>
   >({});
+  const [callSummaries, setCallSummaries] = useState<
+    Record<string, CallSummaryState>
+  >({});
   const voiceConversation = useRef(conversationId);
   voiceConversation.current = conversationId;
   const voicePending = useRef(new Set<string>());
+  const callSummaryPending = useRef(new Set<string>());
   useEffect(() => {
     setAi(undefined);
     setTranslations({});
     setVoiceTranscripts({});
+    setCallSummaries({});
     voicePending.current.clear();
+    callSummaryPending.current.clear();
   }, [conversationId]);
+  async function summarizeCallMessage(target: Message) {
+    const callId = target.content?.callId;
+    if (
+      target.type !== 'call' ||
+      target.deletedAt ||
+      !callId ||
+      !target.content?.summaryAvailable
+    )
+      return;
+    if (callSummaryPending.current.has(target.id)) return;
+    callSummaryPending.current.add(target.id);
+    const activeConversation = conversationId;
+    setCallSummaries((previous) => ({
+      ...previous,
+      [target.id]: {
+        ...previous[target.id],
+        loading: true,
+        error: undefined,
+      },
+    }));
+    try {
+      const response = await api.authenticated<{
+        callId: string;
+        result: { summary: string; decisions: string[]; tasks: string[] };
+      }>(`/calls/${callId}/summary`, {}, 'POST');
+      if (!alive.current || voiceConversation.current !== activeConversation)
+        return;
+      setCallSummaries((previous) => ({
+        ...previous,
+        [target.id]: {
+          loading: false,
+          summary: response.result.summary,
+          decisions: response.result.decisions,
+          tasks: response.result.tasks,
+        },
+      }));
+    } catch (e) {
+      if (!alive.current || voiceConversation.current !== activeConversation)
+        return;
+      if (e instanceof api.ApiError && e.status === 401) {
+        onExpired();
+        return;
+      }
+      setCallSummaries((previous) => ({
+        ...previous,
+        [target.id]: {
+          ...previous[target.id],
+          loading: false,
+          error: api.errorMessage(e),
+        },
+      }));
+    } finally {
+      callSummaryPending.current.delete(target.id);
+    }
+  }
   async function transcribeVoice(
     target: Message,
     options?: VoiceTranscribeOptions,
@@ -601,6 +663,7 @@ export function Chat({
       setReplyTo(undefined);
       setTranslations({});
       setVoiceTranscripts({});
+      setCallSummaries({});
       setReceipts({});
       unreadCount.current = 0;
       clearConversationHistoryCache(draftKey);
@@ -1225,6 +1288,15 @@ export function Chat({
                   setBody(reply);
                   composer.current?.focus();
                 }}
+                callSummary={callSummaries[message.id]}
+                onSummarizeCall={() => void summarizeCallMessage(message)}
+                onHideCallSummary={() =>
+                  setCallSummaries((previous) => {
+                    const rest = { ...previous };
+                    delete rest[message.id];
+                    return rest;
+                  })
+                }
                 onOpenReceipts={() => void viewReceipts(message.id)}
                 currentGame={currentGame}
                 onOpenGame={() => setGameOpen(true)}

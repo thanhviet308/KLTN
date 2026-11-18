@@ -70,6 +70,7 @@ export class Message {
     callType?: 'audio' | 'video';
     callStatus?: 'ended' | 'rejected' | 'missed' | 'cancelled';
     durationSeconds?: number;
+    summaryAvailable?: boolean;
     replyTo?: {
       messageId: string;
       senderId: string;

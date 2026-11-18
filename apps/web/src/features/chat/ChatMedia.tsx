@@ -890,11 +890,17 @@ export function MessageMedia({
   transcribing = false,
   transcribed = false,
   onTranscribe,
+  callSummarizing = false,
+  callSummarized = false,
+  onSummarizeCall,
 }: {
   message: Message;
   transcribing?: boolean;
   transcribed?: boolean;
   onTranscribe?: () => void;
+  callSummarizing?: boolean;
+  callSummarized?: boolean;
+  onSummarizeCall?: () => void;
 }) {
   if (message.type === 'call') {
     const seconds = Math.max(0, message.content?.durationSeconds ?? 0);
@@ -925,21 +931,39 @@ export function MessageMedia({
           : status === 'cancelled'
             ? `Cuộc gọi ${type} đã hủy`
             : `Cuộc gọi ${type}`;
+    const showSummaryButton =
+      status === 'ended' &&
+      !!message.content?.summaryAvailable &&
+      !!onSummarizeCall &&
+      !callSummarized;
     return (
-      <span className={`call-message${status === 'missed' ? ' missed' : ''}`}>
-        <UiIcon
-          name={message.content?.callType === 'video' ? 'video' : 'phone'}
-        />
-        <span>
-          <strong>{label}</strong>
-          {status === 'ended' && <small>{duration}</small>}
-          {status === 'missed' && (
-            <time className="call-message-time" dateTime={message.createdAt}>
-              {occurredAt}
-            </time>
-          )}
+      <div className="call-message-wrap">
+        <span className={`call-message${status === 'missed' ? ' missed' : ''}`}>
+          <UiIcon
+            name={message.content?.callType === 'video' ? 'video' : 'phone'}
+          />
+          <span>
+            <strong>{label}</strong>
+            {status === 'ended' && <small>{duration}</small>}
+            {status === 'missed' && (
+              <time className="call-message-time" dateTime={message.createdAt}>
+                {occurredAt}
+              </time>
+            )}
+          </span>
         </span>
-      </span>
+        {showSummaryButton && (
+          <button
+            type="button"
+            className="call-summary-trigger"
+            disabled={callSummarizing}
+            onClick={onSummarizeCall}
+          >
+            <Sparkles size={12} aria-hidden="true" />
+            <span>{callSummarizing ? 'Đang tóm tắt…' : 'Tóm tắt AI'}</span>
+          </button>
+        )}
+      </div>
     );
   }
   const [url, setUrl] = useState(() =>

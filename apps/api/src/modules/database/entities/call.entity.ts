@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import type { Relation } from 'typeorm';
 import { ConversationMember } from './conversation-member.entity';
+import { messageTextTransformer } from '../message-encryption';
 
 @Entity('calls')
 @Unique('calls_client_request', ['initiatorId', 'clientRequestId'])
@@ -45,6 +46,25 @@ export class Call {
 
   @Column({ name: 'summary_recorder_id', type: 'uuid', nullable: true })
   summaryRecorderId!: string | null;
+
+  @Column({ name: 'summary_audio_key', type: 'uuid', nullable: true })
+  summaryAudioKey!: string | null;
+
+  @Column({
+    name: 'summary_audio_mime',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  summaryAudioMime!: string | null;
+
+  @Column({
+    name: 'summary_payload',
+    type: 'text',
+    nullable: true,
+    transformer: messageTextTransformer,
+  })
+  summaryPayload!: string | null;
 
   @Column({ name: 'client_request_id', type: 'uuid' }) clientRequestId!: string;
   @PrimaryGeneratedColumn('uuid') id!: string;

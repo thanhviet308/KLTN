@@ -45,6 +45,7 @@ import {
   VoiceTranscriptCard,
   type VoiceTranscriptEntry,
 } from './VoiceTranscriptCard';
+import { CallSummaryCard, type CallSummaryEntry } from './CallSummaryCard';
 import { useCalls } from '../calls/CallProvider';
 
 async function requestMicrophonePermission() {
@@ -140,6 +141,9 @@ export function Chat({
   const [voiceTranscripts, setVoiceTranscripts] = useState<
     Record<string, VoiceTranscriptEntry>
   >({});
+  const [callSummaries, setCallSummaries] = useState<
+    Record<string, CallSummaryEntry>
+  >({});
   const [typing, setTyping] = useState<Record<string, number>>({});
   const [members, setMembers] = useState<
     { id: string; user: Peer; role: 'owner' | 'admin' | 'member' }[]
@@ -170,6 +174,7 @@ export function Chat({
   const voiceConversationRef = useRef(conversation.id);
   voiceConversationRef.current = conversation.id;
   const voicePendingRef = useRef(new Set<string>());
+  const callSummaryPendingRef = useRef(new Set<string>());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -180,7 +185,9 @@ export function Chat({
 
   useEffect(() => {
     setVoiceTranscripts({});
+    setCallSummaries({});
     voicePendingRef.current.clear();
+    callSummaryPendingRef.current.clear();
   }, [conversation.id]);
 
   const accept = useCallback((incoming: api.Message[]) => {
@@ -213,6 +220,7 @@ export function Chat({
     setActionTarget(undefined);
     setSearchedHits([]);
     setVoiceTranscripts({});
+    setCallSummaries({});
     setReactions({});
   }, []);
   const fail = useCallback(
@@ -923,6 +931,65 @@ export function Chat({
     }
   }
 
+  async function summarizeCallMessage(target: api.Message) {
+    const callId = target.content?.callId;
+    if (
+      target.type !== 'call' ||
+      target.deletedAt ||
+      !callId ||
+      !target.content?.summaryAvailable
+    )
+      return;
+    if (callSummaryPendingRef.current.has(target.id)) return;
+    callSummaryPendingRef.current.add(target.id);
+    const activeConversation = conversation.id;
+    setCallSummaries(previous => ({
+      ...previous,
+      [target.id]: {
+        ...previous[target.id],
+        loading: true,
+        error: undefined,
+      },
+    }));
+    try {
+      const response = await api.summarizeCall(callId);
+      if (
+        !mountedRef.current ||
+        voiceConversationRef.current !== activeConversation
+      )
+        return;
+      setCallSummaries(previous => ({
+        ...previous,
+        [target.id]: {
+          loading: false,
+          summary: response.result.summary,
+          decisions: response.result.decisions,
+          tasks: response.result.tasks,
+        },
+      }));
+    } catch (e) {
+      if (
+        !mountedRef.current ||
+        voiceConversationRef.current !== activeConversation
+      )
+        return;
+      if (e instanceof api.ApiError && e.status === 401) {
+        onExpired();
+        return;
+      }
+      setCallSummaries(previous => ({
+        ...previous,
+        [target.id]: {
+          ...previous[target.id],
+          loading: false,
+          error: api.errorMessage(e),
+        },
+      }));
+    } finally {
+      callSummaryPendingRef.current.delete(target.id);
+    }
+  }
+
   async function transcribeVoice(
     target: api.Message,
     options?: api.AiTranscribeOptions,
@@ -1306,9 +1373,18 @@ export function Chat({
                             ? () => void transcribeVoice(item)
                             : undefined
                         }
+                        onSummarizeCall={
+                          item.type === 'call'
+                            ? () => void summarizeCallMessage(item)
+                            : undefined
+                        }
                         playing={playingMessage === item.id}
                         transcribed={!!voiceTranscripts[item.id]?.transcript}
                         transcribing={!!voiceTranscripts[item.id]?.loading}
+                        callSummarized={
+                          callSummaries[item.id]?.summary !== undefined
+                        }
+                        callSummarizing={!!callSummaries[item.id]?.loading}
                       />
                       {(item.type === 'text' || !!item.deletedAt) && (
                         <Text
@@ -1369,6 +1445,22 @@ export function Chat({
                           focusComposer();
                         }}
                         state={voiceTranscripts[item.id]}
+                      />
+                    )}
+                  {!item.deletedAt &&
+                    item.type === 'call' &&
+                    !!callSummaries[item.id] && (
+                      <CallSummaryCard
+                        mine={mine}
+                        onHide={() =>
+                          setCallSummaries(previous => {
+                            const rest = { ...previous };
+                            delete rest[item.id];
+                            return rest;
+                          })
+                        }
+                        onRetry={() => void summarizeCallMessage(item)}
+                        state={callSummaries[item.id]}
                       />
                     )}
                   {!!reactions[item.id]?.length && (

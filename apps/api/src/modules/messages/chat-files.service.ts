@@ -41,6 +41,21 @@ export class ChatFilesService {
     return id;
   }
 
+  async saveBuffer(bytes: Buffer) {
+    const id = randomUUID();
+    const path = this.path(id);
+    const temporary = `${path}.tmp`;
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    try {
+      await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
+      await rename(temporary, path);
+      return id;
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async receive(request: Request, input: UploadMessageDto) {
     if (request.headers['content-type'] !== 'application/octet-stream')
       invalid('INVALID_CONTENT_TYPE', 415);

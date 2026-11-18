@@ -212,26 +212,18 @@ export function CallExperience({
     audio: Blob;
   }>();
 
-  const submitSummary = useCallback(async (callId: string, audio: Blob) => {
+  const submitRecording = useCallback(async (callId: string, audio: Blob) => {
     setSummaryRetry(undefined);
-    if (!audio.size) {
-      setSummaryStatus(
-        'Cuộc gọi quá ngắn nên chưa thu được âm thanh để tóm tắt.',
-      );
-      return;
-    }
-    setSummaryStatus(
-      'Đang tạo bản tóm tắt cuộc gọi… Bạn có thể tiếp tục nhắn tin.',
-    );
+    if (!audio.size) return;
     try {
-      await api.uploadCallSummary(callId, audio);
-      setSummaryStatus('Đã lưu bản tóm tắt cuộc gọi vào đoạn chat.');
+      await api.uploadCallRecording(callId, audio);
+      setSummaryStatus('');
     } catch (failure) {
       const nonRetryable =
         failure instanceof api.ApiError &&
         [400, 403, 404, 409, 413, 415].includes(failure.status);
       setSummaryStatus(
-        `Chưa tạo được bản tóm tắt. ${failure instanceof api.ApiError ? api.errorMessage(failure) : 'Kiểm tra kết nối và thử lại.'}`,
+        `Chưa lưu được ghi âm để tóm tắt cuộc gọi. ${failure instanceof api.ApiError ? api.errorMessage(failure) : 'Kiểm tra kết nối và thử lại.'}`,
       );
       if (!nonRetryable) {
         setSummaryRetry({ callId, audio });
@@ -303,7 +295,7 @@ export function CallExperience({
       recordings.current.delete(call.id);
       if (call.status !== 'ended') return;
       try {
-        await submitSummary(call.id, await audio);
+        await submitRecording(call.id, await audio);
       } catch (failure) {
         setError(
           failure instanceof Error
@@ -312,7 +304,7 @@ export function CallExperience({
         );
       }
     });
-  }, [call, closeMedia, submitSummary]);
+  }, [call, closeMedia, submitRecording]);
 
   useEffect(
     () => () => {
@@ -753,10 +745,10 @@ export function CallExperience({
           <button
             type="button"
             onClick={() =>
-              void submitSummary(summaryRetry.callId, summaryRetry.audio)
+              void submitRecording(summaryRetry.callId, summaryRetry.audio)
             }
           >
-            Thử lại tóm tắt
+            Thử lại lưu ghi âm
           </button>
         )}
         <button
@@ -809,7 +801,7 @@ export function CallExperience({
                 {room && <span className="call-live-dot" aria-hidden="true" />}
                 {statusSubtitle}
                 {(call.summaryEnabled || (incoming && canFallbackSummarize)) &&
-                  ' · Thu âm để AI tóm tắt sau cuộc gọi'}
+                  ' · Có thể dùng AI tóm tắt sau cuộc gọi'}
               </small>
             </div>
           </div>

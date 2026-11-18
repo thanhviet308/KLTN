@@ -29,14 +29,20 @@ export class CallsController {
     @Inject(CallSummaryService) private readonly summaries: CallSummaryService,
   ) {}
 
-  @Post('calls/:id/summary')
+  @Post('calls/:id/recording')
   @HttpCode(200)
-  summarize(
+  uploadRecording(
     @CurrentUser() user: User,
     @Param('id', uuid()) id: string,
     @Req() request: Request,
   ) {
-    return this.summaries.summarize(user.id, id.toLowerCase(), request);
+    return this.summaries.uploadRecording(user.id, id.toLowerCase(), request);
+  }
+
+  @Post('calls/:id/summary')
+  @HttpCode(200)
+  summarize(@CurrentUser() user: User, @Param('id', uuid()) id: string) {
+    return this.summaries.summarize(user.id, id.toLowerCase());
   }
 
   @Post('conversations/:conversationId/calls')

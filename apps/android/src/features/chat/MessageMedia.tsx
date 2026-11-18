@@ -22,10 +22,13 @@ export function MessageMedia({
   mine,
   transcribing = false,
   transcribed = false,
+  callSummarizing = false,
+  callSummarized = false,
   onLoad,
   onOpen,
   onPlay,
   onTranscribe,
+  onSummarizeCall,
 }: {
   message: api.Message;
   localPath?: string;
@@ -34,10 +37,13 @@ export function MessageMedia({
   mine: boolean;
   transcribing?: boolean;
   transcribed?: boolean;
+  callSummarizing?: boolean;
+  callSummarized?: boolean;
   onLoad: () => void;
   onOpen: () => void;
   onPlay: () => void;
   onTranscribe?: () => void;
+  onSummarizeCall?: () => void;
 }) {
   const attempted = useRef(false);
   useEffect(() => {
@@ -65,19 +71,49 @@ export function MessageMedia({
           : status === 'cancelled'
             ? 'Cuộc gọi đã hủy'
             : 'Cuộc gọi đã kết thúc';
+    const canSummarize =
+      status === 'ended' &&
+      !!message.content?.summaryAvailable &&
+      !!onSummarizeCall &&
+      !callSummarized;
     return (
-      <View style={[styles.mediaCard, mine && styles.mediaCardMine]}>
-        <View style={styles.mediaCardText}>
-          <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
-            {label}
-          </Text>
-          <Text style={[styles.mediaCaption, mine && styles.mediaCaptionMine]}>
-            {message.content?.callType === 'video' ? 'Video' : 'Thoại'}
-            {seconds > 0
-              ? ` · ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`
-              : ''}
-          </Text>
+      <View style={styles.voiceMediaWrap}>
+        <View style={[styles.mediaCard, mine && styles.mediaCardMine]}>
+          <View style={styles.mediaCardText}>
+            <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
+              {label}
+            </Text>
+            <Text
+              style={[styles.mediaCaption, mine && styles.mediaCaptionMine]}
+            >
+              {message.content?.callType === 'video' ? 'Video' : 'Thoại'}
+              {seconds > 0
+                ? ` · ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`
+                : ''}
+            </Text>
+          </View>
         </View>
+        {canSummarize && (
+          <Pressable
+            accessibilityRole="button"
+            disabled={callSummarizing}
+            onPress={onSummarizeCall}
+            style={({ pressed }) => [
+              styles.voiceTranscribePill,
+              mine && styles.voiceTranscribePillMine,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.voiceTranscribePillText,
+                mine && styles.voiceTranscribePillTextMine,
+              ]}
+            >
+              {callSummarizing ? 'Đang tóm tắt…' : '✨ Tóm tắt AI'}
+            </Text>
+          </Pressable>
+        )}
       </View>
     );
   }

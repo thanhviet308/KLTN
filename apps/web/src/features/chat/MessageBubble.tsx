@@ -43,6 +43,7 @@ import { MessageReactions, useMessageReactions } from './MessageReactions';
 import { SentStatus } from './SentStatus';
 import { TranslationNote } from './TranslationNote';
 import { VoiceTranscriptNote } from './VoiceTranscriptNote';
+import { CallSummaryNote, type CallSummaryState } from './CallSummaryNote';
 import { SpamWarning } from './SpamWarning';
 import { ReportButton } from '../reports/ReportDialog';
 import {
@@ -112,6 +113,9 @@ interface MessageBubbleProps {
   onTranscribeVoice?: (options?: VoiceTranscribeOptions) => void;
   onHideVoiceTranscript?: () => void;
   onUseVoiceReply?: (reply: string) => void;
+  callSummary?: CallSummaryState;
+  onSummarizeCall?: () => void;
+  onHideCallSummary?: () => void;
   onOpenReceipts: () => void;
 }
 
@@ -147,6 +151,9 @@ export function MessageBubble({
   onTranscribeVoice,
   onHideVoiceTranscript,
   onUseVoiceReply,
+  callSummary,
+  onSummarizeCall,
+  onHideCallSummary,
   onOpenReceipts,
 }: MessageBubbleProps) {
   const isCall = message.type === 'call';
@@ -505,6 +512,13 @@ export function MessageBubble({
                     ? () => onTranscribeVoice()
                     : undefined
                 }
+                callSummarizing={callSummary?.loading}
+                callSummarized={callSummary?.summary !== undefined}
+                onSummarizeCall={
+                  message.type === 'call' && onSummarizeCall
+                    ? () => onSummarizeCall()
+                    : undefined
+                }
               />
             ) : gameInvite ? (
               <div className={`game-chat-invite-card${mine ? ' is-mine' : ''}`}>
@@ -605,6 +619,17 @@ export function MessageBubble({
             onSuggestReplies={() => onTranscribeVoice({ includeReplies: true })}
             onUseReply={onUseVoiceReply}
             onHide={onHideVoiceTranscript}
+          />
+        )}
+      {!message.deletedAt &&
+        message.type === 'call' &&
+        callSummary &&
+        onSummarizeCall &&
+        onHideCallSummary && (
+          <CallSummaryNote
+            state={callSummary}
+            onRetry={onSummarizeCall}
+            onHide={onHideCallSummary}
           />
         )}
       {!isCall && showStatus && !message.deletedAt && (

@@ -1,34 +1,25 @@
-# Post-call summaries
+# On-demand post-call summaries
 
 Run database migrations before starting the updated API (`npm run db:migrate`).
 Configure the existing `GEMINI_API_KEY` and `GEMINI_MODEL` variables.
 
-Web initiators with MediaRecorder and Web Audio support enable summaries automatically
-when AI is configured. Participants see a recording notice on web and Android.
-After an answered call ends, the initiating web tab uploads the mixed audio and
-the API posts a Vietnamese summary, decisions and tasks to the conversation.
-The summary uses the normal encrypted message storage and realtime delivery path.
-Audio remains in browser memory until uploaded and is not saved as an attachment.
+When a call includes at least one Web participant with `MediaRecorder` and Web Audio
+support (either as initiator or as the answering Web participant for an Android-initiated
+call) and AI is configured, the designated Web tab captures mixed call audio and uploads
+it silently to `POST /api/v1/calls/:id/recording` once an answered call ends.
 
-Limits: 30 minutes / 8 MB; keep the recording web tab open through processing.
-Native Android does not capture mixed WebRTC audio locally: when Android initiates
-a call and a Web participant answers, the answering Web tab automatically claims
-recording and generates the post-call summary for everyone in the chat. Calls
-where all participants use native Android only are not recorded locally. Mixed
-audio does not identify participants by name. Unexpected disconnection and
-recording limits reject the recording rather than silently summarizing incomplete
-content. Provider or upload failures can be retried while the recording tab
-remains open.
+Ending a call **never** automatically runs Gemini or posts messages into the shared
+conversation. Instead, the call history card in chat (`Cuộc gọi thoại` / `Cuộc gọi video`)
+displays an on-demand **`✨ Tóm tắt AI`** button for authorized conversation members on
+both Web and Android. Clicking **`✨ Tóm tắt AI`** calls `POST /api/v1/calls/:id/summary`,
+generates (or loads from encrypted cache) the Vietnamese summary, decisions, and tasks,
+and renders the card privately right beneath the call bubble only for the user who
+clicked it (with a Hide button, just like voice message transcription).
 
-Manual verification with two accounts:
-
-1. Start an audio call on web and accept on another web tab or Android.
-2. Verify the recording notice is visible before accepting and during the call.
-3. Speak a decision and a task from both accounts; end from either side.
-4. Verify exactly one AI summary arrives in chat for both participants.
-5. Repeat with video, muted/unmuted microphone and a participant joining late.
-6. Reject a ringing call: no recording or summary should be produced.
-7. Interrupt the upload or disable Gemini, then use the retry button.
-8. Reload chat and verify the saved summary remains available.
+Limits: 30 minutes / 8 MB; keep the recording web tab open briefly after hangup so the
+recording finishes saving. Calls where all participants use native Android only are not
+recorded locally. Mixed audio does not identify participants by name. Unexpected
+disconnection and recording limits discard the recording rather than summarizing
+incomplete content.
 
 Automated checks: build API, then run `node --test apps/api/tests/call-summary.test.cjs apps/web/tests/call-recorder.test.mjs`.

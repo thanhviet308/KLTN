@@ -367,7 +367,7 @@ export function CallScreen({
             {call?.summaryEnabled && (
               <View style={[s.errorBanner, { bottom: insets.bottom + 180 }]}>
                 <Text accessibilityLiveRegion="polite" style={s.errorText}>
-                  Cuộc gọi được thu âm để AI tóm tắt sau khi kết thúc.
+                  Có thể dùng AI tóm tắt theo yêu cầu sau cuộc gọi.
                 </Text>
               </View>
             )}
@@ -433,7 +433,7 @@ export function CallScreen({
               </Text>
               {call?.summaryEnabled && (
                 <Text style={s.stageStatus}>
-                  Cuộc gọi sẽ được thu âm để AI tóm tắt.
+                  Có thể dùng AI tóm tắt theo yêu cầu sau cuộc gọi.
                 </Text>
               )}
               {busy && (
