@@ -43,6 +43,9 @@ export class Call {
   @Column({ name: 'summary_enabled', type: 'boolean', default: false })
   summaryEnabled!: boolean;
 
+  @Column({ name: 'summary_recorder_id', type: 'uuid', nullable: true })
+  summaryRecorderId!: string | null;
+
   @Column({ name: 'client_request_id', type: 'uuid' }) clientRequestId!: string;
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;

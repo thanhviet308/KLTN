@@ -10,12 +10,15 @@ the API posts a Vietnamese summary, decisions and tasks to the conversation.
 The summary uses the normal encrypted message storage and realtime delivery path.
 Audio remains in browser memory until uploaded and is not saved as an attachment.
 
-Limits: 30 minutes / 8 MB; keep the initiating web tab open through processing.
-Native Android initiation does not yet capture audio. It can participate in a call
-initiated on web and receive the resulting summary. Mixed audio does not identify
-participants by name. Unexpected disconnection and recording limits reject the
-recording rather than silently summarizing incomplete content. Provider or upload
-failures can be retried while the initiating tab remains open.
+Limits: 30 minutes / 8 MB; keep the recording web tab open through processing.
+Native Android does not capture mixed WebRTC audio locally: when Android initiates
+a call and a Web participant answers, the answering Web tab automatically claims
+recording and generates the post-call summary for everyone in the chat. Calls
+where all participants use native Android only are not recorded locally. Mixed
+audio does not identify participants by name. Unexpected disconnection and
+recording limits reject the recording rather than silently summarizing incomplete
+content. Provider or upload failures can be retried while the recording tab
+remains open.
 
 Manual verification with two accounts:
 

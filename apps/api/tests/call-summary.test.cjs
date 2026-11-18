@@ -192,3 +192,23 @@ test('repeated provider failures are limited to twenty paid attempts per hour', 
   );
   assert.equal(attempts, 20);
 });
+
+test('designated fallback web recorder may upload summary when Android initiated the call', async () => {
+  const f = fixture({
+    initiatorId: 'android-caller',
+    summaryRecorderId: 'web-callee',
+    summaryEnabled: true,
+  });
+  const unauthorized = request();
+  await assert.rejects(
+    f.service.summarize('android-caller', 'call', unauthorized),
+    (e) => e.getStatus() === 404,
+  );
+  assert.equal(unauthorized.readableDidRead, false);
+  unauthorized.destroy();
+
+  const authorized = await f.service.summarize('web-callee', 'call', request());
+  assert.equal(authorized.messageId, 'summary-message');
+  assert.equal(f.generated.length, 1);
+  assert.equal(f.sent[0][0], 'web-callee');
+});

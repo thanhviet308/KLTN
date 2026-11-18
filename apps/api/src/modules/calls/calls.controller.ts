@@ -18,7 +18,7 @@ import { CurrentUser } from '../auth/auth.decorators';
 import type { User } from '../database/entities/user.entity';
 import { CallsService } from './calls.service';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
-import { CreateCallDto } from './calls.dto';
+import { AcceptCallDto, CreateCallDto } from './calls.dto';
 
 const uuid = () => new ParseUUIDPipe({ version: '4' });
 
@@ -61,8 +61,12 @@ export class CallsController {
 
   @Post('calls/:id/accept')
   @HttpCode(200)
-  accept(@CurrentUser() user: User, @Param('id', uuid()) id: string) {
-    return this.calls.accept(user.id, id.toLowerCase());
+  accept(
+    @CurrentUser() user: User,
+    @Param('id', uuid()) id: string,
+    @Body() input: AcceptCallDto,
+  ) {
+    return this.calls.accept(user.id, id.toLowerCase(), input);
   }
 
   @Post('calls/:id/reject')

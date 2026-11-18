@@ -22,6 +22,7 @@ type CallStatus =
 
 interface Call {
   summaryEnabled?: boolean;
+  summaryRecorderId?: string | null;
   id: string;
   conversationId: string;
   initiatorId: string;
@@ -111,6 +112,12 @@ const terminal = new Set<CallStatus>([
   'missed',
   'cancelled',
 ]);
+
+function canBrowserRecordCalls() {
+  return (
+    typeof MediaRecorder !== 'undefined' && typeof AudioContext !== 'undefined'
+  );
+}
 
 function mediaEnvironment() {
   const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
@@ -261,11 +268,14 @@ export function CallExperience({
   }, []);
 
   useEffect(() => {
+    const recorderUserId =
+      call?.summaryRecorderId ??
+      (call?.summaryEnabled ? call.initiatorId : undefined);
     if (
       !room ||
       call?.status !== 'active' ||
       !call.summaryEnabled ||
-      call.initiatorId !== user.id ||
+      recorderUserId !== user.id ||
       recorderRef.current
     )
       return;
@@ -456,10 +466,7 @@ export function CallExperience({
         const aiEnabled = await resolveAiEnabled(() =>
           api.authenticated<{ enabled: boolean }>('/ai/status'),
         ).catch(() => false);
-        const summaryEnabled =
-          aiEnabled &&
-          typeof MediaRecorder !== 'undefined' &&
-          typeof AudioContext !== 'undefined';
+        const summaryEnabled = aiEnabled && canBrowserRecordCalls();
         const result = await api.authenticated<CallResponse>(
           `/conversations/${conversationId}/calls`,
           { clientRequestId: crypto.randomUUID(), type, summaryEnabled },
@@ -602,10 +609,18 @@ export function CallExperience({
       }
       return;
     }
+    setSummaryStatus('');
+    setSummaryRetry(undefined);
     try {
+      const shouldEnableSummary =
+        !call.summaryEnabled &&
+        canBrowserRecordCalls() &&
+        (await resolveAiEnabled(() =>
+          api.authenticated<{ enabled: boolean }>('/ai/status'),
+        ).catch(() => false));
       const result = await api.authenticated<CallResponse>(
         `/calls/${call.id}/${action}`,
-        {},
+        shouldEnableSummary ? { summaryEnabled: true } : {},
       );
       currentCall.current = result.call;
       setCall(result.call);
@@ -705,6 +720,26 @@ export function CallExperience({
 
   const incoming =
     call?.status === 'ringing' && call.initiatorId !== user.id && !room;
+  const [canFallbackSummarize, setCanFallbackSummarize] = useState(false);
+  useEffect(() => {
+    if (!incoming || call?.summaryEnabled || !canBrowserRecordCalls()) {
+      setCanFallbackSummarize(false);
+      return;
+    }
+    let cancelled = false;
+    void resolveAiEnabled(() =>
+      api.authenticated<{ enabled: boolean }>('/ai/status'),
+    )
+      .then((enabled) => {
+        if (!cancelled) setCanFallbackSummarize(enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setCanFallbackSummarize(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [incoming, call?.id, call?.summaryEnabled]);
   useEffect(() => {
     if (!incoming) return;
     return startIncomingCallRingtone();
@@ -773,7 +808,8 @@ export function CallExperience({
               <small>
                 {room && <span className="call-live-dot" aria-hidden="true" />}
                 {statusSubtitle}
-                {call.summaryEnabled && ' · Thu âm để AI tóm tắt sau cuộc gọi'}
+                {(call.summaryEnabled || (incoming && canFallbackSummarize)) &&
+                  ' · Thu âm để AI tóm tắt sau cuộc gọi'}
               </small>
             </div>
           </div>

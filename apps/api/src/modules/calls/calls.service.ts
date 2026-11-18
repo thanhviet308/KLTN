@@ -11,7 +11,7 @@ import { ConversationMember } from '../database/entities/conversation-member.ent
 import { ConversationMemberPeriod } from '../database/entities/conversation-member-period.entity';
 import { Conversation } from '../database/entities/conversation.entity';
 import { Message } from '../database/entities/message.entity';
-import type { CreateCallDto } from './calls.dto';
+import type { AcceptCallDto, CreateCallDto } from './calls.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment';
@@ -145,13 +145,16 @@ export class CallsService {
   }
 
   private view(call: Call, participants: CallParticipant[]) {
+    const summaryEnabled = call.summaryEnabled ?? false;
     return {
       id: call.id,
       conversationId: call.conversationId,
       initiatorId: call.initiatorId,
       type: call.type,
       status: call.status,
-      summaryEnabled: call.summaryEnabled ?? false,
+      summaryEnabled,
+      summaryRecorderId:
+        call.summaryRecorderId ?? (summaryEnabled ? call.initiatorId : null),
       ringExpiresAt: call.ringExpiresAt,
       startedAt: call.startedAt,
       endedAt: call.endedAt,
@@ -318,13 +321,15 @@ export class CallsService {
         fail(409, 'CALL_NO_RECIPIENTS', 'Call requires another active member');
 
       const now = new Date();
+      const summaryEnabled = input.summaryEnabled === true;
       const call = await calls.save({
         clientRequestId: requestId,
         conversationId,
         initiatorId: actorId,
         roomName: `call_${randomUUID()}`,
         type: input.type,
-        summaryEnabled: input.summaryEnabled === true,
+        summaryEnabled,
+        summaryRecorderId: summaryEnabled ? actorId : null,
         status: 'ringing',
         ringExpiresAt: new Date(now.getTime() + RING_TTL_MS),
         startedAt: null,
@@ -470,7 +475,7 @@ export class CallsService {
     return value.page;
   }
 
-  async accept(actorId: string, id: string) {
+  async accept(actorId: string, id: string, input?: AcceptCallDto) {
     const result = await this.db.transaction(async (manager) => {
       const { call, participant } = await this.lockedCall(manager, id, actorId);
       if (participant.status === 'joined') return this.result(manager, call);
@@ -483,6 +488,14 @@ export class CallsService {
       if (call.status === 'ringing') {
         call.status = 'active';
         call.startedAt = now;
+        if (
+          input?.summaryEnabled === true &&
+          !call.summaryEnabled &&
+          !call.summaryRecorderId
+        ) {
+          call.summaryEnabled = true;
+          call.summaryRecorderId = actorId;
+        }
         await manager.getRepository(Call).save(call);
       }
       await manager.getRepository(CallParticipant).update(
@@ -602,6 +615,15 @@ export class CallsService {
       const joined = await manager.getRepository(CallParticipant).count({
         where: { callId: id, status: 'joined' },
       });
+      if (
+        joined > 0 &&
+        call.summaryEnabled &&
+        (call.summaryRecorderId ?? call.initiatorId) === actorId
+      ) {
+        call.summaryEnabled = false;
+        call.summaryRecorderId = null;
+        await manager.getRepository(Call).save(call);
+      }
       const message =
         joined === 0 ? await this.finish(manager, call, now) : undefined;
       return {

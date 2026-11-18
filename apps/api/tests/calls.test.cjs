@@ -6,6 +6,9 @@ const { Call } = require('../dist/modules/database/entities/call.entity');
 const {
   CallParticipant,
 } = require('../dist/modules/database/entities/call-participant.entity');
+const {
+  Conversation,
+} = require('../dist/modules/database/entities/conversation.entity');
 const { validateEnvironment } = require('../dist/config/environment');
 
 const baseEnvironment = {
@@ -132,4 +135,192 @@ test('a terminal call creates one chat history message with duration', async () 
     callStatus: 'ended',
     durationSeconds: 125,
   });
+});
+
+test('answering a ringing Android-initiated call on Web claims summaryRecorderId once', async () => {
+  const now = new Date();
+  const call = {
+    id: 'call-1',
+    conversationId: 'conv-1',
+    initiatorId: 'android-user',
+    type: 'audio',
+    status: 'ringing',
+    summaryEnabled: false,
+    summaryRecorderId: null,
+    ringExpiresAt: new Date(now.getTime() + 45000),
+    startedAt: null,
+    endedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const participants = new Map([
+    [
+      'android-user',
+      {
+        callId: 'call-1',
+        userId: 'android-user',
+        status: 'accepted',
+        invitedAt: now,
+        joinedAt: null,
+        leftAt: null,
+      },
+    ],
+    [
+      'web-user-1',
+      {
+        callId: 'call-1',
+        userId: 'web-user-1',
+        status: 'invited',
+        invitedAt: now,
+        joinedAt: null,
+        leftAt: null,
+      },
+    ],
+    [
+      'web-user-2',
+      {
+        callId: 'call-1',
+        userId: 'web-user-2',
+        status: 'invited',
+        invitedAt: now,
+        joinedAt: null,
+        leftAt: null,
+      },
+    ],
+  ]);
+  const manager = {
+    getRepository: (entity) => {
+      if (entity === Call) {
+        return {
+          findOne: async () => call,
+          save: async (next) => Object.assign(call, next),
+        };
+      }
+      if (entity === CallParticipant) {
+        return {
+          findOne: async ({ where }) => participants.get(where.userId) ?? null,
+          find: async () => [...participants.values()],
+          update: async (where, patch) => {
+            const p = participants.get(where.userId);
+            if (p && (!where.status || p.status === where.status)) {
+              p.status = patch.status;
+            }
+          },
+        };
+      }
+      throw new Error(`Unexpected repository: ${entity.name}`);
+    },
+  };
+  const service = new CallsService(
+    { transaction: async (fn) => fn(manager) },
+    { publish: (_name, _actor, payload) => payload },
+    { get: () => undefined },
+  );
+
+  const first = await service.accept('web-user-1', 'call-1', {
+    summaryEnabled: true,
+  });
+  assert.equal(first.call.status, 'active');
+  assert.equal(first.call.summaryEnabled, true);
+  assert.equal(first.call.summaryRecorderId, 'web-user-1');
+
+  const second = await service.accept('web-user-2', 'call-1', {
+    summaryEnabled: true,
+  });
+  assert.equal(second.call.summaryEnabled, true);
+  assert.equal(second.call.summaryRecorderId, 'web-user-1');
+});
+
+test('fallback recorder leaving a group call early disables summary while direct call ending preserves it', async () => {
+  const now = new Date();
+  function makeScenario(type, remainingJoined) {
+    const call = {
+      id: '11111111-1111-4111-8111-111111111111',
+      conversationId: '22222222-2222-4222-8222-222222222222',
+      initiatorId: '33333333-3333-4333-8333-333333333333',
+      type: 'audio',
+      status: 'active',
+      summaryEnabled: true,
+      summaryRecorderId: 'web-recorder',
+      ringExpiresAt: new Date(now.getTime() + 45000),
+      startedAt: now,
+      endedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const participant = {
+      callId: call.id,
+      userId: 'web-recorder',
+      status: 'joined',
+      invitedAt: now,
+      joinedAt: now,
+      leftAt: null,
+    };
+    const manager = {
+      query: async () => [{ last_message_sequence: '9' }],
+      getRepository: (entity) => {
+        if (entity === Call) {
+          return {
+            findOne: async () => call,
+            save: async (next) => Object.assign(call, next),
+          };
+        }
+        if (entity === CallParticipant) {
+          return {
+            findOne: async () => participant,
+            find: async () => [participant],
+            save: async (next) => Object.assign(participant, next),
+            count: async () => remainingJoined,
+            createQueryBuilder: () => ({
+              update: () => ({
+                set: () => ({
+                  where: () => ({
+                    andWhere: () => ({ execute: async () => ({}) }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (entity === Conversation) {
+          return { findOne: async () => ({ id: call.conversationId, type }) };
+        }
+        if (entity.name === 'Message') {
+          return {
+            findOneBy: async () => null,
+            save: async (msg) => ({
+              id: 'msg-1',
+              createdAt: now,
+              editedAt: null,
+              deletedAt: null,
+              ...msg,
+            }),
+          };
+        }
+        throw new Error(`Unexpected repository: ${entity.name}`);
+      },
+    };
+    const service = new CallsService(
+      { transaction: async (fn) => fn(manager) },
+      { publish: (_name, _actor, payload) => payload },
+      { get: () => undefined },
+    );
+    return { service };
+  }
+
+  const groupEarly = await makeScenario('group', 2).service.leave(
+    'web-recorder',
+    '11111111-1111-4111-8111-111111111111',
+  );
+  assert.equal(groupEarly.call.status, 'active');
+  assert.equal(groupEarly.call.summaryEnabled, false);
+  assert.equal(groupEarly.call.summaryRecorderId, null);
+
+  const directEnd = await makeScenario('direct', 1).service.leave(
+    'web-recorder',
+    '11111111-1111-4111-8111-111111111111',
+  );
+  assert.equal(directEnd.call.status, 'ended');
+  assert.equal(directEnd.call.summaryEnabled, true);
+  assert.equal(directEnd.call.summaryRecorderId, 'web-recorder');
 });

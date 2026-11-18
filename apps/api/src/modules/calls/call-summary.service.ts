@@ -36,7 +36,8 @@ export class CallSummaryService {
 
   async summarize(actorId: string, callId: string, request: Request) {
     const call = await this.db.getRepository(Call).findOneBy({ id: callId });
-    if (!call || call.initiatorId !== actorId) fail(404, 'CALL_NOT_FOUND');
+    const recorderId = call ? (call.summaryRecorderId ?? call.initiatorId) : '';
+    if (!call || recorderId !== actorId) fail(404, 'CALL_NOT_FOUND');
     if (!call.summaryEnabled || call.status !== 'ended')
       fail(409, 'CALL_SUMMARY_NOT_READY');
     const member = await this.db

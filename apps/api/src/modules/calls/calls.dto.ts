@@ -11,3 +11,9 @@ export class CreateCallDto {
   @IsIn(['audio', 'video'])
   type!: 'audio' | 'video';
 }
+
+export class AcceptCallDto {
+  @IsOptional()
+  @IsBoolean()
+  summaryEnabled?: boolean;
+}
