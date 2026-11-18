@@ -66,7 +66,7 @@ async function client(key) {
     )
     // The fetch mock resolves explicitly; retaining production timeout signals
     // would keep the Node test worker alive after every successful request.
-    .replace('signal: AbortSignal.timeout(15000),', 'signal: undefined,')
+    .replace(/signal: AbortSignal\.timeout\([^)]+\),/g, 'signal: undefined,')
     .replace('import.meta.env.DEV', 'true');
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -324,6 +324,41 @@ test('a transient first upload failure retries once with the same message id', a
     assert.equal(urls.length, 2);
     assert.equal(urls[0], urls[1]);
     assert.match(urls[0], /clientMessageId=client-message-1/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('authenticated GET requests retry once on transient network or 502 drops without failing', async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  let gatewayAttempts = 0;
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/auth/login'))
+      return Response.json({
+        accessToken: 'token',
+        expiresIn: 900,
+        user: { id: 'user-1' },
+      });
+    if (url.endsWith('/friends')) {
+      attempts++;
+      if (attempts === 1) throw new TypeError('Failed to fetch');
+      return Response.json({ items: ['ok'] });
+    }
+    gatewayAttempts++;
+    if (gatewayAttempts === 1)
+      return new Response('Bad gateway', { status: 502 });
+    return Response.json({ items: ['recovered'] });
+  };
+  try {
+    const api = await client('transient-get-retry');
+    await api.login('test@example.com', 'unused');
+    const friends = await api.authenticated('/friends');
+    assert.deepEqual(friends, { items: ['ok'] });
+    assert.equal(attempts, 2);
+    const convs = await api.authenticated('/conversations');
+    assert.deepEqual(convs, { items: ['recovered'] });
+    assert.equal(gatewayAttempts, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

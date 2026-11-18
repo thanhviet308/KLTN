@@ -48,7 +48,7 @@ export function ConversationList({
   onExpired,
   presence,
 }: {
-  onOpen: (conversation: api.Conversation) => void;
+  onOpen: (conversation: api.Conversation, messageId?: string) => void;
   onExpired: () => void;
   presence: Record<string, Presence>;
 }) {
@@ -236,17 +236,20 @@ export function ConversationList({
     }
   }
 
-  async function openConversationById(conversationId: string) {
+  async function openConversationById(
+    conversationId: string,
+    messageId?: string,
+  ) {
     const existing = items.find(item => item.id === conversationId);
     if (existing) {
-      onOpen(existing);
+      onOpen(existing, messageId);
       return;
     }
     try {
       const result = await api.authenticated<{
         conversation: api.Conversation;
       }>(`/conversations/${conversationId}`);
-      onOpen(result.conversation);
+      onOpen(result.conversation, messageId);
     } catch (next) {
       if (next instanceof api.ApiError && next.status === 401) onExpired();
       else setError(api.errorMessage(next));
@@ -710,7 +713,10 @@ export function ConversationList({
                         <Pressable
                           key={hit.id}
                           onPress={() =>
-                            void openConversationById(hit.conversationId)
+                            void openConversationById(
+                              hit.conversationId,
+                              hit.id,
+                            )
                           }
                           style={styles.conversation}
                         >

@@ -12,7 +12,10 @@ import {
 import type { Relation } from 'typeorm';
 import { Conversation } from './conversation.entity';
 import { ConversationMember } from './conversation-member.entity';
-import { messageTextTransformer } from '../message-encryption';
+import {
+  messageContentTransformer,
+  messageTextTransformer,
+} from '../message-encryption';
 
 @Entity('messages')
 @Check('messages_sequence_valid', 'sequence > 0')
@@ -56,7 +59,12 @@ export class Message {
   @Column({ type: 'bigint' }) sequence!: string;
   @Column({ type: 'varchar', length: 16, default: 'text' }) type!:
     'text' | 'image' | 'file' | 'voice' | 'location' | 'call';
-  @Column({ type: 'jsonb', nullable: true }) content!: {
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+    transformer: messageContentTransformer,
+  })
+  content!: {
     mentions?: string[];
     forwarded?: boolean;
     latitude?: number;

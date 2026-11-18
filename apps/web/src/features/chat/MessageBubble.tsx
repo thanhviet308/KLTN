@@ -407,26 +407,6 @@ export function MessageBubble({
           />
         </div>
       )}
-      {!isCall && (
-        <MessageActions
-          pinned={pinned}
-          message={message}
-          mine={mine}
-          isGroup={isGroup}
-          senderName={names(message.senderId)}
-          gameTitle={gameMeta?.name}
-          mobileSheetOpen={sheetOpen && !message.deletedAt}
-          onCloseMobileSheet={() => setSheetOpen(false)}
-          reactions={reactions}
-          onUpdate={onUpdate}
-          onReply={onReply}
-          onReact={onReact}
-          onAi={onAi}
-          onTranscribeVoice={
-            onTranscribeVoice ? () => onTranscribeVoice() : undefined
-          }
-        />
-      )}
       {!mine && (
         <span
           className={`message-sender-avatar${continuesGroup ? ' avatar-spacer' : ''}`}
@@ -474,6 +454,26 @@ export function MessageBubble({
           </div>
         )}
         <div className="message-body-anchor">
+          {!isCall && (
+            <MessageActions
+              pinned={pinned}
+              message={message}
+              mine={mine}
+              isGroup={isGroup}
+              senderName={names(message.senderId)}
+              gameTitle={gameMeta?.name}
+              mobileSheetOpen={sheetOpen && !message.deletedAt}
+              onCloseMobileSheet={() => setSheetOpen(false)}
+              reactions={reactions}
+              onUpdate={onUpdate}
+              onReply={onReply}
+              onReact={onReact}
+              onAi={onAi}
+              onTranscribeVoice={
+                onTranscribeVoice ? () => onTranscribeVoice() : undefined
+              }
+            />
+          )}
           <div
             tabIndex={0}
             className={`message-body${isCall ? ' call-message-body' : ''}${
@@ -590,6 +590,18 @@ export function MessageBubble({
               controller={reactions}
             />
           )}
+          {!isCall &&
+            showStatus &&
+            !message.deletedAt &&
+            readers.length <= 1 && (
+              <SentStatus
+                readers={readers}
+                delivered={delivered}
+                peers={peers}
+                names={names}
+                onOpen={onOpenReceipts}
+              />
+            )}
         </div>
       </div>
       {!mine &&
@@ -632,7 +644,7 @@ export function MessageBubble({
             onHide={onHideCallSummary}
           />
         )}
-      {!isCall && showStatus && !message.deletedAt && (
+      {!isCall && showStatus && !message.deletedAt && readers.length > 1 && (
         <SentStatus
           readers={readers}
           delivered={delivered}

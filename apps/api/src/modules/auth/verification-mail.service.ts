@@ -8,17 +8,42 @@ export class VerificationMailService {
   private readonly logger = new Logger(VerificationMailService.name);
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
+  private stripOuterQuotes(value?: string): string {
+    const trimmed = value?.trim() ?? '';
+    if (
+      trimmed.length >= 2 &&
+      ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'")))
+    ) {
+      return trimmed.slice(1, -1).trim();
+    }
+    return trimmed;
+  }
+
   private options() {
-    const host = this.config.get<string>('SMTP_HOST');
-    const user = this.config.get<string>('SMTP_USER');
-    const pass = this.config.get<string>('SMTP_PASSWORD');
-    const from = this.config.get<string>('SMTP_FROM');
-    const port = Number(this.config.get<string>('SMTP_PORT') ?? '587');
+    const host = this.stripOuterQuotes(
+      this.config.get<string>('SMTP_HOST'),
+    ).toLowerCase();
+    const user = this.stripOuterQuotes(this.config.get<string>('SMTP_USER'));
+    const rawPass = this.stripOuterQuotes(
+      this.config.get<string>('SMTP_PASSWORD'),
+    );
+    const isGmail = host === 'smtp.gmail.com' || host === 'smtp.googlemail.com';
+    const pass = isGmail ? rawPass.replace(/\s+/g, '') : rawPass;
+    const from = this.stripOuterQuotes(this.config.get<string>('SMTP_FROM'));
+    const portText = this.stripOuterQuotes(
+      this.config.get<string>('SMTP_PORT') ?? '587',
+    );
+    const port = Number(portText || '587');
     if (
       !host ||
+      host === 'smtp.example.com' ||
       !user ||
+      user === 'CHANGE_ME' ||
       !pass ||
+      pass === 'CHANGE_ME' ||
       !from ||
+      from === 'CHANGE_ME' ||
       /[\r\n]/.test(from) ||
       !Number.isInteger(port) ||
       port < 1 ||
@@ -45,7 +70,7 @@ export class VerificationMailService {
     const reset = purpose === 'password-reset';
     await this.sendMessage(
       email,
-      reset ? 'Mã đặt lại mật khẩu PingPong' : 'Mã xác minh đăng ký Halo',
+      reset ? 'Mã đặt lại mật khẩu PingPong' : 'Mã xác minh đăng ký PingPong',
       `Mã ${reset ? 'đặt lại mật khẩu' : 'xác minh'} của bạn là: ${code}\nMã có hiệu lực trong 10 phút. Không chia sẻ mã này với người khác.\nNếu bạn không yêu cầu ${reset ? 'đặt lại mật khẩu' : 'đăng ký'}, hãy bỏ qua email này.`,
     );
   }
@@ -84,8 +109,19 @@ export class VerificationMailService {
         text,
       });
       if (!result.accepted?.length) throw new Error('Mail rejected');
-    } catch {
-      this.logger.error({ code: 'VERIFICATION_MAIL_FAILED' });
+    } catch (error) {
+      const smtpError = error as {
+        code?: string;
+        responseCode?: number;
+        command?: string;
+      };
+      this.logger.error({
+        code: 'VERIFICATION_MAIL_FAILED',
+        smtpCode: smtpError?.code ?? null,
+        responseCode: smtpError?.responseCode ?? null,
+        command: smtpError?.command ?? null,
+        port: options.port,
+      });
       throw authError(
         503,
         'MAIL_DELIVERY_FAILED',

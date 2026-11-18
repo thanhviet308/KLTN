@@ -136,9 +136,11 @@ type SearchHit = Pick<
 export function MessageSearch({
   conversationId,
   onClose,
+  onJumpToMessage,
 }: {
   conversationId: string;
   onClose: () => void;
+  onJumpToMessage: (messageId: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SearchHit[]>([]);
@@ -146,12 +148,10 @@ export function MessageSearch({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [searched, setSearched] = useState('');
-  const [context, setContext] = useState<Message>();
   async function search(next?: string) {
     if (busy || !query.trim()) return;
     setBusy(true);
     setError('');
-    setContext(undefined);
     try {
       const params = new URLSearchParams({
         query: next ? searched : query.trim(),
@@ -208,38 +208,13 @@ export function MessageSearch({
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                const el = document.querySelector<HTMLElement>(
-                  `[data-message-id="${m.id}"]`,
-                );
-                if (el) {
-                  onClose();
-                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                } else {
-                  setBusy(true);
-                  void api
-                    .authenticated<{ message: Message }>(
-                      `/conversations/${m.conversationId}/messages/${m.id}`,
-                    )
-                    .then((res) => setContext(res.message))
-                    .catch((e) => setError(api.errorMessage(e)))
-                    .finally(() => setBusy(false));
-                }
-              }}
+              onClick={() => onJumpToMessage(m.id)}
             >
               Đi tới tin nhắn
             </button>
           </div>
         </article>
       ))}
-      {context && (
-        <section className="workspace-card" aria-label="Tin nhắn gốc">
-          <strong>Tin nhắn gốc · #{context.sequence}</strong>
-          <p className="workspace-message">
-            {context.deletedAt ? 'Tin đã được thu hồi' : context.body}
-          </p>
-        </section>
-      )}
       {cursor && (
         <button disabled={busy} onClick={() => void search(cursor)}>
           Xem thêm kết quả
@@ -337,11 +312,13 @@ export function GroupTools({
   isGroup = true,
   userId,
   onClose,
+  onJumpToMessage,
 }: {
   conversationId: string;
   isGroup?: boolean;
   userId: string;
   onClose: () => void;
+  onJumpToMessage?: (messageId: string) => void;
 }) {
   const base = `/conversations/${conversationId}`;
   const [pins, setPins] = useState<Message[]>([]);
@@ -444,6 +421,10 @@ export function GroupTools({
                 className="pinned-action-btn is-jump"
                 disabled={busy}
                 onClick={() => {
+                  if (onJumpToMessage) {
+                    onJumpToMessage(m.id);
+                    return;
+                  }
                   const el = document.querySelector<HTMLElement>(
                     `[data-message-id="${m.id}"]`,
                   );

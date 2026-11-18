@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { Readable } = require('node:stream');
-const { mkdtemp, rm } = require('node:fs/promises');
+const { mkdtemp, readFile, rm } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 require('reflect-metadata');
@@ -9,6 +9,9 @@ const {
   CallSummaryService,
   callSummaryRequestId,
 } = require('../dist/modules/calls/call-summary.service');
+const {
+  isEncryptedMessageBytes,
+} = require('../dist/modules/database/message-encryption');
 const { Call } = require('../dist/modules/database/entities/call.entity');
 const {
   ConversationMember,
@@ -160,6 +163,7 @@ async function createFixture(overrides = {}) {
 
   return {
     service: new CallSummaryService(db, provider, files, events),
+    files,
     call,
     callMessage,
     members,
@@ -338,4 +342,25 @@ test('summary id is stable, a valid v4 UUID, and distinct between calls', () => 
     callSummaryRequestId('one'),
     /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
   );
+});
+
+test('call recording audio is encrypted at rest on disk and decrypted in memory when summarizing', async (t) => {
+  const prevKeys = process.env.MESSAGE_ENCRYPTION_KEYS;
+  process.env.MESSAGE_ENCRYPTION_KEYS = `1:${'33'.repeat(32)}`;
+  const f = await createFixture();
+  t.after(async () => {
+    if (prevKeys === undefined) delete process.env.MESSAGE_ENCRYPTION_KEYS;
+    else process.env.MESSAGE_ENCRYPTION_KEYS = prevKeys;
+    await f.cleanup();
+  });
+
+  await f.service.uploadRecording('alice', 'call', request());
+  const rawOnDisk = await readFile(f.files.path(f.call.summaryAudioKey));
+  assert.ok(isEncryptedMessageBytes(rawOnDisk));
+  assert.ok(!rawOnDisk.includes(Buffer.from('webm test audio')));
+
+  const res = await f.service.summarize('bob', 'call');
+  assert.equal(res.result.summary, 'Thảo luận giao diện.');
+  assert.equal(f.generated.length, 1);
+  assert.deepEqual(f.generated[0], [bytes, 'audio/webm']);
 });

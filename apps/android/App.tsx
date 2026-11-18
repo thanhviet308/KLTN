@@ -25,10 +25,33 @@ function Root() {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<api.User>();
   const [conversation, setConversation] = useState<api.Conversation>();
+  const [jumpTarget, setJumpTarget] = useState<{
+    conversationId: string;
+    messageId: string;
+    token: number;
+  }>();
+  const jumpTokenRef = React.useRef(0);
   const expire = useCallback(() => {
     setConversation(undefined);
+    setJumpTarget(undefined);
     setUser(undefined);
   }, []);
+  const openConversation = useCallback(
+    (next: api.Conversation, messageId?: string) => {
+      setConversation(next);
+      if (messageId) {
+        jumpTokenRef.current += 1;
+        setJumpTarget({
+          conversationId: next.id,
+          messageId,
+          token: jumpTokenRef.current,
+        });
+      } else {
+        setJumpTarget(undefined);
+      }
+    },
+    [],
+  );
   const acceptUser = useCallback((next: api.User) => {
     api.rememberUser(next);
     setUser(next);
@@ -70,15 +93,19 @@ function Root() {
           {conversation ? (
             <Chat
               conversation={conversation}
+              jumpTarget={jumpTarget}
               user={user}
-              onBack={() => setConversation(undefined)}
+              onBack={() => {
+                setConversation(undefined);
+                setJumpTarget(undefined);
+              }}
               onExpired={expire}
             />
           ) : (
             <Home
               user={user}
               onUser={acceptUser}
-              onOpen={setConversation}
+              onOpen={openConversation}
               onExpired={expire}
             />
           )}

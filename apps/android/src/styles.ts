@@ -466,6 +466,29 @@ export const styles = StyleSheet.create({
     borderColor: '#eadfd3',
   },
   bubbleMine: { backgroundColor: '#b75020', borderBottomRightRadius: 5 },
+  bubbleHighlighted: {
+    borderWidth: 2,
+    borderColor: '#d97706',
+    backgroundColor: '#fef3c7',
+  },
+  bubbleMineHighlighted: {
+    borderWidth: 2,
+    borderColor: '#fbbf24',
+  },
+  searchJumpChip: {
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#f5ebe0',
+    borderWidth: 1,
+    borderColor: '#dfcdb8',
+  },
+  searchJumpChipText: {
+    color: '#9a4018',
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
   bubblePressed: { opacity: 0.86 },
   swipeRow: {
     width: '100%',

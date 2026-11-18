@@ -13,6 +13,7 @@ import {
 import type { Relation } from 'typeorm';
 import { ConversationMember } from './conversation-member.entity';
 import { Message } from './message.entity';
+import { messageTextTransformer } from '../message-encryption';
 
 @Entity('attachments')
 @Unique('attachments_client_request', ['uploaderId', 'clientRequestId'])
@@ -73,7 +74,11 @@ export class Attachment {
     select: false,
   })
   objectKey!: string;
-  @Column({ name: 'file_name', type: 'varchar', length: 255 })
+  @Column({
+    name: 'file_name',
+    type: 'text',
+    transformer: messageTextTransformer,
+  })
   fileName!: string;
   @Column({ name: 'mime_type', type: 'varchar', length: 127 })
   mimeType!: string;

@@ -62,6 +62,12 @@ export function Conversations({
 }) {
   const [items, setItems] = useState<Conversation[]>([]);
   const [workspacePanel, setWorkspacePanel] = useState<'search' | 'group'>();
+  const [jumpTarget, setJumpTarget] = useState<{
+    conversationId: string;
+    messageId: string;
+    token: number;
+  }>();
+  const jumpToken = useRef(0);
   const [directNames, setDirectNames] = useState<Record<string, string>>({});
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<Conversation>();
@@ -136,6 +142,39 @@ export function Conversations({
     const next = !showInfo;
     setShowInfo(next);
     if (next) void run(() => detail(selected.id));
+  }
+  function requestJumpToMessage(
+    targetConversationId: string,
+    messageId: string,
+  ) {
+    jumpToken.current += 1;
+    setWorkspacePanel(undefined);
+    setCreating(false);
+    setShowInfo(false);
+    setConfirmation(undefined);
+    setJumpTarget({
+      conversationId: targetConversationId,
+      messageId,
+      token: jumpToken.current,
+    });
+    if (selected?.id !== targetConversationId) {
+      const existing = items.find((item) => item.id === targetConversationId);
+      if (existing) {
+        setSelected(existing);
+        setMembers(
+          existing.peer
+            ? [
+                { id: user.id, user, role: 'member' },
+                { id: existing.peer.id, user: existing.peer, role: 'member' },
+              ]
+            : [],
+        );
+        if (existing.type === 'group')
+          void detail(targetConversationId).catch(fail);
+      } else {
+        void run(() => detail(targetConversationId));
+      }
+    }
   }
   const [filter, setFilter] = useState('');
   const [searchedMessages, setSearchedMessages] = useState<
@@ -262,6 +301,7 @@ export function Conversations({
   const readVersion = useRef(0);
   const listVersion = useRef(0);
   const listRequests = useRef(0);
+  const transientListError = useRef(false);
   const handledRecipient = useRef<number | undefined>(undefined);
   const callStart = useRef<StartCall | undefined>(undefined);
   const conversationIds = useRef<string[]>([]);
@@ -290,6 +330,7 @@ export function Conversations({
     ).catch(() => {});
   }
   function fail(e: unknown) {
+    if (e instanceof api.ApiError && e.code === 'SESSION_CHANGED') return;
     if (e instanceof api.ApiError && e.status === 401) onExpired();
     else setError(api.errorMessage(e));
   }
@@ -340,6 +381,10 @@ export function Conversations({
       );
       if (!background) setCursor(page.nextCursor);
       setListLoading(false);
+      if (transientListError.current) {
+        transientListError.current = false;
+        setError('');
+      }
       if (!background && !next)
         page.items.slice(0, 4).forEach((item) => preload(item.id));
     } finally {
@@ -574,20 +619,28 @@ export function Conversations({
       });
     };
     refreshFriends();
-    void list().catch((error) => {
+    const handleBackgroundListFailure = (failure: unknown) => {
+      const isTransient =
+        failure instanceof api.ApiError &&
+        (failure.status === 0 || failure.status >= 500);
+      if (isTransient && conversationIds.current.length > 0) return;
+      if (isTransient) transientListError.current = true;
+      fail(failure);
+    };
+    void list().catch((failure) => {
       setListLoading(false);
-      fail(error);
+      handleBackgroundListFailure(failure);
     });
     const refresh = () => {
       if (document.visibilityState === 'visible') {
-        void list().catch(fail);
+        void list(undefined, true).catch(handleBackgroundListFailure);
         refreshFriends();
       }
     };
     window.addEventListener('focus', refresh);
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        void list(undefined, true).catch(fail);
+        void list(undefined, true).catch(handleBackgroundListFailure);
         refreshFriends();
       }
     }, 30000);
@@ -999,7 +1052,7 @@ export function Conversations({
                             type="button"
                             disabled={busy}
                             onClick={() =>
-                              void run(() => detail(hit.conversationId))
+                              requestJumpToMessage(hit.conversationId, hit.id)
                             }
                           >
                             <span className="peer-avatar">
@@ -1200,6 +1253,9 @@ export function Conversations({
           <MessageSearch
             conversationId={selected.id}
             onClose={() => setWorkspacePanel(undefined)}
+            onJumpToMessage={(messageId) =>
+              requestJumpToMessage(selected.id, messageId)
+            }
           />
         )}
         {workspacePanel === 'group' && selected && (
@@ -1209,6 +1265,9 @@ export function Conversations({
             conversationId={selected.id}
             userId={user.id}
             onClose={() => setWorkspacePanel(undefined)}
+            onJumpToMessage={(messageId) =>
+              requestJumpToMessage(selected.id, messageId)
+            }
           />
         )}
         {error && (
@@ -1280,6 +1339,7 @@ export function Conversations({
             active={active}
             initialLastReadSequence={selected.membership.lastReadSequence}
             initialUnreadCount={selected.unreadCount ?? 0}
+            jumpTarget={jumpTarget}
             onReadSequence={(sequence) =>
               setItems((previous) =>
                 previous.map((item) =>

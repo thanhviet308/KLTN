@@ -4,6 +4,12 @@ import {
   formatCallMediaError,
   isOverconstrainedMediaError,
 } from '../src/features/calls/call-media.ts';
+import {
+  computeCallElapsedSeconds,
+  formatCallDuration,
+  nextPipCorner,
+  resolveStageVideoState,
+} from '../src/features/calls/call-view-model.ts';
 import { isEmbeddedInAppBrowser } from '../src/features/chat/location-helper.ts';
 
 test('embedded browsers without mediaDevices instruct user to open Safari or Chrome', () => {
@@ -59,4 +65,69 @@ test('isOverconstrainedMediaError identifies OverconstrainedError variants', () 
     true,
   );
   assert.equal(isOverconstrainedMediaError(new Error('denied')), false);
+});
+
+test('computeCallElapsedSeconds stays zero while ringing and counts active time', () => {
+  assert.equal(
+    computeCallElapsedSeconds({
+      status: 'ringing',
+      startedAt: '2026-11-18T04:00:00.000Z',
+      nowMs: Date.parse('2026-11-18T04:00:15.000Z'),
+    }),
+    0,
+  );
+  assert.equal(
+    computeCallElapsedSeconds({
+      status: 'active',
+      startedAt: '2026-11-18T04:00:00.000Z',
+      nowMs: Date.parse('2026-11-18T04:01:05.900Z'),
+    }),
+    65,
+  );
+  assert.equal(formatCallDuration(65), '01:05');
+  assert.equal(formatCallDuration(3661), '01:01:01');
+});
+
+test('resolveStageVideoState handles solo preview, 1-1 swap, grid, and PiP corner cycle', () => {
+  assert.deepEqual(
+    resolveStageVideoState({
+      callType: 'video',
+      callStatus: 'ringing',
+      hasLocalVideo: true,
+      remoteVideoCount: 0,
+    }),
+    {
+      layout: 'solo-preview',
+      effectiveSwapped: false,
+      showHeroOverlay: true,
+      canAutoHideChrome: false,
+    },
+  );
+  assert.deepEqual(
+    resolveStageVideoState({
+      callType: 'video',
+      callStatus: 'active',
+      hasLocalVideo: true,
+      remoteVideoCount: 1,
+      swapped: true,
+    }),
+    {
+      layout: 'one-to-one',
+      effectiveSwapped: true,
+      showHeroOverlay: false,
+      canAutoHideChrome: true,
+    },
+  );
+  assert.equal(
+    resolveStageVideoState({
+      callType: 'video',
+      callStatus: 'active',
+      hasLocalVideo: true,
+      remoteVideoCount: 1,
+      remoteParticipantCount: 3,
+    }).layout,
+    'grid',
+  );
+  assert.equal(nextPipCorner('top-right'), 'bottom-right');
+  assert.equal(nextPipCorner('top-left'), 'top-right');
 });

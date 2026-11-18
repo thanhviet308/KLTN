@@ -1,20 +1,15 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import {
-  copyFile,
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { Transform } from 'node:stream';
+import { Readable, Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request } from 'express';
 import sharp from 'sharp';
+import {
+  decryptMessageBytes,
+  encryptMessageBytes,
+} from '../database/message-encryption';
 import type { UploadMessageDto } from './messages.dto';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -35,19 +30,19 @@ export class ChatFilesService {
   remove(key: string) {
     return rm(this.path(key), { force: true });
   }
+
   async copy(key: string) {
-    const id = randomUUID();
-    await copyFile(this.path(key), this.path(id));
-    return id;
+    return this.saveBuffer(await this.readBuffer(key));
   }
 
   async saveBuffer(bytes: Buffer) {
     const id = randomUUID();
     const path = this.path(id);
     const temporary = `${path}.tmp`;
+    const stored = encryptMessageBytes(bytes);
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     try {
-      await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
+      await writeFile(temporary, stored, { flag: 'wx', mode: 0o600 });
       await rename(temporary, path);
       return id;
     } catch (error) {
@@ -71,6 +66,7 @@ export class ChatFilesService {
     let size = 0;
     try {
       await mkdir(this.root, { recursive: true, mode: 0o700 });
+      const chunks: Buffer[] = [];
       const limit = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
           size += chunk.length;
@@ -85,19 +81,21 @@ export class ChatFilesService {
           );
         },
       });
-      await pipeline(
-        request,
-        limit,
-        createWriteStream(temporary, { flags: 'wx', mode: 0o600 }),
-        { signal: abort.signal },
-      );
+      const collector = new Writable({
+        write(chunk: Buffer, _encoding, callback) {
+          chunks.push(chunk);
+          callback();
+        },
+      });
+      await pipeline(request, limit, collector, { signal: abort.signal });
       if (!size) invalid('EMPTY_FILE');
+      let bytes = Buffer.concat(chunks);
       let mimeType = 'application/octet-stream';
       let fileName = input.fileName;
       if (input.type === 'image') {
         try {
           // Buffer IO works with both the native and WebAssembly image runtime.
-          const image = sharp(await readFile(temporary), {
+          const image = sharp(bytes, {
             limitInputPixels: 16000000,
             animated: false,
           });
@@ -107,19 +105,17 @@ export class ChatFilesService {
             (metadata.pages ?? 1) > 1
           )
             invalid('INVALID_IMAGE');
-          const converted = await image
+          bytes = await image
             .rotate()
             .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
             .webp({ quality: 85 })
             .toBuffer();
-          await writeFile(temporary, converted);
           mimeType = 'image/webp';
           fileName = `${input.fileName.replace(/\.[^.]*$/, '').slice(0, 250)}.webp`;
         } catch {
           invalid('INVALID_IMAGE');
         }
       } else if (input.type === 'voice') {
-        const bytes = await readFile(temporary);
         // Browser MediaRecorder containers; never trust a supplied MIME alone.
         if (
           bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) &&
@@ -140,10 +136,12 @@ export class ChatFilesService {
           mimeType = 'audio/mp4';
         else invalid('INVALID_AUDIO');
       }
-      const bytes = await readFile(temporary);
       size = bytes.length;
       if (size > MAX_BYTES) invalid('FILE_TOO_LARGE', 413);
-      // Compare the stored bytes and metadata for retries of the same message.
+      // Compare the plaintext bytes and metadata for retries of the same message,
+      // while writing only authenticated ciphertext to disk.
+      const stored = encryptMessageBytes(bytes);
+      await writeFile(temporary, stored, { flag: 'wx', mode: 0o600 });
       await rename(temporary, path);
       return {
         id,
@@ -168,10 +166,10 @@ export class ChatFilesService {
     }
   }
 
-  async stream(key: string) {
+  async readBuffer(key: string): Promise<Buffer> {
+    let raw: Buffer;
     try {
-      const file = await open(this.path(key), 'r');
-      return file.createReadStream();
+      raw = await readFile(this.path(key));
     } catch (error) {
       if (
         error &&
@@ -182,5 +180,10 @@ export class ChatFilesService {
         invalid('ATTACHMENT_NOT_FOUND', 404);
       throw error;
     }
+    return decryptMessageBytes(raw);
+  }
+
+  async stream(key: string) {
+    return Readable.from(await this.readBuffer(key));
   }
 }

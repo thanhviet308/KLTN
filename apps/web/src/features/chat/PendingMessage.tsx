@@ -34,11 +34,24 @@ export function PendingMessage({
             </div>
           </div>
         )}
-        <div className="message-body">{body}</div>
+        <div className="message-body-anchor">
+          <div className="message-body">{body}</div>
+          {status === 'sending' && (
+            <div
+              className="sent-status-inline"
+              role="status"
+              aria-label="Đang gửi…"
+              title="Đang gửi…"
+            >
+              <span
+                className="sent-status-badge is-sending"
+                aria-hidden="true"
+              />
+            </div>
+          )}
+        </div>
       </div>
-      {status === 'sending' ? (
-        <small>Đang gửi…</small>
-      ) : (
+      {status === 'failed' && (
         <>
           <small className="field-error">{error}</small>
           <button className="retry" disabled={retryDisabled} onClick={onRetry}>

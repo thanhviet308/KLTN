@@ -11,6 +11,9 @@ const {
   Attachment,
 } = require('../dist/modules/database/entities/attachment.entity');
 const {
+  encryptMessageBytes,
+} = require('../dist/modules/database/message-encryption');
+const {
   Notification,
 } = require('../dist/modules/database/entities/notification.entity');
 const {
@@ -502,10 +505,15 @@ test('voice transcription reads authorized audio, caches results, extends into t
   ]);
 
   const dir = mkdtempSync(join(tmpdir(), 'pingpong-voice-ai-'));
+  const prevKeys = process.env.MESSAGE_ENCRYPTION_KEYS;
+  process.env.MESSAGE_ENCRYPTION_KEYS = `1:${'44'.repeat(32)}`;
   try {
     const objectKey = '20000000-0000-4000-8000-000000000009';
     const audioPath = join(dir, objectKey);
-    writeFileSync(audioPath, Buffer.from('mock-webm-audio'));
+    writeFileSync(
+      audioPath,
+      encryptMessageBytes(Buffer.from('mock-webm-audio')),
+    );
 
     let voiceMessage = {
       id: '30000000-0000-4000-8000-000000000003',
@@ -736,6 +744,8 @@ test('voice transcription reads authorized audio, caches results, extends into t
       code('AI_INVALID_OUTPUT'),
     );
   } finally {
+    if (prevKeys === undefined) delete process.env.MESSAGE_ENCRYPTION_KEYS;
+    else process.env.MESSAGE_ENCRYPTION_KEYS = prevKeys;
     rmSync(dir, { recursive: true, force: true });
   }
 });

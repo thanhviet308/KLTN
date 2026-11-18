@@ -1,6 +1,5 @@
 import { HttpException, Inject, Injectable, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import type { Request } from 'express';
 import { DataSource, IsNull } from 'typeorm';
 import {
@@ -286,14 +285,9 @@ export class CallSummaryService {
     const audioMime = call.summaryAudioMime;
     let audio: Buffer;
     try {
-      audio = await readFile(this.files.path(audioKey));
+      audio = await this.files.readBuffer(audioKey);
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        error.code === 'ENOENT'
-      )
+      if (error instanceof HttpException && error.getStatus() === 404)
         fail(404, 'CALL_NOT_FOUND');
       throw error;
     }

@@ -3,6 +3,7 @@ import { DataSource, In, IsNull, MoreThan } from 'typeorm';
 import { User } from '../database/entities/user.entity';
 import { Session } from '../database/entities/session.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
+import { decryptMessageText } from '../database/message-encryption';
 import { pageResult } from '../../common/page.dto';
 import type {
   AdminAuditLogsDto,
@@ -259,7 +260,10 @@ export class AccountsService {
       uploads: {
         fileCount: uploadSummaryRows[0]?.fileCount ?? 0,
         totalBytes: uploadSummaryRows[0]?.totalBytes ?? '0',
-        recent: recentUploads,
+        recent: recentUploads.map((item) => ({
+          ...item,
+          fileName: decryptMessageText(item.fileName),
+        })),
       },
     };
   }
@@ -483,7 +487,7 @@ export class AccountsService {
           conversationId: att.conversationId,
           uploaderId: att.uploaderId,
           messageId: att.messageId,
-          fileName: att.fileName,
+          fileName: decryptMessageText(att.fileName),
         };
       }
       await manager.query(
@@ -751,7 +755,10 @@ export class AccountsService {
       sessions,
       friends,
       conversations,
-      uploads,
+      uploads: uploads.map((item) => ({
+        ...item,
+        fileName: decryptMessageText(item.fileName),
+      })),
       reports,
       auditLogs,
     };

@@ -9,7 +9,10 @@ import { Friendship } from '../database/entities/friendship.entity';
 import { MessageRequest } from '../database/entities/message-request.entity';
 import { User } from '../database/entities/user.entity';
 import type { Message } from '../database/entities/message.entity';
-import { decryptMessageText } from '../database/message-encryption';
+import {
+  decryptMessageContent,
+  decryptMessageText,
+} from '../database/message-encryption';
 import { pageResult } from '../../common/page.dto';
 import type { PageDto } from '../../common/page.dto';
 import { publicUserView } from '../users/user-view';
@@ -426,9 +429,12 @@ export class ConversationsService {
     const previewById = new Map(
       previews.map(({ conversationId, ...preview }) => {
         const body = decryptMessageText(preview.body);
+        const content = preview.deletedAt
+          ? null
+          : decryptMessageContent(preview.content);
         return [
           conversationId,
-          { ...preview, body: body?.slice(0, 200) ?? null },
+          { ...preview, content, body: body?.slice(0, 200) ?? null },
         ];
       }),
     );

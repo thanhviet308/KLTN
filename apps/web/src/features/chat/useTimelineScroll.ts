@@ -46,8 +46,10 @@ export function useTimelineScroll({
       // Let the loaded history and media placeholders finish layout before
       // treating scroll events as deliberate reader navigation.
       firstFrame = requestAnimationFrame(() => {
+        if (!initialScrollPending.current) return;
         followLatest();
         secondFrame = requestAnimationFrame(() => {
+          if (!initialScrollPending.current) return;
           followLatest();
           initialScrollPending.current = false;
         });
@@ -94,5 +96,10 @@ export function useTimelineScroll({
     },
   };
 
-  return { list, nearBottom, handlers };
+  const cancelAutoFollow = () => {
+    nearBottom.current = false;
+    initialScrollPending.current = false;
+  };
+
+  return { list, nearBottom, cancelAutoFollow, handlers };
 }

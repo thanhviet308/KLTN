@@ -141,14 +141,15 @@ async function request<T>(
   method?: string,
   timeoutMs = 15000,
 ): Promise<T> {
-  let response: Response;
-  try {
-    response = await scheduledRequest(path, () =>
+  const effectiveMethod = method ?? (body === undefined ? 'GET' : 'POST');
+  const canRetryTransient = effectiveMethod === 'GET';
+  const send = () =>
+    scheduledRequest(path, () =>
       fetch(`${API_ORIGIN}/api/v1${path}`, {
-        method: method ?? (body === undefined ? 'GET' : 'POST'),
+        method: effectiveMethod,
         credentials: 'include',
         headers: {
-          'Content-Type': 'application/json',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           'X-Auth-Client': 'web',
           ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
         },
@@ -156,8 +157,50 @@ async function request<T>(
         signal: AbortSignal.timeout(timeoutMs),
       }),
     );
-  } catch {
-    throw new ApiError(0, 'NETWORK_ERROR');
+  let response: Response;
+  let transientRetryUsed = false;
+  try {
+    response = await send();
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'SESSION_CHANGED')
+      throw error;
+    if (
+      !canRetryTransient ||
+      (typeof navigator !== 'undefined' && navigator.onLine === false)
+    ) {
+      throw new ApiError(0, 'NETWORK_ERROR');
+    }
+    // Idle keep-alive sockets, waking background tabs, or brief upstream reloads
+    // can fail a single GET; retry once before surfacing a network outage.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    transientRetryUsed = true;
+    try {
+      response = await send();
+    } catch (retryError) {
+      if (
+        retryError instanceof ApiError &&
+        retryError.code === 'SESSION_CHANGED'
+      )
+        throw retryError;
+      throw new ApiError(0, 'NETWORK_ERROR');
+    }
+  }
+  if (
+    canRetryTransient &&
+    !transientRetryUsed &&
+    [502, 503, 504].includes(response.status)
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    try {
+      response = await send();
+    } catch (retryError) {
+      if (
+        retryError instanceof ApiError &&
+        retryError.code === 'SESSION_CHANGED'
+      )
+        throw retryError;
+      throw new ApiError(0, 'NETWORK_ERROR');
+    }
   }
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));

@@ -19,7 +19,7 @@ export function Home({
 }: {
   user: api.User;
   onUser: (user: api.User) => void;
-  onOpen: (conversation: api.Conversation) => void;
+  onOpen: (conversation: api.Conversation, messageId?: string) => void;
   onExpired: () => void;
 }) {
   const [tab, setTab] = useState<MainTab>('chats');

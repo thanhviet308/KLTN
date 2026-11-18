@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
-const { mkdtemp, rm, readdir } = require('node:fs/promises');
+const { mkdtemp, readFile, rm, readdir } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const sharp = require('sharp');
@@ -287,10 +287,26 @@ const {
     assert.equal(webmMessage.content.mimeType, 'audio/webm');
     assert.equal(webmMessage.content.durationSeconds, 9);
     const [storedAttachment] = await db.query(
-      'SELECT created_at, completed_at, upload_expires_at FROM attachments WHERE message_id = $1',
+      'SELECT object_key, file_name, created_at, completed_at, upload_expires_at FROM attachments WHERE message_id = $1',
       [webmMessage.id],
     );
     assert.ok(storedAttachment);
+    assert.match(storedAttachment.file_name, /^enc:v1:/);
+    const storedVoiceBytes = await readFile(
+      join(directory, storedAttachment.object_key),
+    );
+    assert.equal(
+      storedVoiceBytes.subarray(0, 7).toString('latin1'),
+      'PPENC\x00\x01',
+    );
+    assert.ok(!storedVoiceBytes.includes(Buffer.from('webm')));
+    const [rawLocationRow] = await db.query(
+      'SELECT content FROM messages WHERE id = $1',
+      [located.id],
+    );
+    assert.equal(rawLocationRow.content.latitude, undefined);
+    assert.equal(rawLocationRow.content.longitude, undefined);
+    assert.match(rawLocationRow.content.coordinates, /^enc:v1:/);
     assert.ok(
       storedAttachment.completed_at.getTime() >=
         storedAttachment.created_at.getTime(),

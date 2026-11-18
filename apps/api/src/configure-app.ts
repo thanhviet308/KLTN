@@ -24,6 +24,7 @@ export function configureApp(
     origin: env.WEB_ORIGIN,
     credentials: true,
     exposedHeaders: ['x-request-id'],
+    maxAge: 86400,
   });
   app.use(json({ limit: '1mb' }));
   app.use(urlencoded({ extended: false, limit: '1mb' }));

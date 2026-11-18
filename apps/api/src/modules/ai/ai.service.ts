@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Optional } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -6,6 +6,7 @@ import { writeNotification } from '../notifications/notification-writer';
 import { ConversationsService } from '../conversations/conversations.service';
 import { Attachment } from '../database/entities/attachment.entity';
 import { Message } from '../database/entities/message.entity';
+import { decryptMessageBytes } from '../database/message-encryption';
 import { ChatFilesService } from '../messages/chat-files.service';
 import {
   AiProviderService,
@@ -384,13 +385,19 @@ export class AiService {
       if (!entry) {
         let bytes: Buffer;
         try {
-          bytes = await readFile(this.files.path(source.attachment.objectKey));
+          bytes =
+            typeof this.files.readBuffer === 'function'
+              ? await this.files.readBuffer(source.attachment.objectKey)
+              : decryptMessageBytes(
+                  await readFile(this.files.path(source.attachment.objectKey)),
+                );
         } catch (error) {
           if (
-            error &&
-            typeof error === 'object' &&
-            'code' in error &&
-            error.code === 'ENOENT'
+            (error instanceof HttpException && error.getStatus() === 404) ||
+            (error &&
+              typeof error === 'object' &&
+              'code' in error &&
+              error.code === 'ENOENT')
           )
             aiError(404, 'AI_SOURCE_UNAVAILABLE');
           throw error;

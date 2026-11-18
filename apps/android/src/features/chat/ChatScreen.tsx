@@ -92,11 +92,13 @@ function currentPosition() {
 
 export function Chat({
   conversation,
+  jumpTarget,
   user,
   onBack,
   onExpired,
 }: {
   conversation: api.Conversation;
+  jumpTarget?: { conversationId: string; messageId: string; token: number };
   user: api.User;
   onBack: () => void;
   onExpired: () => void;
@@ -105,6 +107,11 @@ export function Chat({
   const [messages, setMessages] = useState<api.Message[]>([]);
   const [body, setBody] = useState('');
   const [older, setOlder] = useState<string | null>(null);
+  const olderRef = useRef<string | null>(null);
+  const updateOlder = useCallback((next: string | null) => {
+    olderRef.current = next;
+    setOlder(next);
+  }, []);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -153,6 +160,11 @@ export function Chat({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchedHits, setSearchedHits] = useState<api.Message[]>([]);
   const [searchingServer, setSearchingServer] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string>();
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const handledJumpTokenRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [title, setTitle] = useState(conversationName(conversation));
   const messagesRef = useRef<api.Message[]>([]);
@@ -180,6 +192,7 @@ export function Chat({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
   }, []);
 
@@ -194,35 +207,38 @@ export function Chat({
     messagesRef.current = mergeMessages(messagesRef.current, incoming);
     setMessages(messagesRef.current);
   }, []);
-  const applyClearedHistory = useCallback((clearedAfterSequence: string) => {
-    const cutoff = BigInt(clearedAfterSequence || '0');
-    for (const [id, path] of Object.entries(mediaPathsRef.current)) {
-      const msg = messagesRef.current.find(item => item.id === id);
-      if (!msg || BigInt(msg.sequence) <= cutoff) {
-        ReactNativeBlobUtil.fs
-          .unlink(path.replace(/^file:\/\//, ''))
-          .catch(() => undefined);
-        delete mediaPathsRef.current[id];
+  const applyClearedHistory = useCallback(
+    (clearedAfterSequence: string) => {
+      const cutoff = BigInt(clearedAfterSequence || '0');
+      for (const [id, path] of Object.entries(mediaPathsRef.current)) {
+        const msg = messagesRef.current.find(item => item.id === id);
+        if (!msg || BigInt(msg.sequence) <= cutoff) {
+          ReactNativeBlobUtil.fs
+            .unlink(path.replace(/^file:\/\//, ''))
+            .catch(() => undefined);
+          delete mediaPathsRef.current[id];
+        }
       }
-    }
-    setMediaPaths({ ...mediaPathsRef.current });
-    setPlayingMessage(undefined);
-    Sound.removePlayBackListener();
-    Sound.removePlaybackEndListener();
-    void Sound.stopPlayer().catch(() => undefined);
-    messagesRef.current = messagesRef.current.filter(
-      item => BigInt(item.sequence) > cutoff,
-    );
-    setMessages(messagesRef.current);
-    setOlder(null);
-    setReplyTo(undefined);
-    setEditing(undefined);
-    setActionTarget(undefined);
-    setSearchedHits([]);
-    setVoiceTranscripts({});
-    setCallSummaries({});
-    setReactions({});
-  }, []);
+      setMediaPaths({ ...mediaPathsRef.current });
+      setPlayingMessage(undefined);
+      Sound.removePlayBackListener();
+      Sound.removePlaybackEndListener();
+      void Sound.stopPlayer().catch(() => undefined);
+      messagesRef.current = messagesRef.current.filter(
+        item => BigInt(item.sequence) > cutoff,
+      );
+      setMessages(messagesRef.current);
+      updateOlder(null);
+      setReplyTo(undefined);
+      setEditing(undefined);
+      setActionTarget(undefined);
+      setSearchedHits([]);
+      setVoiceTranscripts({});
+      setCallSummaries({});
+      setReactions({});
+    },
+    [updateOlder],
+  );
   const fail = useCallback(
     (next: unknown) => {
       if (next instanceof api.ApiError && next.status === 401) onExpired();
@@ -240,7 +256,7 @@ export function Chat({
           `/conversations/${conversation.id}/messages?direction=backward&limit=50`,
         );
         accept(page.items);
-        setOlder(page.nextCursor);
+        updateOlder(page.nextCursor);
       } else {
         let cursor: string | null = latest;
         do {
@@ -257,7 +273,7 @@ export function Chat({
     } finally {
       setLoading(false);
     }
-  }, [accept, conversation.id, fail]);
+  }, [accept, conversation.id, fail, updateOlder]);
 
   const loadMembers = useCallback(async () => {
     try {
@@ -281,7 +297,7 @@ export function Chat({
         `/conversations/${conversation.id}/messages?direction=backward&limit=50&cursor=${older}`,
       );
       accept(page.items);
-      setOlder(page.nextCursor);
+      updateOlder(page.nextCursor);
     } catch (next) {
       fail(next);
     } finally {
@@ -858,22 +874,76 @@ export function Chat({
     return `📎 ${message.content?.fileName ?? 'Tệp đính kèm'}`;
   }
 
-  function jumpToQuotedMessage(messageId: string, listItems: api.Message[]) {
-    const index = listItems.findIndex(item => item.id === messageId);
-    if (index < 0) {
-      setError('Không tìm thấy tin nhắn gốc trong danh sách đang hiển thị.');
+  const jumpToMessage = useCallback(
+    async (
+      messageId: string,
+      notFoundText = 'Không tìm thấy tin nhắn gốc.',
+    ) => {
+      setError('');
+      nearBottomRef.current = false;
+      hasPositionedList.current = true;
+      setSearchOpen(false);
+      setSearchQuery('');
+      try {
+        let cursor = olderRef.current;
+        while (
+          !messagesRef.current.some(item => item.id === messageId) &&
+          cursor
+        ) {
+          const page = await api.authenticated<api.Page<api.Message>>(
+            `/conversations/${conversation.id}/messages?direction=backward&limit=50&cursor=${cursor}`,
+          );
+          if (!mountedRef.current) return;
+          accept(page.items);
+          updateOlder(page.nextCursor);
+          if (page.nextCursor === cursor) break;
+          cursor = page.nextCursor;
+        }
+        if (!mountedRef.current) return;
+        const index = messagesRef.current.findIndex(
+          item => item.id === messageId,
+        );
+        if (index < 0) {
+          setError(notFoundText);
+          return;
+        }
+        setHighlightedMessageId(messageId);
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = setTimeout(() => {
+          setHighlightedMessageId(current =>
+            current === messageId ? undefined : current,
+          );
+        }, 2500);
+        setTimeout(() => {
+          if (!mountedRef.current) return;
+          try {
+            messageList.current?.scrollToIndex({
+              index,
+              animated: true,
+              viewPosition: 0.5,
+            });
+          } catch {
+            /* Fallback handled by onScrollToIndexFailed. */
+          }
+        }, 60);
+      } catch (next) {
+        fail(next);
+      }
+    },
+    [accept, conversation.id, fail, updateOlder],
+  );
+
+  useEffect(() => {
+    if (
+      !jumpTarget ||
+      jumpTarget.conversationId !== conversation.id ||
+      loading ||
+      handledJumpTokenRef.current === jumpTarget.token
+    )
       return;
-    }
-    try {
-      messageList.current?.scrollToIndex({
-        index,
-        animated: true,
-        viewPosition: 0.5,
-      });
-    } catch {
-      /* Item layout not measured yet. */
-    }
-  }
+    handledJumpTokenRef.current = jumpTarget.token;
+    void jumpToMessage(jumpTarget.messageId);
+  }, [conversation.id, jumpTarget, jumpToMessage, loading]);
 
   const scheduleFocus = useCallback(
     (targetRef: React.RefObject<TextInputInstance | null>) => {
@@ -1227,6 +1297,24 @@ export function Chat({
                 </Pressable>
               ) : undefined
             }
+            onScrollToIndexFailed={info => {
+              messageList.current?.scrollToOffset({
+                offset: info.averageItemLength * info.index,
+                animated: false,
+              });
+              setTimeout(() => {
+                if (!mountedRef.current) return;
+                try {
+                  messageList.current?.scrollToIndex({
+                    index: info.index,
+                    animated: true,
+                    viewPosition: 0.5,
+                  });
+                } catch {
+                  /* Ignore if unmounted or list changed. */
+                }
+              }, 80);
+            }}
             onScroll={event => {
               const { contentOffset, contentSize, layoutMeasurement } =
                 event.nativeEvent;
@@ -1318,10 +1406,7 @@ export function Chat({
                         disabled={!reply.messageId}
                         onPress={() => {
                           if (reply.messageId) {
-                            jumpToQuotedMessage(
-                              reply.messageId,
-                              displayedMessages,
-                            );
+                            void jumpToMessage(reply.messageId);
                           }
                         }}
                         style={({ pressed }) => [
@@ -1351,9 +1436,18 @@ export function Chat({
                       accessibilityRole="button"
                       delayLongPress={280}
                       onLongPress={() => showActions(item)}
+                      onPress={
+                        normalizedSearch
+                          ? () => void jumpToMessage(item.id)
+                          : undefined
+                      }
                       style={({ pressed }) => [
                         styles.bubble,
                         mine ? styles.bubbleMine : styles.bubblePeer,
+                        highlightedMessageId === item.id &&
+                          (mine
+                            ? styles.bubbleMineHighlighted
+                            : styles.bubbleHighlighted),
                         pressed &&
                           !item.deletedAt &&
                           item.type !== 'call' &&
@@ -1419,6 +1513,20 @@ export function Chat({
                       </View>
                     </Pressable>
                   </SwipeableMessageBubble>
+                  {!!normalizedSearch && (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => void jumpToMessage(item.id)}
+                      style={({ pressed }) => [
+                        styles.searchJumpChip,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.searchJumpChipText}>
+                        Đi tới tin nhắn gốc ↗
+                      </Text>
+                    </Pressable>
+                  )}
                   {!item.deletedAt &&
                     item.type === 'voice' &&
                     !!voiceTranscripts[item.id] && (

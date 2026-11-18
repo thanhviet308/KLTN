@@ -76,6 +76,7 @@ export function Chat({
   onMessagesChange,
   initialLastReadSequence,
   initialUnreadCount = 0,
+  jumpTarget,
 }: {
   conversationId: string;
   isGroup?: boolean;
@@ -89,6 +90,7 @@ export function Chat({
   onMessagesChange?: (messages: Message[]) => void;
   initialLastReadSequence?: string | null;
   initialUnreadCount?: number;
+  jumpTarget?: { conversationId: string; messageId: string; token: number };
 }) {
   const [mentions, setMentions] = useState<string[]>([]);
   const draftKey = `${user.id}:${conversationId}`;
@@ -327,6 +329,11 @@ export function Chat({
     drafts.set(draftKey, { body, pending });
   }, [body, pending, draftKey]);
   const [older, setOlder] = useState<string | null>(cached?.older ?? null);
+  const olderRef = useRef<string | null>(cached?.older ?? null);
+  const updateOlder = (next: string | null) => {
+    olderRef.current = next;
+    setOlder(next);
+  };
   const [loading, setLoading] = useState(!cached);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState('');
@@ -366,6 +373,7 @@ export function Chat({
   );
   function fail(e: unknown) {
     if (!alive.current) return;
+    if (e instanceof api.ApiError && e.code === 'SESSION_CHANGED') return;
     if (e instanceof api.ApiError && e.status === 401) onExpired();
     else {
       setError(api.errorMessage(e));
@@ -463,6 +471,8 @@ export function Chat({
     let syncing = false;
     let stopped = false;
     let subscribeRetry: ReturnType<typeof setTimeout> | undefined;
+    let syncRetry: ReturnType<typeof setTimeout> | undefined;
+    let transientSyncError = false;
     let lastSyncAt = 0;
     const hub = acquireChatSocket(user.id);
     const client = hub.socket;
@@ -490,9 +500,12 @@ export function Chat({
         return;
       }
       syncing = true;
-      lastSyncAt = Date.now();
+      if (syncRetry) {
+        clearTimeout(syncRetry);
+        syncRetry = undefined;
+      }
+      const initial = !started.current;
       try {
-        const initial = !started.current;
         if (!started.current) {
           const page = await loadRecentHistory(draftKey, () =>
             api.authenticated<History>(
@@ -502,7 +515,7 @@ export function Chat({
           if (stopped) return;
           messageCache.current = [];
           accept(page.items, true);
-          setOlder(page.nextCursor);
+          updateOlder(page.nextCursor);
           started.current = true;
         }
         if (!stopped) setLoading(false);
@@ -527,18 +540,32 @@ export function Chat({
             if (stopped) return;
             page.items.forEach(receipt);
           } catch (e) {
-            if (!(e instanceof api.ApiError) || e.code !== 'MESSAGE_NOT_FOUND')
-              throw e;
+            if (e instanceof api.ApiError && e.status === 401) throw e;
           }
         }
+        lastSyncAt = Date.now();
         if (!stopped) {
+          transientSyncError = false;
           setLoading(false);
           setError('');
         }
       } catch (e) {
         if (!stopped) {
-          fail(e);
           setLoading(false);
+          const isTransient =
+            e instanceof api.ApiError && (e.status === 0 || e.status >= 500);
+          if (!initial && messageCache.current.length > 0 && isTransient) {
+            // Messages are already visible; retry silently instead of pinning
+            // a sticky outage banner on brief wake/keep-alive hiccups.
+            transientSyncError = true;
+            syncRetry = setTimeout(() => {
+              syncRetry = undefined;
+              if (!stopped) void sync();
+            }, 3000);
+          } else {
+            if (isTransient) transientSyncError = true;
+            fail(e);
+          }
         }
       } finally {
         syncing = false;
@@ -658,7 +685,7 @@ export function Chat({
         (item) => BigInt(item.sequence) > cutoff,
       );
       setMessages(messageCache.current);
-      setOlder(null);
+      updateOlder(null);
       setPins([]);
       setReplyTo(undefined);
       setTranslations({});
@@ -721,18 +748,22 @@ export function Chat({
       );
     }, 1000);
     const interval = setInterval(() => {
-      if (!client.connected) void sync();
+      if (!client.connected || transientSyncError) void sync();
     }, 15000);
     const onResume = () => {
       if (document.visibilityState !== 'visible') return;
       if (!client.connected) {
         hub.reconnectNow();
         void sync();
+      } else if (transientSyncError) {
+        void sync();
       }
     };
     const onOnline = () => {
       if (!client.connected) {
         hub.reconnectNow();
+        void sync();
+      } else if (transientSyncError) {
         void sync();
       }
     };
@@ -745,6 +776,7 @@ export function Chat({
       clearInterval(interval);
       clearInterval(typingExpiry);
       if (subscribeRetry) clearTimeout(subscribeRetry);
+      if (syncRetry) clearTimeout(syncRetry);
       if (typingTimer.current) clearTimeout(typingTimer.current);
       if (client.connected)
         client.emit('typing:update', { conversationId, typing: false });
@@ -770,14 +802,18 @@ export function Chat({
       document.removeEventListener('visibilitychange', onResume);
     };
   }, [conversationId, user.id]);
-  const typingDependency = Object.entries(typing)
-    .filter(([, expiry]) => expiry > Date.now())
+  const renderNow = Date.now();
+  const activeTypingIds = Object.entries(typing)
+    .filter(([, expiry]) => expiry > renderNow)
     .map(([id]) => id)
-    .sort()
-    .join(',');
+    .sort();
+  const typingDependency = activeTypingIds.join(',');
+  const singleTyperId =
+    activeTypingIds.length === 1 ? activeTypingIds[0] : undefined;
   const {
     list,
     nearBottom,
+    cancelAutoFollow,
     handlers: timelineHandlers,
   } = useTimelineScroll({
     active,
@@ -785,40 +821,64 @@ export function Chat({
     loading,
     dependencies: [messages, pending, typingDependency],
   });
+  const handledJumpToken = useRef(0);
   async function jumpToMessage(
     messageId: string,
     notFoundMessage = 'Không tìm thấy tin nhắn gốc.',
   ) {
     try {
-      nearBottom.current = false;
-      let cursor = older;
+      setError('');
+      cancelAutoFollow();
+      let cursor = olderRef.current;
       while (!messageCache.current.some((m) => m.id === messageId) && cursor) {
         const page = await api.authenticated<History>(
           `/conversations/${conversationId}/messages?direction=backward&limit=50&cursor=${cursor}`,
         );
         if (!alive.current) return;
         accept(page.items);
-        setOlder(page.nextCursor);
+        updateOlder(page.nextCursor);
         if (page.nextCursor === cursor) break;
         cursor = page.nextCursor;
       }
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
+      if (!alive.current) return;
+      cancelAutoFollow();
+      const selectorId =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? CSS.escape(messageId)
+          : messageId;
       const element = list.current?.querySelector<HTMLElement>(
-        `[data-message-id="${messageId}"]`,
+        `[data-message-id="${selectorId}"]`,
       );
       if (!element) {
         setError(notFoundMessage);
         return;
       }
-      element.scrollIntoView({ block: 'center', behavior: 'instant' });
+      element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      element.classList.remove('pin-highlight');
+      void element.offsetWidth;
       element.classList.add('pin-highlight');
       window.setTimeout(() => element.classList.remove('pin-highlight'), 2500);
     } catch (e) {
       fail(e);
     }
   }
+  useEffect(() => {
+    if (
+      !jumpTarget ||
+      jumpTarget.conversationId !== conversationId ||
+      loading ||
+      handledJumpToken.current === jumpTarget.token
+    )
+      return;
+    handledJumpToken.current = jumpTarget.token;
+    cancelAutoFollow();
+    void jumpToMessage(jumpTarget.messageId);
+    // jumpToMessage reads refs for live timeline state once loading settles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTarget, loading, conversationId]);
   function jumpToPin(target: Message) {
     return jumpToMessage(target.id, 'Không tìm thấy tin nhắn đã ghim.');
   }
@@ -877,13 +937,13 @@ export function Chat({
     const container = list.current;
     const height = container?.scrollHeight ?? 0;
     const top = container?.scrollTop ?? 0;
-    nearBottom.current = false;
+    cancelAutoFollow();
     try {
       const page = await api.authenticated<History>(
         `/conversations/${conversationId}/messages?direction=backward&limit=50&cursor=${older}`,
       );
       accept(page.items);
-      if (alive.current) setOlder(page.nextCursor);
+      if (alive.current) updateOlder(page.nextCursor);
       requestAnimationFrame(() => {
         if (container && alive.current)
           container.scrollTop = top + container.scrollHeight - height;
@@ -1196,11 +1256,19 @@ export function Chat({
         {messages.map((message, index) => {
           const previous = messages[index - 1];
           const next = messages[index + 1];
+          const continuesWithTyping =
+            !next &&
+            pending.length === 0 &&
+            message.type !== 'call' &&
+            !!singleTyperId &&
+            singleTyperId === message.senderId &&
+            renderNow - Date.parse(message.createdAt) < 5 * 60 * 1000;
           const continuesGroup =
-            !!next &&
-            next.senderId === message.senderId &&
-            Date.parse(next.createdAt) - Date.parse(message.createdAt) <
-              5 * 60 * 1000;
+            continuesWithTyping ||
+            (!!next &&
+              next.senderId === message.senderId &&
+              Date.parse(next.createdAt) - Date.parse(message.createdAt) <
+                5 * 60 * 1000);
           const showTime =
             !previous ||
             Date.parse(message.createdAt) - Date.parse(previous.createdAt) >=
@@ -1327,7 +1395,12 @@ export function Chat({
             onRetry={() => void send(draft)}
           />
         ))}
-        <TypingNote typing={typing} names={names} />
+        <TypingNote
+          typing={typing}
+          names={names}
+          peers={peers}
+          isGroup={isGroup}
+        />
       </div>
       {receiptMessage && (
         <ReceiptPanel
