@@ -1649,9 +1649,7 @@ export function Chat({
           <textarea
             ref={composer}
             aria-label="Nội dung tin nhắn"
-            placeholder={
-              isGroup ? 'Nhập tin nhắn… (gõ @ để nhắc tên)' : 'Nhập tin nhắn…'
-            }
+            placeholder="Nhập tin nhắn…"
             value={body}
             disabled={unavailable}
             maxLength={10000}
