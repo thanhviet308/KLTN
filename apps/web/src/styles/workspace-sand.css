@@ -254,8 +254,17 @@
 }
 
 .home-shell .message-timeline {
-  display: block;
+  display: flex;
+  flex-direction: column;
   padding: 20px 6px;
+}
+
+.home-shell .message-timeline > * {
+  flex-shrink: 0;
+}
+
+.home-shell .message-timeline > :first-child {
+  margin-top: auto;
 }
 
 .home-shell .chat-message {
