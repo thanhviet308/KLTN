@@ -4,14 +4,18 @@ import {
   ClipboardList,
   Database,
   Lock,
+  RotateCcw,
   Search,
   ShieldAlert,
+  UserCheck,
 } from 'lucide-react';
 import * as api from '../../lib/api';
 import {
+  exportAuditLogsCsv,
   exportUserLogFile,
   formatDateTime,
   type AdminAuditLogItem,
+  type AdminUserAccount,
 } from './admin-export';
 
 const UUID_RE =
@@ -43,6 +47,10 @@ export function AdminAuditCompliance({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
+  const [userLookup, setUserLookup] = useState('');
+  const [userCandidates, setUserCandidates] = useState<AdminUserAccount[]>([]);
+  const [selectedExportUser, setSelectedExportUser] =
+    useState<AdminUserAccount | null>(null);
   const [exportUserId, setExportUserId] = useState('');
   const [complianceBusy, setComplianceBusy] = useState(false);
   const [complianceMsg, setComplianceMsg] = useState('');
@@ -55,18 +63,33 @@ export function AdminAuditCompliance({
   const [confirmRetention, setConfirmRetention] = useState(false);
 
   const loadLogs = useCallback(
-    async (next?: string) => {
-      const trimmedActor = actorId.trim();
-      const trimmedTarget = targetId.trim();
-      if (trimmedActor && !UUID_RE.test(trimmedActor)) {
+    async (
+      next?: string,
+      overrides?: {
+        actorId?: string;
+        targetType?: string;
+        targetId?: string;
+        action?: string;
+        from?: string;
+        to?: string;
+      },
+    ) => {
+      const curActor = (overrides?.actorId ?? actorId).trim();
+      const curTargetType = overrides?.targetType ?? targetType;
+      const curTarget = (overrides?.targetId ?? targetId).trim();
+      const curAction = (overrides?.action ?? action).trim();
+      const curFrom = overrides?.from ?? from;
+      const curTo = overrides?.to ?? to;
+
+      if (curActor && !UUID_RE.test(curActor)) {
         setError('Actor ID phải là UUID v4 hợp lệ.');
         return;
       }
-      if (trimmedTarget && !UUID_RE.test(trimmedTarget)) {
+      if (curTarget && !UUID_RE.test(curTarget)) {
         setError('Target ID phải là UUID v4 hợp lệ.');
         return;
       }
-      if (from && to && from > to) {
+      if (curFrom && curTo && curFrom > curTo) {
         setError('Ngày bắt đầu không được lớn hơn ngày kết thúc.');
         return;
       }
@@ -74,12 +97,12 @@ export function AdminAuditCompliance({
       setError('');
       try {
         const params = new URLSearchParams({ limit: '25' });
-        if (trimmedActor) params.set('actorId', trimmedActor);
-        if (targetType) params.set('targetType', targetType);
-        if (trimmedTarget) params.set('targetId', trimmedTarget);
-        if (action.trim()) params.set('action', action.trim());
-        if (from) params.set('from', from);
-        if (to) params.set('to', to);
+        if (curActor) params.set('actorId', curActor);
+        if (curTargetType) params.set('targetType', curTargetType);
+        if (curTarget) params.set('targetId', curTarget);
+        if (curAction) params.set('action', curAction);
+        if (curFrom) params.set('from', curFrom);
+        if (curTo) params.set('to', curTo);
         if (next) params.set('cursor', next);
         const page = await api.authenticated<{
           items: AdminAuditLogItem[];
@@ -109,10 +132,38 @@ export function AdminAuditCompliance({
     void loadLogs();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const term = userLookup.trim();
+    const timer = window.setTimeout(
+      () => {
+        const params = new URLSearchParams({ limit: '5' });
+        if (term) params.set('query', term);
+        void api
+          .authenticated<{ items: AdminUserAccount[] }>(
+            `/admin/users?${params.toString()}`,
+          )
+          .then((res) => {
+            if (active) setUserCandidates(res.items);
+          })
+          .catch(() => {
+            if (active) setUserCandidates([]);
+          });
+      },
+      term ? 220 : 0,
+    );
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [userLookup]);
+
   async function runExport(format: 'json' | 'csv') {
     const id = exportUserId.trim();
     if (!UUID_RE.test(id)) {
-      setComplianceError('Nhập đúng UUID của người dùng cần xuất log.');
+      setComplianceError(
+        'Vui lòng chọn người dùng bên dưới hoặc nhập đúng mã UUID v4.',
+      );
       return;
     }
     setComplianceBusy(true);
@@ -121,7 +172,7 @@ export function AdminAuditCompliance({
     try {
       await exportUserLogFile(id, format);
       setComplianceMsg(
-        `Đã xuất hồ sơ khiếu nại (${format.toUpperCase()}) cho user ${id}.`,
+        `Đã xuất hồ sơ khiếu nại (${format.toUpperCase()}) cho ${selectedExportUser ? `${selectedExportUser.displayName} (${id.slice(0, 8)}…)` : `user ${id}`}.`,
       );
       void loadLogs();
     } catch (e) {
@@ -164,6 +215,15 @@ export function AdminAuditCompliance({
     }
   }
 
+  const hasAuditFilters = Boolean(
+    actorId.trim() ||
+    targetType ||
+    targetId.trim() ||
+    action.trim() ||
+    from ||
+    to,
+  );
+
   return (
     <div className="admin-compliance-stack">
       <div className="admin-compliance-grid">
@@ -173,21 +233,63 @@ export function AdminAuditCompliance({
         >
           <div className="admin-panel-heading">
             <div>
-              <h2>Export log theo người dùng</h2>
+              <h2>Trích xuất hồ sơ người dùng</h2>
               <p>
-                Xuất toàn bộ hồ sơ, phiên đăng nhập, báo cáo và audit liên quan
-                phục vụ giải quyết khiếu nại.
+                Xuất toàn bộ tài khoản, phiên đăng nhập, báo cáo và audit liên
+                quan phục vụ đối soát &amp; khiếu nại.
               </p>
             </div>
             <ArrowDownToLine size={19} />
           </div>
           <div className="admin-compliance-body">
             <label className="admin-field">
-              <span>Mã người dùng (UUID)</span>
+              <span>Tìm nhanh theo tên / email</span>
+              <input
+                value={userLookup}
+                placeholder="Nhập tên hoặc email để chọn nhanh tài khoản…"
+                onChange={(e) => setUserLookup(e.target.value)}
+              />
+            </label>
+            {userCandidates.length > 0 && (
+              <div
+                className="admin-user-picker"
+                aria-label="Gợi ý người dùng hệ thống"
+              >
+                {userCandidates.map((u) => {
+                  const isPicked = exportUserId === u.id;
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      className={`admin-user-chip ${isPicked ? 'is-picked' : ''}`}
+                      onClick={() => {
+                        setExportUserId(u.id);
+                        setSelectedExportUser(u);
+                        setComplianceError('');
+                      }}
+                    >
+                      <UserCheck size={13} />
+                      <span>{u.displayName}</span>
+                      <small>{u.email}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <label className="admin-field">
+              <span>Mã định danh tài khoản (UUID)</span>
               <input
                 value={exportUserId}
                 placeholder="vd: 10000000-0000-4000-8000-000000000001"
-                onChange={(e) => setExportUserId(e.target.value)}
+                onChange={(e) => {
+                  setExportUserId(e.target.value);
+                  if (
+                    selectedExportUser &&
+                    e.target.value !== selectedExportUser.id
+                  ) {
+                    setSelectedExportUser(null);
+                  }
+                }}
               />
             </label>
             <div className="admin-compliance-actions">
@@ -195,19 +297,19 @@ export function AdminAuditCompliance({
                 type="button"
                 className="admin-button primary"
                 disabled={complianceBusy}
-                onClick={() => void runExport('json')}
+                onClick={() => void runExport('csv')}
               >
                 <ArrowDownToLine size={15} />
-                Xuất JSON
+                Xuất hồ sơ CSV (Excel)
               </button>
               <button
                 type="button"
                 className="admin-button"
                 disabled={complianceBusy}
-                onClick={() => void runExport('csv')}
+                onClick={() => void runExport('json')}
               >
                 <ArrowDownToLine size={15} />
-                Xuất CSV
+                Xuất hồ sơ JSON
               </button>
             </div>
           </div>
@@ -219,10 +321,10 @@ export function AdminAuditCompliance({
         >
           <div className="admin-panel-heading">
             <div>
-              <h2>Chính sách lưu trữ (Retention)</h2>
+              <h2>Chính sách lưu trữ (Data Retention)</h2>
               <p>
-                Xóa mềm tin nhắn và/hoặc thu hồi media cũ hơn N ngày theo quy
-                định tuân thủ.
+                Tự động xóa mềm tin nhắn và/hoặc thu hồi media cũ hơn N ngày
+                theo quy định bảo mật dữ liệu.
               </p>
             </div>
             <Database size={19} />
@@ -249,11 +351,15 @@ export function AdminAuditCompliance({
                     )
                   }
                 >
-                  <option value="both">Tin nhắn &amp; Media</option>
-                  <option value="messages">Chỉ tin nhắn</option>
-                  <option value="attachments">Chỉ media / tệp</option>
+                  <option value="both">Tin nhắn &amp; Media đính kèm</option>
+                  <option value="messages">Chỉ nội dung tin nhắn</option>
+                  <option value="attachments">Chỉ media / tệp tải lên</option>
                 </select>
               </label>
+            </div>
+            <div className="admin-retention-hint">
+              Mọi thao tác dọn dẹp đều được ghi bất biến vào bảng{' '}
+              <code>audit_logs</code> kèm số lượng bản ghi bị thu hồi.
             </div>
             {!confirmRetention ? (
               <button
@@ -320,11 +426,29 @@ export function AdminAuditCompliance({
               </span>
             </h2>
             <p>
-              Tra cứu theo người thực hiện (actor), đối tượng (target), loại
-              hành động và khoảng thời gian.
+              Tra cứu bất biến theo người thực hiện (actor), đối tượng (target),
+              loại hành động và mốc thời gian.
             </p>
           </div>
-          <ClipboardList size={20} />
+          <div className="admin-heading-actions">
+            <button
+              type="button"
+              className="admin-button"
+              disabled={loading}
+              onClick={() => void loadLogs()}
+            >
+              Làm mới
+            </button>
+            <button
+              type="button"
+              className="admin-button primary"
+              disabled={!items.length}
+              onClick={() => exportAuditLogsCsv(items)}
+            >
+              <ArrowDownToLine size={15} />
+              Xuất Audit CSV
+            </button>
+          </div>
         </div>
 
         <form
@@ -349,7 +473,9 @@ export function AdminAuditCompliance({
             <option value="user">Người dùng (user)</option>
             <option value="report">Báo cáo (report)</option>
             <option value="message">Tin nhắn (message)</option>
-            <option value="attachment">Tệp (attachment)</option>
+            <option value="attachment">Tệp đính kèm (attachment)</option>
+            <option value="call">Cuộc gọi (call)</option>
+            <option value="conversation">Hội thoại (conversation)</option>
           </select>
           <input
             value={targetId}
@@ -366,23 +492,53 @@ export function AdminAuditCompliance({
           <input
             type="date"
             aria-label="Từ ngày"
+            title="Từ ngày"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
           />
           <input
             type="date"
             aria-label="Đến ngày"
+            title="Đến ngày"
             value={to}
             onChange={(e) => setTo(e.target.value)}
           />
-          <button
-            type="submit"
-            className="admin-button primary"
-            disabled={loading}
-          >
-            <Search size={15} />
-            Tra cứu
-          </button>
+          <div className="admin-audit-filter-btns">
+            <button
+              type="submit"
+              className="admin-button primary"
+              disabled={loading}
+            >
+              <Search size={15} />
+              Tra cứu
+            </button>
+            {hasAuditFilters && (
+              <button
+                type="button"
+                className="admin-button"
+                disabled={loading}
+                onClick={() => {
+                  setActorId('');
+                  setTargetType('');
+                  setTargetId('');
+                  setAction('');
+                  setFrom('');
+                  setTo('');
+                  void loadLogs(undefined, {
+                    actorId: '',
+                    targetType: '',
+                    targetId: '',
+                    action: '',
+                    from: '',
+                    to: '',
+                  });
+                }}
+              >
+                <RotateCcw size={14} />
+                Đặt lại
+              </button>
+            )}
+          </div>
         </form>
 
         {error && (
@@ -429,16 +585,21 @@ export function AdminAuditCompliance({
                         <span>
                           {targetLabels[log.targetType] ?? log.targetType}
                         </span>
-                        <code className="admin-uuid admin-block-sub">
-                          {log.targetId}
-                        </code>
+                        {log.targetId && (
+                          <code className="admin-uuid admin-block-sub">
+                            {log.targetId}
+                          </code>
+                        )}
                       </div>
                     ) : (
                       <span>Hệ thống</span>
                     )}
                   </td>
                   <td>
-                    <code className="admin-meta-json">
+                    <code
+                      className="admin-meta-json"
+                      title={JSON.stringify(log.metadata ?? {})}
+                    >
                       {JSON.stringify(log.metadata ?? {})}
                     </code>
                   </td>
@@ -452,20 +613,19 @@ export function AdminAuditCompliance({
               <ClipboardList size={28} />
               <h3>Chưa có bản ghi audit phù hợp</h3>
               <p>
-                Các hành động khóa user, xử lý report, xóa nội dung hoặc
-                retention sẽ hiển thị tại đây.
+                Các hành động khóa user, xử lý report, xóa nội dung, trích xuất
+                hồ sơ hoặc retention sẽ hiển thị tại đây.
               </p>
             </div>
           )}
         </div>
 
         <div className="admin-table-footer">
-          <span>Đang hiển thị {items.length} bản ghi (chỉ đọc)</span>
+          <span>Đang hiển thị {items.length} bản ghi kiểm toán (chỉ đọc)</span>
           {cursor && (
             <button
               type="button"
               className="admin-button"
-              style={{ width: 'auto', paddingInline: 14 }}
               disabled={loading}
               onClick={() => void loadLogs(cursor)}
             >

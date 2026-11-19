@@ -32,25 +32,29 @@ export function TypingNote({
     <div className="typing-note" role="status" aria-live="polite">
       {activeEntries.length > 0 ? (
         <>
-          <span
-            className="message-sender-avatar typing-avatar"
-            title={label}
-            aria-hidden="true"
-          >
-            <Avatar peer={activeEntries[0].peer} />
-          </span>
-          <span className="typing-bubble" title={label}>
-            <span className="typing-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-            {isGroup ? (
-              <span className="typing-label">
-                {activeEntries.map((entry) => entry.name).join(', ')}
+          <span className="typing-avatars" title={label} aria-hidden="true">
+            {activeEntries.slice(0, 2).map((entry) => (
+              <span
+                key={entry.id}
+                className="message-sender-avatar typing-avatar"
+              >
+                <Avatar peer={entry.peer} />
               </span>
-            ) : (
+            ))}
+          </span>
+          <span className="typing-bubble-wrap">
+            <span className="typing-bubble" title={label}>
+              <span className="typing-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
               <span className="typing-sr-only">{label}</span>
+            </span>
+            {isGroup && (
+              <small className="typing-group-caption" aria-hidden="true">
+                {label}
+              </small>
             )}
           </span>
         </>

@@ -10,6 +10,8 @@ import { CallParticipant } from '../database/entities/call-participant.entity';
 import { ConversationMember } from '../database/entities/conversation-member.entity';
 import { ConversationMemberPeriod } from '../database/entities/conversation-member-period.entity';
 import { Conversation } from '../database/entities/conversation.entity';
+import { Friendship } from '../database/entities/friendship.entity';
+import { MessageRequest } from '../database/entities/message-request.entity';
 import { Message } from '../database/entities/message.entity';
 import type { AcceptCallDto, CreateCallDto } from './calls.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
@@ -287,6 +289,33 @@ export class CallsService {
         });
       if (!membership)
         fail(404, 'CONVERSATION_NOT_FOUND', 'Conversation was not found');
+
+      const conversation = await manager.getRepository(Conversation).findOne({
+        where: { id: conversationId, deletedAt: IsNull() },
+        lock: { mode: 'pessimistic_read' },
+      });
+      if (!conversation)
+        fail(404, 'CONVERSATION_NOT_FOUND', 'Conversation was not found');
+      if (conversation.type === 'direct') {
+        const friendship = await manager.getRepository(Friendship).findOneBy({
+          pairLowId: conversation.directUserLowId!,
+          pairHighId: conversation.directUserHighId!,
+          status: 'accepted',
+        });
+        const acceptedRequest = friendship
+          ? null
+          : await manager.getRepository(MessageRequest).findOneBy({
+              pairLowId: conversation.directUserLowId!,
+              pairHighId: conversation.directUserHighId!,
+              status: 'accepted',
+            });
+        if (!friendship && !acceptedRequest)
+          fail(
+            403,
+            'MESSAGING_PERMISSION_REQUIRED',
+            'Friendship or an accepted message request is required to start a call',
+          );
+      }
 
       const open = await calls
         .createQueryBuilder('call')

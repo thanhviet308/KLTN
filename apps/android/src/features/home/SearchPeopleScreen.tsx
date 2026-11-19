@@ -187,27 +187,38 @@ export function SearchPeopleScreen({
                 >
                   <Text style={styles.smallPrimaryText}>Nhắn tin</Text>
                 </Pressable>
-              ) : status === 'incoming' ? (
-                <Pressable
-                  disabled={!!busyId}
-                  onPress={onGoRequests}
-                  style={styles.smallSecondary}
-                >
-                  <Text style={styles.smallSecondaryText}>Xem lời mời</Text>
-                </Pressable>
               ) : (
-                <Pressable
-                  disabled={status === 'outgoing' || !!busyId}
-                  onPress={() => void invite(item)}
-                  style={[
-                    styles.smallPrimary,
-                    status === 'outgoing' && styles.smallButtonDisabled,
-                  ]}
-                >
-                  <Text style={styles.smallPrimaryText}>
-                    {status === 'outgoing' ? 'Đã gửi' : 'Kết bạn'}
-                  </Text>
-                </Pressable>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <Pressable
+                    disabled={!!busyId}
+                    onPress={() => void openDirect(item)}
+                    style={styles.smallSecondary}
+                  >
+                    <Text style={styles.smallSecondaryText}>Nhắn tin</Text>
+                  </Pressable>
+                  {status === 'incoming' ? (
+                    <Pressable
+                      disabled={!!busyId}
+                      onPress={onGoRequests}
+                      style={styles.smallSecondary}
+                    >
+                      <Text style={styles.smallSecondaryText}>Xem lời mời</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      disabled={status === 'outgoing' || !!busyId}
+                      onPress={() => void invite(item)}
+                      style={[
+                        styles.smallPrimary,
+                        status === 'outgoing' && styles.smallButtonDisabled,
+                      ]}
+                    >
+                      <Text style={styles.smallPrimaryText}>
+                        {status === 'outgoing' ? 'Đã gửi' : 'Kết bạn'}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
               )}
             </View>
           );

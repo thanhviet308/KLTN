@@ -172,6 +172,10 @@ export function ConversationList({
   const normalizedQuery = query.trim().toLocaleLowerCase('vi');
 
   const visibleItems = items.filter(item => {
+    const isIncomingPending =
+      item.messageRequest?.direction === 'incoming' &&
+      item.messageRequest.status === 'pending';
+    if (isIncomingPending) return false;
     const matchesQuery =
       !normalizedQuery ||
       conversationName(item)
@@ -201,9 +205,12 @@ export function ConversationList({
 
   const visibleRequests = requests.filter(
     req =>
-      !normalizedQuery ||
-      req.user.displayName.toLocaleLowerCase('vi').includes(normalizedQuery) ||
-      (req.body ?? '').toLocaleLowerCase('vi').includes(normalizedQuery),
+      req.direction !== 'outgoing' &&
+      (!normalizedQuery ||
+        req.user.displayName
+          .toLocaleLowerCase('vi')
+          .includes(normalizedQuery) ||
+        (req.body ?? '').toLocaleLowerCase('vi').includes(normalizedQuery)),
   );
 
   const incomingRequestsCount = requests.filter(
@@ -588,6 +595,13 @@ export function ConversationList({
                 <Text style={styles.requestPreview}>{item.body}</Text>
               )}
               <View style={styles.requestActions}>
+                <Pressable
+                  disabled={!!requestBusyId}
+                  onPress={() => void openDirectWithPeer(item.user.id)}
+                  style={styles.smallSecondary}
+                >
+                  <Text style={styles.smallSecondaryText}>Xem tin nhắn</Text>
+                </Pressable>
                 {item.direction !== 'outgoing' && (
                   <Pressable
                     disabled={!!requestBusyId}

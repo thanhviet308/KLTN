@@ -30,7 +30,7 @@ export class AccountsService {
   async dashboard(actor: User, input: AdminDashboardDto) {
     this.admin(actor);
     const days = Math.min(Math.max(Number(input.days || 14), 1), 90);
-    const [userRows, totalRows, seriesRows] = await Promise.all([
+    const [userRows, totalRows, seriesRows, breakdownRows] = await Promise.all([
       this.db.query<
         {
           total: number;
@@ -38,22 +38,39 @@ export class AccountsService {
           blocked: number;
           deleted: number;
           admins: number;
+          active24h?: number;
+          active7d?: number;
+          newPeriod?: number;
+          newPreviousPeriod?: number;
         }[]
-      >(`SELECT
+      >(
+        `SELECT
           COUNT(*)::int AS total,
           COUNT(*) FILTER (WHERE status = 'active')::int AS active,
           COUNT(*) FILTER (WHERE status = 'blocked')::int AS blocked,
           COUNT(*) FILTER (WHERE status = 'deleted')::int AS deleted,
-          COUNT(*) FILTER (WHERE role = 'admin')::int AS admins
-        FROM users`),
+          COUNT(*) FILTER (WHERE role = 'admin')::int AS admins,
+          COUNT(*) FILTER (WHERE status = 'active' AND last_active_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::int AS "active24h",
+          COUNT(*) FILTER (WHERE status = 'active' AND last_active_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::int AS "active7d",
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - ($1::int - 1))::int AS "newPeriod",
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1))::int AS "newPreviousPeriod"
+        FROM users`,
+        [days],
+      ),
       this.db.query<
         {
           messagesToday: number;
           messagesPeriod: number;
+          messagesPreviousPeriod?: number;
           callsPeriod: number;
+          callsPreviousPeriod?: number;
           gamesPeriod: number;
+          gamesPreviousPeriod?: number;
           groupsTotal: number;
+          directConversationsTotal?: number;
           pendingReports: number;
+          spamDetectedPeriod?: number;
+          recalledMessagesPeriod?: number;
           uploadFilesTotal: number;
           uploadBytesTotal: string;
         }[]
@@ -61,10 +78,16 @@ export class AccountsService {
         `SELECT
           (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND created_at >= CURRENT_DATE) AS "messagesToday",
           (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "messagesPeriod",
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1)) AS "messagesPreviousPeriod",
           (SELECT COUNT(*)::int FROM calls WHERE created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsPeriod",
+          (SELECT COUNT(*)::int FROM calls WHERE created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1)) AS "callsPreviousPeriod",
           (SELECT COUNT(*)::int FROM game_sessions WHERE created_at >= CURRENT_DATE - ($1::int - 1)) AS "gamesPeriod",
+          (SELECT COUNT(*)::int FROM game_sessions WHERE created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1)) AS "gamesPreviousPeriod",
           (SELECT COUNT(*)::int FROM conversations WHERE type = 'group' AND deleted_at IS NULL) AS "groupsTotal",
+          (SELECT COUNT(*)::int FROM conversations WHERE type = 'direct' AND deleted_at IS NULL) AS "directConversationsTotal",
           (SELECT COUNT(*)::int FROM reports WHERE status IN ('open', 'reviewing')) AS "pendingReports",
+          (SELECT COUNT(*)::int FROM messages WHERE spam_label = true AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "spamDetectedPeriod",
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NOT NULL AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "recalledMessagesPeriod",
           (SELECT COUNT(*)::int FROM attachments a LEFT JOIN messages m ON m.id = a.message_id WHERE a.status IN ('uploaded', 'attached') AND (a.message_id IS NULL OR m.deleted_at IS NULL)) AS "uploadFilesTotal",
           (SELECT COALESCE(SUM(a.size), 0)::bigint::text FROM attachments a LEFT JOIN messages m ON m.id = a.message_id WHERE a.status IN ('uploaded', 'attached') AND (a.message_id IS NULL OR m.deleted_at IS NULL)) AS "uploadBytesTotal"`,
         [days],
@@ -95,27 +118,140 @@ export class AccountsService {
         ORDER BY d.day ASC`,
         [days],
       ),
+      this.db.query<
+        {
+          msgText?: number;
+          msgImage?: number;
+          msgFile?: number;
+          msgVoice?: number;
+          msgLocation?: number;
+          msgCall?: number;
+          callsAudio?: number;
+          callsVideo?: number;
+          callsCompleted?: number;
+          callsMissedOrRejected?: number;
+          callDurationSeconds?: number;
+          callAiSummaries?: number;
+          aiTotal?: number;
+          aiCompleted?: number;
+          aiChat?: number;
+          aiSummary?: number;
+          aiReplySuggestions?: number;
+          reportsTotal?: number;
+          reportsOpen?: number;
+          reportsReviewing?: number;
+          reportsResolved?: number;
+          reportsDismissed?: number;
+          reportsUser?: number;
+          reportsMessage?: number;
+          reportsAttachment?: number;
+          reportsCall?: number;
+          reportsConversation?: number;
+        }[]
+      >(
+        `SELECT
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'text' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgText",
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'image' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgImage",
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'file' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgFile",
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'voice' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgVoice",
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'location' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgLocation",
+          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'call' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgCall",
+          (SELECT COUNT(*)::int FROM calls WHERE type = 'audio' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsAudio",
+          (SELECT COUNT(*)::int FROM calls WHERE type = 'video' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsVideo",
+          (SELECT COUNT(*)::int FROM calls WHERE status = 'ended' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsCompleted",
+          (SELECT COUNT(*)::int FROM calls WHERE status IN ('missed', 'rejected', 'cancelled') AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsMissedOrRejected",
+          (SELECT COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (ended_at - started_at)))), 0)::bigint::int FROM calls WHERE status = 'ended' AND started_at IS NOT NULL AND ended_at IS NOT NULL AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callDurationSeconds",
+          (SELECT COUNT(*)::int FROM calls WHERE summary_enabled = true AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callAiSummaries",
+          (SELECT COUNT(*)::int FROM ai_jobs WHERE created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiTotal",
+          (SELECT COUNT(*)::int FROM ai_jobs WHERE status = 'completed' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiCompleted",
+          (SELECT COUNT(*)::int FROM ai_jobs WHERE kind = 'chat' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiChat",
+          (SELECT COUNT(*)::int FROM ai_jobs WHERE kind = 'summary' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiSummary",
+          (SELECT COUNT(*)::int FROM ai_jobs WHERE kind = 'reply_suggestions' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiReplySuggestions",
+          (SELECT COUNT(*)::int FROM reports) AS "reportsTotal",
+          (SELECT COUNT(*)::int FROM reports WHERE status = 'open') AS "reportsOpen",
+          (SELECT COUNT(*)::int FROM reports WHERE status = 'reviewing') AS "reportsReviewing",
+          (SELECT COUNT(*)::int FROM reports WHERE status = 'resolved') AS "reportsResolved",
+          (SELECT COUNT(*)::int FROM reports WHERE status = 'dismissed') AS "reportsDismissed",
+          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'user') AS "reportsUser",
+          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'message') AS "reportsMessage",
+          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'attachment') AS "reportsAttachment",
+          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'call') AS "reportsCall",
+          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'conversation') AS "reportsConversation"`,
+        [days],
+      ),
     ]);
+    const u = userRows[0];
+    const t = totalRows[0];
+    const b = breakdownRows[0];
     return {
       days,
-      users: userRows[0] ?? {
-        total: 0,
-        active: 0,
-        blocked: 0,
-        deleted: 0,
-        admins: 0,
+      users: {
+        total: u?.total ?? 0,
+        active: u?.active ?? 0,
+        blocked: u?.blocked ?? 0,
+        deleted: u?.deleted ?? 0,
+        admins: u?.admins ?? 0,
+        active24h: u?.active24h ?? 0,
+        active7d: u?.active7d ?? 0,
+        newPeriod: u?.newPeriod ?? 0,
+        newPreviousPeriod: u?.newPreviousPeriod ?? 0,
       },
-      totals: totalRows[0] ?? {
-        messagesToday: 0,
-        messagesPeriod: 0,
-        callsPeriod: 0,
-        gamesPeriod: 0,
-        groupsTotal: 0,
-        pendingReports: 0,
-        uploadFilesTotal: 0,
-        uploadBytesTotal: '0',
+      totals: {
+        messagesToday: t?.messagesToday ?? 0,
+        messagesPeriod: t?.messagesPeriod ?? 0,
+        messagesPreviousPeriod: t?.messagesPreviousPeriod ?? 0,
+        callsPeriod: t?.callsPeriod ?? 0,
+        callsPreviousPeriod: t?.callsPreviousPeriod ?? 0,
+        gamesPeriod: t?.gamesPeriod ?? 0,
+        gamesPreviousPeriod: t?.gamesPreviousPeriod ?? 0,
+        groupsTotal: t?.groupsTotal ?? 0,
+        directConversationsTotal: t?.directConversationsTotal ?? 0,
+        pendingReports: t?.pendingReports ?? 0,
+        spamDetectedPeriod: t?.spamDetectedPeriod ?? 0,
+        recalledMessagesPeriod: t?.recalledMessagesPeriod ?? 0,
+        uploadFilesTotal: t?.uploadFilesTotal ?? 0,
+        uploadBytesTotal: t?.uploadBytesTotal ?? '0',
       },
       series: seriesRows,
+      breakdown: {
+        messageTypes: {
+          text: b?.msgText ?? 0,
+          image: b?.msgImage ?? 0,
+          file: b?.msgFile ?? 0,
+          voice: b?.msgVoice ?? 0,
+          location: b?.msgLocation ?? 0,
+          call: b?.msgCall ?? 0,
+        },
+        calls: {
+          audio: b?.callsAudio ?? 0,
+          video: b?.callsVideo ?? 0,
+          completed: b?.callsCompleted ?? 0,
+          missedOrRejected: b?.callsMissedOrRejected ?? 0,
+          totalDurationSeconds: b?.callDurationSeconds ?? 0,
+          aiSummaries: b?.callAiSummaries ?? 0,
+        },
+        aiJobs: {
+          total: b?.aiTotal ?? 0,
+          completed: b?.aiCompleted ?? 0,
+          chat: b?.aiChat ?? 0,
+          summary: b?.aiSummary ?? 0,
+          replySuggestions: b?.aiReplySuggestions ?? 0,
+        },
+        reports: {
+          total: b?.reportsTotal ?? 0,
+          open: b?.reportsOpen ?? 0,
+          reviewing: b?.reportsReviewing ?? 0,
+          resolved: b?.reportsResolved ?? 0,
+          dismissed: b?.reportsDismissed ?? 0,
+          byTarget: {
+            user: b?.reportsUser ?? 0,
+            message: b?.reportsMessage ?? 0,
+            attachment: b?.reportsAttachment ?? 0,
+            call: b?.reportsCall ?? 0,
+            conversation: b?.reportsConversation ?? 0,
+          },
+        },
+      },
     };
   }
   async users(actor: User, input: AdminUsersDto) {

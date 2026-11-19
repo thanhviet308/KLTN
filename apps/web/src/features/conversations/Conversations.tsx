@@ -14,20 +14,18 @@ import {
 } from '../../lib/chat-history-cache';
 import {
   messageSummary,
-  newestMessagesFirst,
   type History,
   type Message,
 } from '../../lib/chat-model';
 import { CallExperience, type StartCall } from '../calls/CallExperience';
 import { playMessageSound } from '../../lib/notification-sounds';
-import { MessageMedia } from '../chat/ChatMedia';
 import { SharedMediaDialog } from './SharedMediaDialog';
-import { SharedFileRow } from './SharedFileRow';
-import { Bell, BellOff, MoreHorizontal, Sparkles } from 'lucide-react';
+import { MoreHorizontal, Sparkles } from 'lucide-react';
 import { GroupTools, MessageSearch } from '../workspace/WorkspacePanels';
 import type { Peer, Page } from '../../lib/types';
 import {
   conversationTitle,
+  isIncomingMessageRequest,
   roles,
   visibleConversations,
   type Conversation,
@@ -183,11 +181,13 @@ export function Conversations({
       'id' | 'conversationId' | 'senderId' | 'body' | 'createdAt' | 'sequence'
     >[]
   >([]);
+  const [searchedUsers, setSearchedUsers] = useState<Peer[]>([]);
   const [searchingMessages, setSearchingMessages] = useState(false);
   useEffect(() => {
     const term = filter.trim();
     if (!term) {
       setSearchedMessages([]);
+      setSearchedUsers([]);
       setSearchingMessages(false);
       return;
     }
@@ -195,7 +195,7 @@ export function Conversations({
     setSearchingMessages(true);
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams({ query: term, limit: '10' });
-      void api
+      const msgSearch = api
         .authenticated<{
           items: Pick<
             Message,
@@ -212,19 +212,38 @@ export function Conversations({
         })
         .catch(() => {
           if (!cancelled) setSearchedMessages([]);
-        })
-        .finally(() => {
-          if (!cancelled) setSearchingMessages(false);
         });
+      const peopleSearch =
+        term.length >= 2
+          ? api
+              .authenticated<{ items: ({ user: Peer } | Peer)[] }>(
+                `/users?query=${encodeURIComponent(term)}&limit=8`,
+              )
+              .then((res) => {
+                if (!cancelled) {
+                  setSearchedUsers(
+                    res.items.map((item) =>
+                      'user' in item ? item.user : item,
+                    ),
+                  );
+                }
+              })
+              .catch(() => {
+                if (!cancelled) setSearchedUsers([]);
+              })
+          : Promise.resolve().then(() => {
+              if (!cancelled) setSearchedUsers([]);
+            });
+      void Promise.all([msgSearch, peopleSearch]).finally(() => {
+        if (!cancelled) setSearchingMessages(false);
+      });
     }, 250);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
   }, [filter]);
-  const [category, setCategory] = useState<ConversationCategory | 'requests'>(
-    'all',
-  );
+  const [category, setCategory] = useState<ConversationCategory>('all');
   const [friendFilter, setFriendFilter] = useState('');
   const matchingFriends = friends.filter((peer) =>
     peer.displayName
@@ -252,6 +271,7 @@ export function Conversations({
         ...previous,
         background: conversation.background,
         nicknames: conversation.nicknames,
+        messageRequest: conversation.messageRequest,
         updatedAt: conversation.updatedAt,
       };
     };
@@ -310,10 +330,9 @@ export function Conversations({
   conversationIds.current = items.slice(0, 50).map((item) => item.id);
   selectedId.current = selected?.id;
   viewActive.current = active;
-  const totalUnread = items.reduce(
-    (total, item) => total + (item.unreadCount ?? 0),
-    0,
-  );
+  const totalUnread = items
+    .filter((item) => !isIncomingMessageRequest(item))
+    .reduce((total, item) => total + (item.unreadCount ?? 0), 0);
   useEffect(() => {
     onUnreadCount?.(totalUnread);
   }, [onUnreadCount, totalUnread]);
@@ -367,18 +386,29 @@ export function Conversations({
         ...previous,
         ...Object.fromEntries(names),
       }));
-      setItems((previous) =>
-        next || background
-          ? [
-              ...previous.map(
-                (old) => page.items.find((item) => item.id === old.id) ?? old,
-              ),
-              ...page.items.filter(
-                (item) => !previous.some((old) => old.id === item.id),
-              ),
-            ]
-          : page.items,
-      );
+      setItems((previous) => {
+        if (!next && (!background || !page.nextCursor)) return page.items;
+        return [
+          ...previous.map(
+            (old) => page.items.find((item) => item.id === old.id) ?? old,
+          ),
+          ...page.items.filter(
+            (item) => !previous.some((old) => old.id === item.id),
+          ),
+        ];
+      });
+      setSelected((previous) => {
+        if (!previous) return previous;
+        const fresh = page.items.find((item) => item.id === previous.id);
+        return fresh
+          ? {
+              ...previous,
+              messageRequest: fresh.messageRequest,
+              nicknames: fresh.nicknames ?? previous.nicknames,
+              background: fresh.background ?? previous.background,
+            }
+          : previous;
+      });
       if (!background) setCursor(page.nextCursor);
       setListLoading(false);
       if (transientListError.current) {
@@ -544,6 +574,10 @@ export function Conversations({
             item.id === message.conversationId
               ? {
                   ...item,
+                  messageRequest:
+                    mine && item.messageRequest?.direction === 'incoming'
+                      ? null
+                      : item.messageRequest,
                   updatedAt: message.createdAt,
                   lastMessage: {
                     ...message,
@@ -657,7 +691,7 @@ export function Conversations({
   }, [recipient?.key, busy]);
   const visibleThreads = visibleConversations(
     items,
-    category === 'requests' ? 'all' : category,
+    category,
     filter,
     directNames,
   );
@@ -672,13 +706,33 @@ export function Conversations({
           ),
       )
     : [];
-  const incomingMessageRequestsCount = messageRequests.filter(
+  const matchingNonFriends = filter.trim()
+    ? searchedUsers.filter(
+        (peer) =>
+          peer.id !== user.id &&
+          !friends.some((f) => f.id === peer.id) &&
+          !visibleThreads.some(
+            (thread) => thread.type === 'direct' && thread.peer?.id === peer.id,
+          ),
+      )
+    : [];
+  const incomingThreadsCount = items.filter(isIncomingMessageRequest).length;
+  const incomingRequestsApiCount = messageRequests.filter(
     (req) => req.direction !== 'outgoing',
   ).length;
-  const visibleMessageRequests = messageRequests.filter((req) =>
-    req.user.displayName
-      .toLocaleLowerCase('vi')
-      .includes(filter.toLocaleLowerCase('vi').trim()),
+  const incomingMessageRequestsCount = Math.max(
+    incomingThreadsCount,
+    incomingRequestsApiCount,
+  );
+  const fallbackIncomingRequests = messageRequests.filter(
+    (req) =>
+      req.direction !== 'outgoing' &&
+      !items.some(
+        (item) => item.type === 'direct' && item.peer?.id === req.user.id,
+      ) &&
+      req.user.displayName
+        .toLocaleLowerCase('vi')
+        .includes(filter.toLocaleLowerCase('vi').trim()),
   );
   const isGroup = selected?.type === 'group';
   const owner = isGroup && selected.membership.role === 'owner';
@@ -689,6 +743,14 @@ export function Conversations({
         selected.peer ??
         members.find((member) => member.user.id !== user.id)?.user)
       : undefined;
+  const selectedLiveItem = selected
+    ? items.find((item) => item.id === selected.id)
+    : undefined;
+  const selectedMessageRequest = selected
+    ? selectedLiveItem && selectedLiveItem.messageRequest !== undefined
+      ? selectedLiveItem.messageRequest
+      : (selected.messageRequest ?? null)
+    : null;
   const heading = selected
     ? selected.type === 'group'
       ? selected.title
@@ -721,21 +783,32 @@ export function Conversations({
     }
   }
   async function create() {
-    if (type === 'group' && (!title.trim() || title.trim().length > 200)) {
-      setError('Tên nhóm cần từ 1 đến 200 ký tự.');
+    if (type === 'group' && title.trim().length > 200) {
+      setError('Tên nhóm tối đa 200 ký tự.');
       return;
     }
     if (!chosen.length || (type === 'group' && chosen.length > 49)) {
       setError(
         type === 'direct'
-          ? 'Chọn một người bạn để tạo hội thoại.'
-          : 'Chọn từ 1 đến 49 người bạn.',
+          ? 'Chọn một người nhận để bắt đầu trò chuyện.'
+          : 'Chọn từ 1 đến 49 người bạn để tạo nhóm.',
       );
       return;
     }
+    const chosenNames = chosen
+      .map((id) => friends.find((f) => f.id === id)?.displayName)
+      .filter((n): n is string => !!n);
+    const resolvedTitle =
+      title.trim() ||
+      [user.displayName, ...chosenNames]
+        .filter(Boolean)
+        .join(', ')
+        .slice(0, 140) ||
+      'Nhóm trò chuyện';
+
     await run(async () => {
       const fingerprint = JSON.stringify({
-        title: title.trim(),
+        title: resolvedTitle,
         memberIds: [...chosen].sort(),
       });
       if (!requestKey.current || requestKey.current.fingerprint !== fingerprint)
@@ -745,7 +818,7 @@ export function Conversations({
           ? { type, recipientId: chosen[0] }
           : {
               type,
-              title: title.trim(),
+              title: resolvedTitle,
               memberIds: chosen,
               clientRequestId: requestKey.current.id,
             };
@@ -787,6 +860,57 @@ export function Conversations({
     setConfirmation(undefined);
     void run(loadFriends);
   }
+
+  async function acceptSelectedMessageRequest() {
+    if (!selected) return;
+    const reqId =
+      selected.messageRequest?.id ??
+      messageRequests.find((req) => req.user.id === selectedPeer?.id)?.id;
+    await run(async () => {
+      if (reqId) {
+        await api.authenticated(
+          `/message-requests/${reqId}`,
+          { action: 'accept' },
+          'PATCH',
+        );
+      }
+      setSelected((prev) => (prev ? { ...prev, messageRequest: null } : prev));
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === selected.id ? { ...item, messageRequest: null } : item,
+        ),
+      );
+      setCategory('all');
+      await Promise.all([loadFriends(), list(undefined, true)]);
+    }, 'Đã chấp nhận tin nhắn chờ.');
+  }
+
+  async function rejectSelectedMessageRequest() {
+    if (!selected) return;
+    const targetConvId = selected.id;
+    const reqId =
+      selected.messageRequest?.id ??
+      messageRequests.find((req) => req.user.id === selectedPeer?.id)?.id;
+    await run(async () => {
+      if (reqId) {
+        await api.authenticated(
+          `/message-requests/${reqId}`,
+          { action: 'reject' },
+          'PATCH',
+        );
+      } else {
+        await api.authenticated(
+          `/conversations/${targetConvId}/history`,
+          undefined,
+          'DELETE',
+        );
+      }
+      setSelected(undefined);
+      setItems((prev) => prev.filter((item) => item.id !== targetConvId));
+      await Promise.all([loadFriends(), list(undefined, true)]);
+    }, 'Đã xóa tin nhắn chờ.');
+  }
+
   return (
     <section
       className={`conversations messenger-layout${selected || creating ? ' has-thread' : ''}${selected && !creating && !showInfo ? ' has-summary' : ''}`}
@@ -882,80 +1006,65 @@ export function Conversations({
         </div>
         {category === 'requests' ? (
           <>
-            <ul className="thread-list thread-requests-list">
-              {visibleMessageRequests.map((req) => (
-                <li key={req.id} className="thread-request-card">
-                  <div className="thread-request-top">
+            <ul className="thread-list">
+              {visibleThreads.map((item) => (
+                <ThreadListItem
+                  key={item.id}
+                  item={item}
+                  currentUserId={user.id}
+                  selected={selected?.id === item.id}
+                  busy={busy}
+                  directNames={directNames}
+                  presence={presence}
+                  onPreload={() => preload(item.id)}
+                  onSelect={() => {
+                    setSelected(item);
+                    setMembers(
+                      item.peer
+                        ? [
+                            { id: user.id, user, role: 'member' },
+                            {
+                              id: item.peer.id,
+                              user: item.peer,
+                              role: 'member',
+                            },
+                          ]
+                        : [],
+                    );
+                    setCreating(false);
+                    setShowInfo(false);
+                    setConfirmation(undefined);
+                  }}
+                />
+              ))}
+              {fallbackIncomingRequests.map((req) => (
+                <li key={req.id}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void startDirect(req.user.id)}
+                  >
                     <span className="peer-avatar" aria-hidden="true">
                       <Avatar peer={req.user} />
                     </span>
-                    <div className="thread-request-meta">
+                    <span className="thread-summary">
                       <strong>{req.user.displayName}</strong>
-                      <small>
-                        {req.direction === 'outgoing'
-                          ? 'Bạn đã gửi tin nhắn chờ'
-                          : 'Đã gửi tin nhắn chờ cho bạn'}
-                      </small>
-                    </div>
-                  </div>
-                  {req.body && (
-                    <p className="thread-request-preview">{req.body}</p>
-                  )}
-                  <div className="thread-request-actions">
-                    {req.direction !== 'outgoing' && (
-                      <button
-                        type="button"
-                        className="secondary accept"
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
-                            await api.authenticated(
-                              `/message-requests/${req.id}`,
-                              { action: 'accept' },
-                              'PATCH',
-                            );
-                            await loadFriends();
-                            setCategory('all');
-                            await startDirect(req.user.id);
-                          })
-                        }
-                      >
-                        Chấp nhận
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await api.authenticated(
-                            `/message-requests/${req.id}`,
-                            {
-                              action:
-                                req.direction === 'outgoing'
-                                  ? 'cancel'
-                                  : 'reject',
-                            },
-                            'PATCH',
-                          );
-                          await loadFriends();
-                        })
-                      }
-                    >
-                      {req.direction === 'outgoing' ? 'Thu hồi' : 'Từ chối'}
-                    </button>
-                  </div>
+                      <div className="thread-preview-row">
+                        <small>{req.body ?? 'Tin nhắn chờ mới'}</small>
+                      </div>
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
-            {visibleMessageRequests.length === 0 && (
-              <p className="list-status">
-                {filter
-                  ? 'Không tìm thấy tin nhắn chờ phù hợp.'
-                  : 'Chưa có tin nhắn chờ nào.'}
-              </p>
-            )}
+            {visibleThreads.length === 0 &&
+              fallbackIncomingRequests.length === 0 && (
+                <p className="list-status">
+                  {filter
+                    ? 'Không tìm thấy tin nhắn chờ phù hợp.'
+                    : 'Chưa có tin nhắn chờ nào từ người lạ.'}
+                </p>
+              )}
           </>
         ) : (
           <>
@@ -1028,6 +1137,37 @@ export function Conversations({
                 </ul>
               </>
             )}
+            {matchingNonFriends.length > 0 && (
+              <>
+                <p className="workspace-search-heading">
+                  Mọi người trên PingPong
+                </p>
+                <ul className="thread-list">
+                  {matchingNonFriends.map((peer) => (
+                    <li key={peer.id}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setFilter('');
+                          void startDirect(peer.id);
+                        }}
+                      >
+                        <span className="peer-avatar">
+                          <Avatar peer={peer} />
+                        </span>
+                        <span className="thread-summary">
+                          <strong>{peer.displayName}</strong>
+                          <div className="thread-preview-row">
+                            <small>Chưa kết bạn · Nhấn để nhắn tin</small>
+                          </div>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
             {filter.trim() &&
               (searchingMessages || searchedMessages.length > 0) && (
                 <>
@@ -1081,6 +1221,7 @@ export function Conversations({
               items.length > 0 &&
               visibleThreads.length === 0 &&
               matchingSidebarFriends.length === 0 &&
+              matchingNonFriends.length === 0 &&
               !searchingMessages &&
               searchedMessages.length === 0 && (
                 <p className="list-status">
@@ -1196,7 +1337,12 @@ export function Conversations({
                   <button
                     type="button"
                     className="chat-info-button"
-                    title="Gọi thoại"
+                    disabled={selectedMessageRequest?.status === 'pending'}
+                    title={
+                      selectedMessageRequest?.status === 'pending'
+                        ? 'Kết bạn hoặc chấp nhận tin nhắn chờ để gọi thoại'
+                        : 'Gọi thoại'
+                    }
                     aria-label="Gọi thoại"
                     onClick={() =>
                       void callStart.current?.(selected.id, 'audio')
@@ -1207,7 +1353,12 @@ export function Conversations({
                   <button
                     type="button"
                     className="chat-info-button"
-                    title="Gọi video"
+                    disabled={selectedMessageRequest?.status === 'pending'}
+                    title={
+                      selectedMessageRequest?.status === 'pending'
+                        ? 'Kết bạn hoặc chấp nhận tin nhắn chờ để gọi video'
+                        : 'Gọi video'
+                    }
                     aria-label="Gọi video"
                     onClick={() =>
                       void callStart.current?.(selected.id, 'video')
@@ -1289,6 +1440,8 @@ export function Conversations({
           <ComposeForm
             type={type}
             onTypeChange={applyComposeMode}
+            currentUserName={user.displayName}
+            currentUserId={user.id}
             busy={busy}
             title={title}
             onTitle={setTitle}
@@ -1340,6 +1493,10 @@ export function Conversations({
             initialLastReadSequence={selected.membership.lastReadSequence}
             initialUnreadCount={selected.unreadCount ?? 0}
             jumpTarget={jumpTarget}
+            messageRequest={selectedMessageRequest}
+            requestActionBusy={busy}
+            onAcceptMessageRequest={() => void acceptSelectedMessageRequest()}
+            onRejectMessageRequest={() => void rejectSelectedMessageRequest()}
             onReadSequence={(sequence) =>
               setItems((previous) =>
                 previous.map((item) =>
@@ -1362,32 +1519,71 @@ export function Conversations({
                 ),
               )
             }
-            onLatestMessage={(message) =>
-              setItems((previous) =>
-                previous.map((item) =>
+            onLatestMessage={(message) => {
+              const mine = message.senderId === user.id;
+              const autoAccepted =
+                mine &&
+                (selected.messageRequest?.direction === 'incoming' ||
+                  items.find((i) => i.id === message.conversationId)
+                    ?.messageRequest?.direction === 'incoming');
+              if (autoAccepted) {
+                setSelected((prev) =>
+                  prev && prev.id === message.conversationId
+                    ? { ...prev, messageRequest: null }
+                    : prev,
+                );
+                setCategory('all');
+                void loadFriends().catch(() => {});
+              }
+              setItems((previous) => {
+                const preview = {
+                  ...message,
+                  body: message.body?.slice(0, 200) ?? null,
+                  senderName: members.find(
+                    (member) => member.user.id === message.senderId,
+                  )?.user.displayName,
+                };
+                if (
+                  !previous.some((item) => item.id === message.conversationId)
+                ) {
+                  if (selected?.id !== message.conversationId) return previous;
+                  void list(undefined, true).catch(() => {});
+                  void loadFriends().catch(() => {});
+                  return [
+                    {
+                      ...selected,
+                      peer: selectedPeer ?? selected.peer,
+                      messageRequest: autoAccepted
+                        ? null
+                        : selected.messageRequest,
+                      updatedAt: message.createdAt,
+                      lastMessage: preview,
+                      unreadCount: 0,
+                    },
+                    ...previous,
+                  ];
+                }
+                return previous.map((item) =>
                   item.id === message.conversationId &&
                   (!item.lastMessage ||
                     BigInt(message.sequence) >=
                       BigInt(item.lastMessage.sequence))
                     ? {
                         ...item,
+                        messageRequest: autoAccepted
+                          ? null
+                          : item.messageRequest,
                         updatedAt:
                           Date.parse(message.createdAt) >
                           Date.parse(item.updatedAt ?? item.createdAt)
                             ? message.createdAt
                             : item.updatedAt,
-                        lastMessage: {
-                          ...message,
-                          body: message.body?.slice(0, 200) ?? null,
-                          senderName: members.find(
-                            (member) => member.user.id === message.senderId,
-                          )?.user.displayName,
-                        },
+                        lastMessage: preview,
                       }
                     : item,
-                ),
-              )
-            }
+                );
+              });
+            }}
             onExpired={onExpired}
           />
         )}

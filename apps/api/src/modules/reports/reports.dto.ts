@@ -1,5 +1,23 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+import { PageDto } from '../../common/page.dto';
+
+export class AdminReportsDto extends PageDto {
+  @IsOptional()
+  @IsIn(['open', 'reviewing', 'resolved', 'dismissed'])
+  status?: 'open' | 'reviewing' | 'resolved' | 'dismissed';
+
+  @IsOptional()
+  @IsIn(['user', 'conversation', 'message', 'call', 'attachment'])
+  targetType?: 'user' | 'conversation' | 'message' | 'call' | 'attachment';
+}
 
 export class CreateReportDto {
   @IsIn(['user', 'message', 'call', 'attachment'])

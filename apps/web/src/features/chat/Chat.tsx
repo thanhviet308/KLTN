@@ -1,5 +1,5 @@
 import { PinnedMessages } from './PinnedMessages';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { type Socket } from 'socket.io-client';
 import * as api from '../../lib/api';
 import { acquireChatSocket } from '../../lib/realtime';
@@ -47,7 +47,12 @@ import {
   type ReplySummary,
 } from '../../lib/chat-model';
 import type { Peer } from '../../lib/types';
-import { CaroGame, GAME_INFO, type CaroSession } from '../games/CaroGame';
+import type { ConversationMessageRequest } from '../conversations/types';
+import { GAME_INFO, type CaroSession } from '../games/game-rules';
+
+const CaroGame = lazy(() =>
+  import('../games/CaroGame').then((m) => ({ default: m.CaroGame })),
+);
 
 interface Draft {
   clientMessageId: string;
@@ -77,6 +82,10 @@ export function Chat({
   initialLastReadSequence,
   initialUnreadCount = 0,
   jumpTarget,
+  messageRequest,
+  onAcceptMessageRequest,
+  onRejectMessageRequest,
+  requestActionBusy = false,
 }: {
   conversationId: string;
   isGroup?: boolean;
@@ -91,6 +100,10 @@ export function Chat({
   initialLastReadSequence?: string | null;
   initialUnreadCount?: number;
   jumpTarget?: { conversationId: string; messageId: string; token: number };
+  messageRequest?: ConversationMessageRequest | null;
+  onAcceptMessageRequest?: () => void;
+  onRejectMessageRequest?: () => void;
+  requestActionBusy?: boolean;
 }) {
   const [mentions, setMentions] = useState<string[]>([]);
   const draftKey = `${user.id}:${conversationId}`;
@@ -877,14 +890,24 @@ export function Chat({
     cancelAutoFollow();
     void jumpToMessage(jumpTarget.messageId);
     // jumpToMessage reads refs for live timeline state once loading settles.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpTarget, loading, conversationId]);
   function jumpToPin(target: Message) {
     return jumpToMessage(target.id, 'Không tìm thấy tin nhắn đã ghim.');
   }
+  const incomingRequestPending =
+    !isGroup &&
+    messageRequest?.direction === 'incoming' &&
+    messageRequest.status === 'pending';
+  const outgoingRequestPending =
+    !isGroup &&
+    messageRequest?.direction === 'outgoing' &&
+    messageRequest.status === 'pending';
+  const directPeerName =
+    peers.find((peer) => peer.id !== user.id)?.displayName ?? 'người dùng này';
+
   useEffect(() => {
     const container = list.current;
-    if (!container) return;
+    if (!container || incomingRequestPending) return;
     function markVisible() {
       if (
         !active ||
@@ -929,7 +952,7 @@ export function Chat({
       window.removeEventListener('focus', markVisible);
       document.removeEventListener('visibilitychange', markVisible);
     };
-  }, [messages, active]);
+  }, [messages, active, incomingRequestPending]);
   async function loadOlder() {
     if (!older || loadingOlder) return;
     setLoadingOlder(true);
@@ -1044,6 +1067,7 @@ export function Chat({
     void send(draft);
   }
   function updateTyping(value: boolean) {
+    if (incomingRequestPending && value) return;
     if (typingTimer.current) clearTimeout(typingTimer.current);
     if (
       socket.current?.connected &&
@@ -1101,17 +1125,19 @@ export function Chat({
   return (
     <div className="chat-panel">
       {gameOpen && active && (
-        <CaroGame
-          conversationId={conversationId}
-          userId={user.id}
-          names={names}
-          socket={socket.current}
-          isGroup={
-            isGroup ?? peers.filter((peer) => peer.id !== user.id).length > 1
-          }
-          onGameChange={setCurrentGame}
-          onClose={() => setGameOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <CaroGame
+            conversationId={conversationId}
+            userId={user.id}
+            names={names}
+            socket={socket.current}
+            isGroup={
+              isGroup ?? peers.filter((peer) => peer.id !== user.id).length > 1
+            }
+            onGameChange={setCurrentGame}
+            onClose={() => setGameOpen(false)}
+          />
+        </Suspense>
       )}
       {!gameOpen &&
         currentGame &&
@@ -1237,6 +1263,13 @@ export function Chat({
           >
             {loadingOlder ? 'Đang tải…' : 'Xem tin nhắn cũ'}
           </button>
+        )}
+        {outgoingRequestPending && (
+          <div className="chat-request-context-note" role="note">
+            Hai bạn chưa kết bạn trên PingPong · Bạn có thể gửi nhiều tin nhắn;
+            cuộc trò chuyện đang nằm trong mục <strong>Tin nhắn chờ</strong> của{' '}
+            {directPeerName} cho đến khi họ chấp nhận hoặc trả lời.
+          </div>
         )}
         {loading && (
           <p className="list-status" role="status">
@@ -1410,6 +1443,44 @@ export function Chat({
           names={names}
           onClose={() => setReceiptMessage(undefined)}
         />
+      )}
+      {incomingRequestPending && (
+        <div
+          className="chat-request-banner"
+          role="region"
+          aria-label="Tùy chọn tin nhắn chờ"
+        >
+          <div className="chat-request-banner-copy">
+            <strong>{directPeerName} muốn gửi tin nhắn cho bạn</strong>
+            <p>
+              Hai bạn chưa kết bạn trên PingPong. Chấp nhận hoặc trả lời trực
+              tiếp bên dưới để chuyển đoạn chat về mục <strong>Tất cả</strong>.
+              Họ sẽ không biết bạn đã xem cho đến khi bạn phản hồi.
+            </p>
+          </div>
+          <div className="chat-request-banner-actions">
+            {onAcceptMessageRequest && (
+              <button
+                type="button"
+                className="secondary accept"
+                disabled={requestActionBusy}
+                onClick={onAcceptMessageRequest}
+              >
+                Chấp nhận
+              </button>
+            )}
+            {onRejectMessageRequest && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={requestActionBusy}
+                onClick={onRejectMessageRequest}
+              >
+                Xóa tin nhắn chờ
+              </button>
+            )}
+          </div>
+        </div>
       )}
       {replyTo && (
         <ReplyPreview

@@ -9,10 +9,17 @@ export interface Member {
   role: Role;
 }
 
+export interface ConversationMessageRequest {
+  id: string | null;
+  direction: 'incoming' | 'outgoing';
+  status: 'pending';
+}
+
 export interface Conversation {
   background?: string;
   nicknames?: Record<string, string>;
   unreadCount?: number;
+  messageRequest?: ConversationMessageRequest | null;
   lastMessage?: {
     id: string;
     senderId: string;
@@ -38,7 +45,7 @@ export interface Conversation {
   updatedAt?: string;
 }
 
-export type ConversationCategory = 'all' | 'unread' | 'group';
+export type ConversationCategory = 'all' | 'unread' | 'group' | 'requests';
 
 export const roles: Record<Role, string> = {
   owner: 'Chủ nhóm',
@@ -61,6 +68,13 @@ export function conversationTitle(
   );
 }
 
+export function isIncomingMessageRequest(item: Conversation) {
+  return (
+    item.messageRequest?.direction === 'incoming' &&
+    item.messageRequest.status === 'pending'
+  );
+}
+
 /** Applies the category and text filters, newest conversation first. */
 export function visibleConversations(
   items: Conversation[],
@@ -72,11 +86,13 @@ export function visibleConversations(
     Date.parse(item.updatedAt ?? item.lastMessage?.createdAt ?? item.createdAt);
   const needle = filter.toLocaleLowerCase('vi');
   return items
-    .filter(
-      (item) =>
-        category === 'all' ||
-        (category === 'unread' ? !!item.unreadCount : item.type === 'group'),
-    )
+    .filter((item) => {
+      const incomingReq = isIncomingMessageRequest(item);
+      if (category === 'requests') return incomingReq;
+      if (incomingReq) return false;
+      if (category === 'all') return true;
+      return category === 'unread' ? !!item.unreadCount : item.type === 'group';
+    })
     .sort((a, b) => time(b) - time(a) || b.id.localeCompare(a.id))
     .filter((item) =>
       conversationTitle(item, directNames)

@@ -36,7 +36,11 @@ import {
   type VoiceTranscribeOptions,
   type VoiceTranscriptState,
 } from '../ai/ai-model';
-import { GAME_INFO, type CaroSession, type GameType } from '../games/CaroGame';
+import {
+  GAME_INFO,
+  type CaroSession,
+  type GameType,
+} from '../games/game-rules';
 import { MessageMedia } from './ChatMedia';
 import { MessageActions } from './MessageActions';
 import { MessageReactions, useMessageReactions } from './MessageReactions';

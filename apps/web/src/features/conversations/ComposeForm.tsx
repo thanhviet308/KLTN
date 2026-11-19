@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Check, Users, X } from 'lucide-react';
+import * as api from '../../lib/api';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
 import type { Peer } from '../../lib/types';
@@ -6,6 +8,8 @@ import type { Peer } from '../../lib/types';
 export function ComposeForm({
   type,
   onTypeChange,
+  currentUserName,
+  currentUserId,
   busy,
   title,
   onTitle,
@@ -21,6 +25,8 @@ export function ComposeForm({
 }: {
   type: 'direct' | 'group';
   onTypeChange?: (type: 'direct' | 'group') => void;
+  currentUserName?: string;
+  currentUserId?: string;
   busy: boolean;
   title: string;
   onTitle: (value: string) => void;
@@ -34,9 +40,50 @@ export function ComposeForm({
   onSubmit: () => void;
   onCancel: () => void;
 }) {
+  const [otherUsers, setOtherUsers] = useState<Peer[]>([]);
+
+  useEffect(() => {
+    const term = friendFilter.trim();
+    if (type !== 'direct' || term.length < 2) {
+      setOtherUsers([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void api
+        .authenticated<{ items: ({ user: Peer } | Peer)[] }>(
+          `/users?query=${encodeURIComponent(term)}&limit=8`,
+        )
+        .then((res) => {
+          if (cancelled) return;
+          const mapped = res.items
+            .map((item) => ('user' in item ? item.user : item))
+            .filter(
+              (u) =>
+                u.id !== currentUserId && !friends.some((f) => f.id === u.id),
+            );
+          setOtherUsers(mapped);
+        })
+        .catch(() => {
+          if (!cancelled) setOtherUsers([]);
+        });
+    }, 240);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [type, friendFilter, friends, currentUserId]);
+
   const chosenPeers = chosen
     .map((id) => friends.find((peer) => peer.id === id))
     .filter((peer): peer is Peer => !!peer);
+
+  const autoGroupName = chosenPeers.length
+    ? [currentUserName, ...chosenPeers.map((p) => p.displayName)]
+        .filter(Boolean)
+        .join(', ')
+        .slice(0, 90)
+    : '';
 
   return (
     <form
@@ -44,67 +91,70 @@ export function ComposeForm({
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit();
+        if (type === 'group' && chosen.length > 0) {
+          onSubmit();
+        }
       }}
     >
       <fieldset disabled={busy}>
+        {onTypeChange && (
+          <div
+            className="compose-mode-tabs"
+            role="tablist"
+            aria-label="Kiểu cuộc trò chuyện"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={type === 'direct'}
+              className={type === 'direct' ? 'is-active' : undefined}
+              onClick={() => onTypeChange('direct')}
+            >
+              <UiIcon name="conversations" size={16} />
+              <span>Nhắn tin riêng</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={type === 'group'}
+              className={type === 'group' ? 'is-active' : undefined}
+              onClick={() => onTypeChange('group')}
+            >
+              <UiIcon name="friends" size={16} />
+              <span>Tạo nhóm mới</span>
+            </button>
+          </div>
+        )}
+
         <div className="compose-intro">
-          <div className="compose-intro-top">
-            <div className="compose-title-block">
-              <span className="compose-icon" aria-hidden="true">
-                <UiIcon
-                  name={type === 'direct' ? 'compose' : 'friends'}
-                  size={22}
-                />
-              </span>
-              <div>
-                <h3>
-                  {type === 'direct'
-                    ? 'Bắt đầu cuộc trò chuyện'
-                    : 'Tạo nhóm trò chuyện'}
-                </h3>
-                <p>
-                  {type === 'direct'
-                    ? 'Chọn một người bạn bên dưới để mở khung nhắn tin.'
-                    : 'Đặt tên nhóm và chọn các thành viên bạn muốn thêm vào.'}
-                </p>
-              </div>
+          <div className="compose-title-block">
+            <span className="compose-icon" aria-hidden="true">
+              <UiIcon
+                name={type === 'direct' ? 'compose' : 'friends'}
+                size={21}
+              />
+            </span>
+            <div>
+              <h3>
+                {type === 'direct'
+                  ? 'Bắt đầu cuộc trò chuyện'
+                  : 'Tạo nhóm trò chuyện'}
+              </h3>
+              <p>
+                {type === 'direct'
+                  ? 'Chọn bạn bè hoặc tìm người dùng trên PingPong để nhắn tin ngay.'
+                  : 'Chọn thành viên để tạo nhóm ngay — tên nhóm có thể đặt riêng hoặc tự động theo tên thành viên.'}
+              </p>
             </div>
-            {onTypeChange && (
-              <div
-                className="compose-mode-tabs"
-                role="tablist"
-                aria-label="Kiểu cuộc trò chuyện"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={type === 'direct'}
-                  className={type === 'direct' ? 'is-active' : undefined}
-                  onClick={() => onTypeChange('direct')}
-                >
-                  <UiIcon name="conversations" size={15} />
-                  <span>Nhắn riêng</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={type === 'group'}
-                  className={type === 'group' ? 'is-active' : undefined}
-                  onClick={() => onTypeChange('group')}
-                >
-                  <UiIcon name="friends" size={15} />
-                  <span>Tạo nhóm</span>
-                </button>
-              </div>
-            )}
           </div>
         </div>
 
         {type === 'group' && (
           <label className="compose-group-name-field">
             <span className="compose-field-header">
-              <span>Tên nhóm</span>
+              <span>
+                Tên nhóm <em>(không bắt buộc)</em>
+              </span>
               <small>{title.trim().length}/200</small>
             </span>
             <div className="compose-group-name-input">
@@ -112,15 +162,15 @@ export function ComposeForm({
               <input
                 value={title}
                 maxLength={200}
-                placeholder="Ví dụ: Nhóm đồ án, Hội bạn thân…"
+                placeholder={
+                  autoGroupName
+                    ? `Mặc định: ${autoGroupName}`
+                    : 'Ví dụ: Nhóm đồ án, Hội bạn thân…'
+                }
                 onChange={(e) => onTitle(e.target.value)}
               />
             </div>
           </label>
-        )}
-
-        {!friends.length && (
-          <p className="intro">Bạn cần kết bạn trước khi tạo hội thoại.</p>
         )}
 
         <div className="compose-search">
@@ -129,7 +179,11 @@ export function ComposeForm({
             type="search"
             autoFocus={type === 'direct'}
             aria-label="Tìm người nhận"
-            placeholder="Tìm bạn theo tên…"
+            placeholder={
+              type === 'direct'
+                ? 'Tìm bạn bè hoặc người dùng trên PingPong…'
+                : 'Tìm bạn bè để thêm vào nhóm…'
+            }
             value={friendFilter}
             onChange={(event) => onFriendFilter(event.target.value)}
           />
@@ -149,7 +203,9 @@ export function ComposeForm({
                   <Avatar peer={peer} />
                 </span>
                 <span className="compose-chosen-name">{peer.displayName}</span>
-                <X size={13} aria-hidden="true" />
+                <span className="compose-chosen-remove" aria-hidden="true">
+                  <X size={12} strokeWidth={2.5} />
+                </span>
               </button>
             ))}
           </div>
@@ -158,8 +214,8 @@ export function ComposeForm({
         <div className="compose-list-header">
           <p className="compose-list-label">
             {type === 'direct'
-              ? `Danh sách bạn bè (${matchingFriends.length})`
-              : 'Chọn thành viên'}
+              ? `Bạn bè (${matchingFriends.length})`
+              : 'Danh sách bạn bè'}
           </p>
           {type === 'group' && (
             <span className="compose-counter-pill">
@@ -169,11 +225,26 @@ export function ComposeForm({
         </div>
 
         <div className="friend-picker">
-          {friends.length > 0 && matchingFriends.length === 0 && (
-            <p className="compose-no-results" role="status">
-              Không tìm thấy bạn bè phù hợp. Hãy thử tên khác.
+          {type === 'group' && !friends.length && (
+            <p className="compose-no-results">
+              Bạn cần kết bạn trước khi mời thành viên vào nhóm.
             </p>
           )}
+          {type === 'direct' &&
+            !friends.length &&
+            otherUsers.length === 0 &&
+            friendFilter.trim().length < 2 && (
+              <p className="compose-no-results">
+                Nhập ít nhất 2 ký tự ở ô tìm kiếm để tìm người dùng và nhắn tin.
+              </p>
+            )}
+          {friends.length > 0 &&
+            matchingFriends.length === 0 &&
+            otherUsers.length === 0 && (
+              <p className="compose-no-results" role="status">
+                Không tìm thấy người phù hợp. Hãy thử từ khóa khác.
+              </p>
+            )}
           {matchingFriends.map((peer) => {
             const isSelected = chosen.includes(peer.id);
             return type === 'direct' ? (
@@ -188,7 +259,7 @@ export function ComposeForm({
                 </span>
                 <span className="compose-peer-name">
                   <strong>{peer.displayName}</strong>
-                  <small>Nhấn để mở cuộc trò chuyện</small>
+                  <small>Bạn bè · Nhấn để nhắn tin</small>
                 </span>
                 <span className="compose-peer-arrow" aria-hidden="true">
                   Nhắn tin →
@@ -213,34 +284,66 @@ export function ComposeForm({
                 <span className="compose-peer-name">
                   <strong>{peer.displayName}</strong>
                   <small>
-                    {isSelected
-                      ? 'Đã thêm vào danh sách nhóm'
-                      : 'Nhấn để chọn vào nhóm'}
+                    {isSelected ? 'Đã chọn vào nhóm' : 'Nhấn để thêm vào nhóm'}
                   </small>
                 </span>
                 <span
                   className={`compose-check-badge${isSelected ? ' is-checked' : ''}`}
                   aria-hidden="true"
                 >
-                  {isSelected && <Check size={14} strokeWidth={2.6} />}
+                  {isSelected && <Check size={13} strokeWidth={2.8} />}
                 </span>
               </label>
             );
           })}
+          {type === 'direct' && otherUsers.length > 0 && (
+            <>
+              <p className="compose-sublist-label">Mọi người trên PingPong</p>
+              {otherUsers.map((peer) => (
+                <button
+                  className="compose-peer"
+                  type="button"
+                  key={peer.id}
+                  onClick={() => onStartDirect(peer.id)}
+                >
+                  <span className="peer-avatar">
+                    <Avatar peer={peer} />
+                  </span>
+                  <span className="compose-peer-name">
+                    <strong>{peer.displayName}</strong>
+                    <small>Chưa kết bạn · Nhấn để nhắn tin</small>
+                  </span>
+                  <span className="compose-peer-arrow" aria-hidden="true">
+                    Nhắn tin →
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="compose-footer">
-          <button type="button" className="secondary" onClick={onCancel}>
-            Hủy
-          </button>
           {type === 'group' && (
-            <button
-              className="primary"
-              disabled={!chosen.length || !title.trim()}
-            >
-              {chosen.length > 0 ? `Tạo nhóm (${chosen.length})` : 'Tạo nhóm'}
-            </button>
+            <span className="compose-footer-hint">
+              {chosen.length === 0
+                ? 'Chọn ít nhất 1 người bạn để tạo nhóm'
+                : `Sẵn sàng tạo nhóm với ${chosen.length} thành viên`}
+            </span>
           )}
+          <div className="compose-footer-actions">
+            <button type="button" className="secondary" onClick={onCancel}>
+              Hủy
+            </button>
+            {type === 'group' && (
+              <button
+                type="submit"
+                className="primary"
+                disabled={chosen.length === 0}
+              >
+                {chosen.length > 0 ? `Tạo nhóm (${chosen.length})` : 'Tạo nhóm'}
+              </button>
+            )}
+          </div>
         </div>
       </fieldset>
     </form>

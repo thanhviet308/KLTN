@@ -26,8 +26,10 @@
     "start:api": "npm run start --workspace=@chat/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test:chat-customization": "npm run build --workspace=@chat/api && node --test apps/api/tests/conversation-customization.test.cjs apps/web/tests/conversation-customization.test.mjs",
-    "test": "node --test apps/api/tests/call-summary.test.cjs apps/api/tests/clear-chat-history.test.cjs apps/api/tests/message-pins.test.cjs apps/api/tests/notifications.test.cjs apps/api/tests/user-search.test.cjs apps/api/tests/reports.test.cjs apps/api/tests/calls.test.cjs apps/api/tests/presence.test.cjs apps/api/tests/password-reset.test.cjs apps/api/tests/registration.test.cjs apps/api/tests/ai.test.cjs apps/api/tests/message-encryption.test.cjs apps/api/tests/message-requests.test.cjs apps/web/tests/ai-model.test.mjs apps/web/tests/call-recorder.test.mjs apps/web/tests/calls.test.mjs apps/web/tests/chat-history-cache.test.mjs apps/web/tests/chat-model.test.mjs apps/web/tests/image-upload.test.mjs apps/web/tests/location-helper.test.mjs apps/web/tests/notification-sounds.test.mjs apps/web/tests/notifications.test.mjs apps/web/tests/realtime.test.mjs apps/web/tests/session-refresh.test.mjs apps/web/tests/touch-message-gestures.test.mjs apps/web/tests/viewport.test.mjs apps/web/tests/voice-timeline.test.mjs && npm test --workspace=@chat/android -- --runInBand",
-    "lint": "eslint apps/api/src && npm run lint --workspace=@chat/android",
+    "test:api": "npm run build --workspace=@chat/api && node --test apps/api/tests/*.test.cjs",
+    "test:web": "node --test apps/web/tests/*.test.mjs",
+    "test": "npm run test:api && npm run test:web && npm test --workspace=@chat/android -- --runInBand",
+    "lint": "eslint apps/api/src apps/web/src && npm run lint --workspace=@chat/android",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "check": "npm run lint && npm run typecheck && npm run build && npm test && npm run format:check"

@@ -7,6 +7,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "npm run build && node --test tests/*.test.cjs",
     "db:migrate": "npm run build && node dist/modules/database/migrate.js",
     "db:show": "npm run build && typeorm migration:show -d dist/modules/database/data-source.js",
     "db:generate": "npm run build && typeorm migration:generate -d dist/modules/database/data-source.js",

@@ -370,7 +370,13 @@ export class MessagesService {
           existing.id,
           true,
         );
-        return { message: this.view(visible), created: false };
+        return {
+          message: this.view(visible),
+          created: false,
+          requestSync: undefined as
+            | { peerId: string; kind: 'accepted' | 'request_updated' }
+            | undefined,
+        };
       }
       const users = manager.getRepository(User).createQueryBuilder('user');
       const ids =
@@ -391,7 +397,13 @@ export class MessagesService {
           'MESSAGE_SEND_FORBIDDEN',
           'Account is unavailable for messaging',
         );
+      let requestSync:
+        { peerId: string; kind: 'accepted' | 'request_updated' } | undefined;
       if (conversation.type === 'direct') {
+        const peerId =
+          conversation.directUserLowId === actorId
+            ? conversation.directUserHighId!
+            : conversation.directUserLowId!;
         const friendship = await manager.getRepository(Friendship).findOne({
           where: {
             pairLowId: conversation.directUserLowId!,
@@ -400,22 +412,56 @@ export class MessagesService {
           },
           lock: { mode: 'pessimistic_read' },
         });
-        const request = friendship
-          ? null
-          : await manager.getRepository(MessageRequest).findOne({
-              where: {
-                pairLowId: conversation.directUserLowId!,
-                pairHighId: conversation.directUserHighId!,
-                status: 'accepted',
-              },
-              lock: { mode: 'pessimistic_read' },
-            });
-        if (!friendship && !request)
-          fail(
-            403,
-            'MESSAGING_PERMISSION_REQUIRED',
-            'Friendship or an accepted message request is required',
-          );
+        if (!friendship) {
+          const reqRepo = manager.getRepository(MessageRequest);
+          const existingReq = await reqRepo.findOne({
+            where: {
+              pairLowId: conversation.directUserLowId!,
+              pairHighId: conversation.directUserHighId!,
+            },
+            lock: { mode: 'pessimistic_write' },
+          });
+          const previewText = (
+            body?.trim() ||
+            (type === 'image'
+              ? '[Hình ảnh]'
+              : type === 'voice'
+                ? '[Tin nhắn thoại]'
+                : type === 'location'
+                  ? '[Vị trí]'
+                  : '[Tệp đính kèm]')
+          ).slice(0, 2000);
+          if (!existingReq) {
+            await reqRepo.save(
+              reqRepo.create({
+                requesterId: actorId,
+                recipientId: peerId,
+                body: previewText,
+                status: 'pending',
+                respondedAt: null,
+              }),
+            );
+            requestSync = { peerId, kind: 'request_updated' };
+          } else if (existingReq.status === 'pending') {
+            if (existingReq.recipientId === actorId) {
+              existingReq.status = 'accepted';
+              existingReq.respondedAt = new Date();
+              await reqRepo.save(existingReq);
+              requestSync = { peerId, kind: 'accepted' };
+            } else {
+              existingReq.body = previewText;
+              await reqRepo.save(existingReq);
+            }
+          } else if (existingReq.status !== 'accepted') {
+            existingReq.requesterId = actorId;
+            existingReq.recipientId = peerId;
+            existingReq.body = previewText;
+            existingReq.status = 'pending';
+            existingReq.respondedAt = null;
+            await reqRepo.save(existingReq);
+            requestSync = { peerId, kind: 'request_updated' };
+          }
+        }
       }
       if (media) {
         const totals: { bytes: string }[] = await manager.query(
@@ -499,15 +545,23 @@ export class MessagesService {
       await manager
         .getRepository(Conversation)
         .update(conversationId, { lastMessageSequence: sequence.toString() });
-      return { message: this.view(message), created: true };
+      return { message: this.view(message), created: true, requestSync };
     });
-    if (result.created)
+    if (result.created) {
       this.events.publish({
         name: 'message:created',
         conversationId,
         messageId: result.message.id,
         payload: result.message,
       });
+      if (result.requestSync) {
+        this.events.friendshipChanged?.(
+          actorId,
+          result.requestSync.peerId,
+          result.requestSync.kind,
+        );
+      }
+    }
     return { message: result.message };
   }
 

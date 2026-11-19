@@ -758,16 +758,19 @@
     margin-left: 0;
   }
 }
+.thread-content > .conversation-form.compose-card,
 .thread-content > .compose-card {
-  width: calc(100% - 40px);
-  max-width: 560px;
-  max-height: calc(100% - 28px);
-  margin: 14px auto;
+  width: min(620px, calc(100% - 44px));
+  max-width: 620px;
+  max-height: calc(100% - 36px);
+  margin: clamp(14px, 3vh, 32px) auto;
   padding: 22px 24px;
-  background: white;
+  background: #ffffff;
   border: 1px solid #e5ebee;
   border-radius: 22px;
-  box-shadow: 0 12px 36px rgba(25, 45, 53, 0.06);
+  box-shadow:
+    0 18px 44px -18px rgba(25, 45, 53, 0.12),
+    0 2px 8px rgba(25, 45, 53, 0.04);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -781,40 +784,13 @@
   padding: 0;
   border: 0;
 }
-.compose-intro {
-  margin-bottom: 16px;
-  flex-shrink: 0;
-}
-.compose-intro-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.compose-title-block {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  min-width: 0;
-  flex: 1;
-}
-.compose-icon {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  background: #e8f5f1;
-  color: #087f72;
-  border-radius: 14px;
-  flex-shrink: 0;
-}
 .compose-mode-tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
   padding: 4px;
-  border-radius: 12px;
+  margin-bottom: 18px;
+  border-radius: 13px;
   background: #f2f6f8;
   border: 1px solid #e5ebee;
   flex-shrink: 0;
@@ -822,14 +798,18 @@
 .compose-mode-tabs button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 33px;
-  padding: 5px 12px;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 6px 14px;
   border: 0;
   border-radius: 9px;
   background: transparent;
+  box-shadow: none;
   color: #5d7079;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -845,11 +825,32 @@
 .compose-mode-tabs button.is-active {
   background: #fff;
   color: #087f72;
-  box-shadow: 0 1px 4px rgb(25 45 53 / 8%);
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgb(25 45 53 / 8%);
+}
+.compose-intro {
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+.compose-title-block {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+.compose-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  background: #e8f5f1;
+  color: #087f72;
+  border-radius: 14px;
+  flex-shrink: 0;
 }
 .compose-card .compose-intro h3 {
   margin: 0 0 3px;
-  font-size: 18px;
+  font-size: 17.5px;
   font-weight: 700;
   letter-spacing: -0.3px;
   line-height: 1.25;
@@ -873,6 +874,12 @@
   justify-content: space-between;
   font-size: 12.5px;
   font-weight: 600;
+}
+.compose-field-header em {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11.5px;
+  opacity: 0.72;
 }
 .compose-field-header small {
   font-size: 11px;
@@ -941,47 +948,67 @@
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
-  max-height: 78px;
+  max-height: 82px;
   overflow-y: auto;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: #f8f3eb;
-  border: 1px solid #eadfce;
+  margin-top: 11px;
+  padding: 2px 0;
+  background: transparent;
+  border: 0;
   flex-shrink: 0;
 }
-.compose-chosen-chip {
+.compose-card button.compose-chosen-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 2px 9px 2px 3px;
+  gap: 7px;
+  width: auto;
+  min-height: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 3px 9px 3px 4px;
   border-radius: 999px;
-  border: 1px solid #e0cdb7;
-  background: #fffdf9;
-  color: #493626;
-  font-size: 12px;
+  border: 1px solid #dfc9b2;
+  background: #fbf3ea;
+  box-shadow: none;
+  color: #493322;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   transition:
     background 0.15s ease,
     border-color 0.15s ease;
 }
-.compose-chosen-chip:hover {
-  background: #f5e6d4;
-  border-color: #cfa982;
+.compose-card button.compose-chosen-chip:hover {
+  background: #f5e5d3;
+  border-color: #cfa67f;
 }
-.compose-chosen-chip .peer-avatar {
-  width: 22px;
-  height: 22px;
+.compose-card button.compose-chosen-chip .peer-avatar {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px;
   border-radius: 50%;
-  font-size: 10px;
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
 }
 .compose-chosen-name {
-  max-width: 130px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.compose-chosen-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: rgb(92 62 38 / 11%);
+  color: #6b4c35;
+}
+.compose-card button.compose-chosen-chip:hover .compose-chosen-remove {
+  background: rgb(183 80 32 / 18%);
+  color: #9e3f15;
 }
 .compose-list-header {
   display: flex;
@@ -997,50 +1024,64 @@
   font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+}
+.compose-sublist-label {
+  margin: 10px 6px 4px;
+  color: #8d7866;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .compose-counter-pill {
   font-size: 11.5px;
   font-weight: 700;
-  padding: 2px 9px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: #f5e7d6;
   color: #a44519;
 }
 .compose-card .friend-picker {
   flex: 1;
-  min-height: 110px;
-  max-height: 260px;
+  min-height: 120px;
+  max-height: 300px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 2px;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 15px;
+  border: 1px solid #ede4d8;
+  background: #faf6f0;
 }
 .compose-card .compose-peer,
 .compose-card .friend-picker label.compose-member-row {
   display: flex;
   align-items: center;
+  width: 100%;
   margin: 0;
   padding: 9px 12px;
-  border-radius: 13px;
+  border-radius: 12px;
   border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
   gap: 12px;
-  min-height: 56px;
+  min-height: 54px;
   cursor: pointer;
+  text-align: left;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.1s ease;
+    background 0.14s ease,
+    border-color 0.14s ease;
   position: relative;
 }
 .compose-card .compose-peer:hover,
 .compose-card .friend-picker label.compose-member-row:hover {
-  background: #edf7f3;
+  background: #ffffff;
 }
 .compose-card .peer-avatar {
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   background: #e0eee9;
   color: #367261;
   border-radius: 50%;
@@ -1070,9 +1111,9 @@
   font-size: 12px;
   font-weight: 600;
   color: #b75020;
-  padding: 5px 10px;
+  padding: 5px 11px;
   border-radius: 999px;
-  background: rgba(183, 80, 32, 0.08);
+  background: rgba(183, 80, 32, 0.1);
   flex-shrink: 0;
 }
 .compose-sr-check {
@@ -1088,7 +1129,7 @@
   height: 22px;
   border-radius: 50%;
   border: 1.8px solid #cbbba9;
-  background: #fffdf9;
+  background: #ffffff;
   color: #fff;
   display: grid;
   place-items: center;
@@ -1104,7 +1145,7 @@
   transform: scale(1.04);
 }
 .compose-no-results {
-  padding: 20px 12px;
+  padding: 24px 14px;
   color: #647780;
   font-size: 12.5px;
   line-height: 1.6;
@@ -1113,33 +1154,47 @@
 .compose-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   border-top: 1px solid #edf1f3;
-  padding-top: 14px;
-  margin-top: 12px;
+  padding-top: 15px;
+  margin-top: 14px;
   flex-shrink: 0;
 }
+.compose-footer-hint {
+  font-size: 12.5px;
+  color: #846f5c;
+  font-weight: 500;
+}
+.compose-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+}
 .compose-footer .primary {
-  margin: 0;
+  margin: 0 !important;
   width: auto;
-  min-height: 38px;
-  padding: 8px 18px;
+  min-height: 40px;
+  padding: 9px 20px;
   border-radius: 11px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 700;
   background: #087f72;
 }
 .compose-footer .secondary {
-  margin: 0;
-  min-height: 38px;
-  padding: 8px 16px;
+  margin: 0 !important;
+  width: auto;
+  min-height: 40px;
+  padding: 9px 16px;
   border-radius: 11px;
   border-color: #e0e8ed;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
 }
 @media (max-width: 680px) {
+  .thread-content > .conversation-form.compose-card,
   .thread-content > .compose-card {
     width: calc(100% - 20px);
     padding: 16px;

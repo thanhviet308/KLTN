@@ -5,6 +5,7 @@ const { plainToInstance } = require('class-transformer');
 const { validate } = require('class-validator');
 const { ReportsService } = require('../dist/modules/reports/reports.service');
 const {
+  AdminReportsDto,
   CreateReportDto,
   ReviewReportDto,
 } = require('../dist/modules/reports/reports.dto');
@@ -237,6 +238,24 @@ test('report DTOs reject empty reasons, forged types, malformed IDs and invalid 
     (
       await validate(
         plainToInstance(ReviewReportDto, { status: 'open', resolution: ' ' }),
+      )
+    ).length,
+  );
+  assert.equal(
+    (
+      await validate(
+        plainToInstance(AdminReportsDto, {
+          status: 'open',
+          targetType: 'message',
+        }),
+      )
+    ).length,
+    0,
+  );
+  assert.ok(
+    (
+      await validate(
+        plainToInstance(AdminReportsDto, { status: 'invalid-state' }),
       )
     ).length,
   );
@@ -531,19 +550,69 @@ test('accounts admin methods enforce admin role, self-protection and compliance 
   };
   const db = {
     query: async (sql) => {
-      if (sql.includes('FROM users'))
-        return [{ total: 10, active: 8, blocked: 1, deleted: 1, admins: 2 }];
+      if (sql.includes('FROM users') && !sql.includes('generate_series'))
+        return [
+          {
+            total: 10,
+            active: 8,
+            blocked: 1,
+            deleted: 1,
+            admins: 2,
+            active24h: 5,
+            active7d: 7,
+            newPeriod: 3,
+            newPreviousPeriod: 2,
+          },
+        ];
       if (sql.includes('messagesToday'))
         return [
           {
             messagesToday: 42,
             messagesPeriod: 300,
+            messagesPreviousPeriod: 240,
             callsPeriod: 12,
+            callsPreviousPeriod: 8,
             gamesPeriod: 9,
+            gamesPreviousPeriod: 6,
             groupsTotal: 5,
+            directConversationsTotal: 14,
             pendingReports: 3,
+            spamDetectedPeriod: 4,
+            recalledMessagesPeriod: 2,
             uploadFilesTotal: 7,
             uploadBytesTotal: '2048',
+          },
+        ];
+      if (sql.includes('msgText'))
+        return [
+          {
+            msgText: 240,
+            msgImage: 35,
+            msgFile: 10,
+            msgVoice: 8,
+            msgLocation: 3,
+            msgCall: 4,
+            callsAudio: 7,
+            callsVideo: 5,
+            callsCompleted: 9,
+            callsMissedOrRejected: 3,
+            callDurationSeconds: 1860,
+            callAiSummaries: 4,
+            aiTotal: 18,
+            aiCompleted: 17,
+            aiChat: 9,
+            aiSummary: 5,
+            aiReplySuggestions: 4,
+            reportsTotal: 8,
+            reportsOpen: 2,
+            reportsReviewing: 1,
+            reportsResolved: 4,
+            reportsDismissed: 1,
+            reportsUser: 2,
+            reportsMessage: 4,
+            reportsAttachment: 1,
+            reportsCall: 1,
+            reportsConversation: 0,
           },
         ];
       return [
@@ -580,7 +649,13 @@ test('accounts admin methods enforce admin role, self-protection and compliance 
   const dash = await service.dashboard(adminUser, { days: 7 });
   assert.equal(dash.days, 7);
   assert.equal(dash.users.active, 8);
+  assert.equal(dash.users.active24h, 5);
   assert.equal(dash.totals.callsPeriod, 12);
+  assert.equal(dash.totals.directConversationsTotal, 14);
+  assert.equal(dash.breakdown.messageTypes.text, 240);
+  assert.equal(dash.breakdown.calls.totalDurationSeconds, 1860);
+  assert.equal(dash.breakdown.aiJobs.total, 18);
+  assert.equal(dash.breakdown.reports.resolved, 4);
 
   const promoted = await service.role(adminUser, targetUser.id, 'admin');
   assert.equal(promoted.role, 'admin');

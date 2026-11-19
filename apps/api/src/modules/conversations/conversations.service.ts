@@ -1,14 +1,14 @@
 import { HttpException, Inject, Injectable, Optional } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import type { EntityManager } from 'typeorm';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Conversation } from '../database/entities/conversation.entity';
 import { ConversationMember } from '../database/entities/conversation-member.entity';
 import { ConversationMemberPeriod } from '../database/entities/conversation-member-period.entity';
 import { Friendship } from '../database/entities/friendship.entity';
 import { MessageRequest } from '../database/entities/message-request.entity';
+import { Message } from '../database/entities/message.entity';
 import { User } from '../database/entities/user.entity';
-import type { Message } from '../database/entities/message.entity';
 import {
   decryptMessageContent,
   decryptMessageText,
@@ -95,30 +95,73 @@ export class ConversationsService {
       );
   }
 
-  private async requireDirectPermission(
+  private async resolveDirectMessageRequest(
     manager: EntityManager,
     actorId: string,
-    recipientId: string,
-  ) {
-    const [low, high] = [actorId, recipientId].sort();
+    conversation: Conversation,
+  ): Promise<{
+    id: string | null;
+    direction: 'incoming' | 'outgoing';
+    status: 'pending';
+  } | null> {
+    if (
+      conversation.type !== 'direct' ||
+      !conversation.directUserLowId ||
+      !conversation.directUserHighId
+    ) {
+      return null;
+    }
+    const low = conversation.directUserLowId;
+    const high = conversation.directUserHighId;
     const friendship = await manager.getRepository(Friendship).findOneBy({
       pairLowId: low,
       pairHighId: high,
       status: 'accepted',
     });
-    const request = friendship
-      ? null
-      : await manager.getRepository(MessageRequest).findOneBy({
-          pairLowId: low,
-          pairHighId: high,
-          status: 'accepted',
-        });
-    if (!friendship && !request)
-      fail(
-        403,
-        'MESSAGING_PERMISSION_REQUIRED',
-        'Friendship or an accepted message request is required',
+    if (friendship) return null;
+    const request = await manager.getRepository(MessageRequest).findOneBy({
+      pairLowId: low,
+      pairHighId: high,
+    });
+    if (request?.status === 'accepted') return null;
+    if (request?.status === 'pending') {
+      return {
+        id: request.id,
+        direction: request.recipientId === actorId ? 'incoming' : 'outgoing',
+        status: 'pending',
+      };
+    }
+    return {
+      id: null,
+      direction: 'outgoing',
+      status: 'pending',
+    };
+  }
+
+  private async materializeLegacyRequestsForUser(actorId: string) {
+    const legacyRows: { requesterId: string; recipientId: string }[] =
+      await this.db.query(
+        `SELECT mr.requester_id AS "requesterId", mr.recipient_id AS "recipientId"
+         FROM message_requests mr
+         JOIN users req_user ON req_user.id = mr.requester_id AND req_user.status = 'active'
+         JOIN users rec_user ON rec_user.id = mr.recipient_id AND rec_user.status = 'active'
+         LEFT JOIN conversations c
+           ON c.direct_user_low_id = mr.pair_low_id
+          AND c.direct_user_high_id = mr.pair_high_id
+          AND c.deleted_at IS NULL
+         WHERE (mr.requester_id = $1 OR mr.recipient_id = $1)
+           AND mr.status IN ('pending', 'accepted')
+           AND (c.id IS NULL OR c.last_message_sequence = 0)
+         LIMIT 20`,
+        [actorId],
       );
+    for (const row of legacyRows) {
+      await this.db
+        .transaction((manager) =>
+          this.ensureDirect(manager, row.requesterId, row.recipientId),
+        )
+        .catch(() => undefined);
+    }
   }
 
   private async join(
@@ -219,6 +262,7 @@ export class ConversationsService {
     manager: EntityManager,
     actorId: string,
     recipientId: string,
+    materializeLegacy = true,
   ) {
     const [low, high] = [actorId, recipientId].sort();
     await manager.query(
@@ -226,31 +270,72 @@ export class ConversationsService {
       [`conversation:direct:${low}:${high}`],
     );
     await this.activeUsers(manager, [actorId, recipientId]);
-    await this.requireDirectPermission(manager, actorId, recipientId);
     const repository = manager.getRepository(Conversation);
-    const existing = await repository.findOne({
+    let conversation = await repository.findOne({
       where: { directUserLowId: low, directUserHighId: high },
       lock: { mode: 'pessimistic_write' },
     });
-    if (existing) {
-      const { conversation, member } = await this.requireAccess(
+    let member: ConversationMember;
+    if (conversation) {
+      const access = await this.requireAccess(
         manager,
-        existing.id,
+        conversation.id,
         actorId,
         true,
       );
-      return { conversation: this.view(conversation, member) };
+      conversation = access.conversation;
+      member = access.member;
+    } else {
+      conversation = await repository.save({
+        type: 'direct',
+        creatorId: actorId,
+        directUserLowId: low,
+        directUserHighId: high,
+        title: null,
+      });
+      member = await this.join(manager, conversation, actorId, 'member');
+      await this.join(manager, conversation, recipientId, 'member');
     }
-    const conversation = await repository.save({
-      type: 'direct',
-      creatorId: actorId,
-      directUserLowId: low,
-      directUserHighId: high,
-      title: null,
-    });
-    const member = await this.join(manager, conversation, actorId, 'member');
-    await this.join(manager, conversation, recipientId, 'member');
-    return { conversation: this.view(conversation, member) };
+    if (
+      materializeLegacy &&
+      BigInt(conversation.lastMessageSequence ?? '0') === 0n
+    ) {
+      const legacyReq = await manager.getRepository(MessageRequest).findOneBy({
+        pairLowId: low,
+        pairHighId: high,
+      });
+      if (
+        legacyReq &&
+        (legacyReq.status === 'pending' || legacyReq.status === 'accepted') &&
+        legacyReq.body?.trim()
+      ) {
+        const sequence = '1';
+        await manager.getRepository(Message).save({
+          conversationId: conversation.id,
+          senderId: legacyReq.requesterId,
+          clientMessageId: randomUUID(),
+          sequence,
+          type: 'text',
+          body: legacyReq.body,
+          content: null,
+        });
+        await repository.update(conversation.id, {
+          lastMessageSequence: sequence,
+        });
+        conversation.lastMessageSequence = sequence;
+      }
+    }
+    const messageRequest = await this.resolveDirectMessageRequest(
+      manager,
+      actorId,
+      conversation,
+    );
+    return {
+      conversation: {
+        ...this.view(conversation, member),
+        messageRequest,
+      },
+    };
   }
 
   async create(actorId: string, input: CreateConversationDto) {
@@ -335,6 +420,7 @@ export class ConversationsService {
   }
 
   async list(actorId: string, input: PageDto) {
+    await this.materializeLegacyRequestsForUser(actorId);
     const query = this.db
       .getRepository(ConversationMember)
       .createQueryBuilder('member')
@@ -351,6 +437,32 @@ export class ConversationsService {
       .where('member.userId = :actorId', { actorId })
       .andWhere(
         "(conversation.type <> 'direct' OR NOT EXISTS (SELECT 1 FROM users hidden_peer WHERE hidden_peer.id IN (conversation.direct_user_low_id,conversation.direct_user_high_id) AND hidden_peer.status <> 'active'))",
+      )
+      .andWhere(
+        `(conversation.type <> 'direct'
+          OR EXISTS (
+            SELECT 1 FROM friendships f
+            WHERE f.pair_low_id = conversation.direct_user_low_id
+              AND f.pair_high_id = conversation.direct_user_high_id
+              AND f.status = 'accepted'
+          )
+          OR EXISTS (
+            SELECT 1 FROM message_requests mr
+            WHERE mr.pair_low_id = conversation.direct_user_low_id
+              AND mr.pair_high_id = conversation.direct_user_high_id
+              AND mr.status = 'accepted'
+          )
+          OR (
+            conversation.last_message_sequence > member.cleared_after_sequence
+            AND NOT EXISTS (
+              SELECT 1 FROM message_requests mr_closed
+              WHERE mr_closed.pair_low_id = conversation.direct_user_low_id
+                AND mr_closed.pair_high_id = conversation.direct_user_high_id
+                AND mr_closed.recipient_id = :actorId
+                AND mr_closed.status IN ('rejected', 'cancelled')
+            )
+          ))`,
+        { actorId },
       )
       .orderBy('conversation.updatedAt', 'DESC')
       .addOrderBy('member.conversationId', 'DESC')
@@ -451,31 +563,85 @@ export class ConversationsService {
         ),
       ),
     ];
-    const peers = peerIds.length
-      ? await this.db
-          .getRepository(User)
-          .createQueryBuilder('user')
-          .select(['user.id', 'user.displayName', 'user.avatarKey'])
-          .where('user.id IN (:...peerIds)', { peerIds })
-          .getMany()
-      : [];
+    const [peers, friendRows, requestRows] = peerIds.length
+      ? await Promise.all([
+          this.db
+            .getRepository(User)
+            .createQueryBuilder('user')
+            .select(['user.id', 'user.displayName', 'user.avatarKey'])
+            .where('user.id IN (:...peerIds)', { peerIds })
+            .getMany(),
+          this.db.query<{ peerId: string }[]>(
+            `SELECT CASE WHEN requester_id = $1 THEN recipient_id ELSE requester_id END AS "peerId"
+             FROM friendships
+             WHERE status = 'accepted'
+               AND ((requester_id = $1 AND recipient_id = ANY($2::uuid[]))
+                 OR (recipient_id = $1 AND requester_id = ANY($2::uuid[])))`,
+            [actorId, peerIds],
+          ),
+          this.db.query<
+            {
+              id: string;
+              requesterId: string;
+              recipientId: string;
+              status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+            }[]
+          >(
+            `SELECT id, requester_id AS "requesterId", recipient_id AS "recipientId", status
+             FROM message_requests
+             WHERE (requester_id = $1 AND recipient_id = ANY($2::uuid[]))
+                OR (recipient_id = $1 AND requester_id = ANY($2::uuid[]))`,
+            [actorId, peerIds],
+          ),
+        ])
+      : [[], [], []];
     const peerById = new Map(
       peers.map((peer) => [peer.id, publicUserView(peer)]),
     );
+    const friendSet = new Set(friendRows.map((r) => r.peerId));
+    const requestByPeerId = new Map(
+      requestRows.map((r) => [
+        r.requesterId === actorId ? r.recipientId : r.requesterId,
+        r,
+      ]),
+    );
     return pageResult(
-      members.map((member) => ({
-        ...this.view(member.conversation, member),
-        lastMessage: previewById.get(member.conversationId) ?? null,
-        unreadCount: unreadById.get(member.conversationId) ?? 0,
-        peer:
+      members.map((member) => {
+        const peerId =
           member.conversation.type === 'direct'
-            ? (peerById.get(
-                member.conversation.directUserLowId === actorId
-                  ? member.conversation.directUserHighId!
-                  : member.conversation.directUserLowId!,
-              ) ?? null)
-            : null,
-      })),
+            ? member.conversation.directUserLowId === actorId
+              ? member.conversation.directUserHighId!
+              : member.conversation.directUserLowId!
+            : null;
+        let messageRequest: {
+          id: string | null;
+          direction: 'incoming' | 'outgoing';
+          status: 'pending';
+        } | null = null;
+        if (peerId && !friendSet.has(peerId)) {
+          const req = requestByPeerId.get(peerId);
+          if (req?.status === 'pending') {
+            messageRequest = {
+              id: req.id,
+              direction: req.recipientId === actorId ? 'incoming' : 'outgoing',
+              status: 'pending',
+            };
+          } else if (req?.status !== 'accepted') {
+            messageRequest = {
+              id: null,
+              direction: 'outgoing',
+              status: 'pending',
+            };
+          }
+        }
+        return {
+          ...this.view(member.conversation, member),
+          lastMessage: previewById.get(member.conversationId) ?? null,
+          unreadCount: unreadById.get(member.conversationId) ?? 0,
+          peer: peerId ? (peerById.get(peerId) ?? null) : null,
+          messageRequest,
+        };
+      }),
       input.limit,
     );
   }
@@ -487,7 +653,20 @@ export class ConversationsService {
         id,
         actorId,
       );
-      return { conversation: this.view(conversation, member) };
+      const messageRequest =
+        conversation.type === 'direct'
+          ? await this.resolveDirectMessageRequest(
+              manager,
+              actorId,
+              conversation,
+            )
+          : null;
+      return {
+        conversation: {
+          ...this.view(conversation, member),
+          messageRequest,
+        },
+      };
     });
   }
 

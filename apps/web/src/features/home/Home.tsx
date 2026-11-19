@@ -1,3 +1,7 @@
+import '../../styles/workspace.css';
+import '../../styles/workspace-sand.css';
+import '../ai/ai.css';
+import '../games/games.css';
 import { UnfriendDialog } from './UnfriendDialog';
 import { SessionsPanel } from '../workspace/WorkspacePanels';
 import { useEffect, useRef, useState } from 'react';
@@ -122,8 +126,6 @@ export function Home({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [name, setName] = useState(user.displayName);
-  const [messageRequestTarget, setMessageRequestTarget] = useState<Row>();
-  const [messageRequestBody, setMessageRequestBody] = useState('');
   const [confirm, setConfirm] = useState<Row>();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -243,8 +245,6 @@ export function Home({
     setError('');
     setNotice('');
     setConfirm(undefined);
-    setMessageRequestTarget(undefined);
-    setMessageRequestBody('');
     setSubmittedQuery('');
     if (
       tab !== 'search' &&
@@ -888,71 +888,6 @@ export function Home({
                   }
                 />
               )}
-              {messageRequestTarget && (
-                <form
-                  className="message-request-compose"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const body = messageRequestBody.trim();
-                    if (!body) {
-                      setError('Hãy nhập lời nhắn mở đầu.');
-                      return;
-                    }
-                    void action(
-                      () =>
-                        api.authenticated('/message-requests', {
-                          recipientId: messageRequestTarget.user.id,
-                          body,
-                        }),
-                      `Đã gửi tin nhắn chờ tới ${messageRequestTarget.user.displayName}.`,
-                      false,
-                    ).then((succeeded) => {
-                      if (mounted.current && succeeded) {
-                        setMessageRequestTarget(undefined);
-                        setMessageRequestBody('');
-                      }
-                    });
-                  }}
-                >
-                  <div>
-                    <strong>
-                      Gửi tin nhắn chờ tới{' '}
-                      {messageRequestTarget.user.displayName}
-                    </strong>
-                    <p>
-                      Họ sẽ xem lời nhắn này trước khi quyết định chấp nhận.
-                    </p>
-                  </div>
-                  <label htmlFor="message-request-body">Lời nhắn mở đầu</label>
-                  <textarea
-                    id="message-request-body"
-                    autoFocus
-                    maxLength={2000}
-                    value={messageRequestBody}
-                    onChange={(event) =>
-                      setMessageRequestBody(event.target.value)
-                    }
-                    placeholder="Giới thiệu ngắn gọn lý do bạn muốn trò chuyện"
-                  />
-                  <small>{messageRequestBody.length}/2000 ký tự</small>
-                  <div className="message-request-actions">
-                    <button className="primary" disabled={busy}>
-                      {busy ? 'Đang gửi…' : 'Gửi tin nhắn chờ'}
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => {
-                        setMessageRequestTarget(undefined);
-                        setMessageRequestBody('');
-                      }}
-                    >
-                      Hủy
-                    </button>
-                  </div>
-                </form>
-              )}
               {loading && rows.length === 0 && (
                 <p role="status" className="list-status">
                   Đang tải danh sách…
@@ -1030,18 +965,11 @@ export function Home({
                             className="secondary accept"
                             disabled={busy}
                             onClick={() => {
-                              if (row.user.friendshipStatus === 'friends') {
-                                setChatRecipient({
-                                  id: row.user.id,
-                                  key: Date.now(),
-                                });
-                                setTab('conversations');
-                                return;
-                              }
-                              setMessageRequestTarget(row);
-                              setMessageRequestBody('');
-                              setError('');
-                              setNotice('');
+                              setChatRecipient({
+                                id: row.user.id,
+                                key: Date.now(),
+                              });
+                              setTab('conversations');
                             }}
                           >
                             Nhắn tin
@@ -1120,6 +1048,19 @@ export function Home({
                         </>
                       ) : tab === 'messageRequests' ? (
                         <>
+                          <button
+                            className="secondary"
+                            disabled={busy}
+                            onClick={() => {
+                              setChatRecipient({
+                                id: row.user.id,
+                                key: Date.now(),
+                              });
+                              setTab('conversations');
+                            }}
+                          >
+                            Mở đoạn chat
+                          </button>
                           {row.direction !== 'outgoing' && (
                             <button
                               className="secondary accept"

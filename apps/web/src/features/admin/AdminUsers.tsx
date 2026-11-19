@@ -18,6 +18,7 @@ import {
 import * as api from '../../lib/api';
 import {
   exportUserLogFile,
+  exportUsersListCsv,
   formatBytes,
   formatDateTime,
   type AdminUserAccount,
@@ -41,9 +42,13 @@ function avatarTone(seed: string) {
 
 export function AdminUsers({
   currentUserId,
+  focusUserId,
+  onFocusHandled,
   onAuditChanged,
 }: {
   currentUserId?: string;
+  focusUserId?: string | null;
+  onFocusHandled?: () => void;
   onAuditChanged?: () => void;
 }) {
   const [items, setItems] = useState<AdminUserAccount[]>([]);
@@ -103,6 +108,12 @@ export function AdminUsers({
   useEffect(() => {
     void load(undefined, '', '', '');
   }, []);
+
+  useEffect(() => {
+    if (!focusUserId) return;
+    void openOverview(focusUserId);
+    onFocusHandled?.();
+  }, [focusUserId, onFocusHandled]);
 
   useEffect(() => {
     if (overview || overviewLoading) {
@@ -204,6 +215,37 @@ export function AdminUsers({
     }
   }
 
+  async function handleExportFilteredCsv() {
+    setBusy(true);
+    setError('');
+    try {
+      const params = new URLSearchParams({ limit: '50' });
+      if (query.trim()) params.set('query', query.trim());
+      if (statusFilter) params.set('status', statusFilter);
+      if (roleFilter) params.set('role', roleFilter);
+      const firstPage = await api.authenticated<{
+        items: AdminUserAccount[];
+        nextCursor: string | null;
+      }>(`/admin/users?${params.toString()}`);
+      let all = [...firstPage.items];
+      if (firstPage.nextCursor) {
+        params.set('cursor', firstPage.nextCursor);
+        const secondPage = await api.authenticated<{
+          items: AdminUserAccount[];
+        }>(`/admin/users?${params.toString()}`);
+        all = [...all, ...secondPage.items];
+      }
+      exportUsersListCsv(all);
+      setNotice(`Đã xuất danh sách ${all.length} tài khoản ra tệp CSV.`);
+    } catch (e) {
+      setError(api.errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hasFilters = Boolean(query.trim() || statusFilter || roleFilter);
+
   return (
     <section className="admin-panel" aria-label="Quản lý người dùng">
       <div className="admin-panel-heading">
@@ -217,14 +259,25 @@ export function AdminUsers({
             quyền admin và kiểm tra metadata tài khoản.
           </p>
         </div>
-        <button
-          type="button"
-          className="admin-button"
-          disabled={busy}
-          onClick={() => void load()}
-        >
-          Làm mới
-        </button>
+        <div className="admin-heading-actions">
+          <button
+            type="button"
+            className="admin-button"
+            disabled={busy}
+            onClick={() => void load()}
+          >
+            Làm mới
+          </button>
+          <button
+            type="button"
+            className="admin-button primary"
+            disabled={busy}
+            onClick={() => void handleExportFilteredCsv()}
+          >
+            <ArrowDownToLine size={15} />
+            Xuất danh sách CSV
+          </button>
+        </div>
       </div>
 
       <form
@@ -276,6 +329,21 @@ export function AdminUsers({
         <button type="submit" className="admin-button primary" disabled={busy}>
           Tìm kiếm
         </button>
+        {hasFilters && (
+          <button
+            type="button"
+            className="admin-button"
+            disabled={busy}
+            onClick={() => {
+              setQuery('');
+              setStatusFilter('');
+              setRoleFilter('');
+              void load(undefined, '', '', '');
+            }}
+          >
+            Đặt lại
+          </button>
+        )}
       </form>
 
       {error && (

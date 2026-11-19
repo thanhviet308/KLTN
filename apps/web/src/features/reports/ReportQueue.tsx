@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ArrowDownToLine,
+  CheckCircle2,
+  Flag,
+  Image as ImageIcon,
+  RotateCw,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 import * as api from '../../lib/api';
+import { exportReportsCsv } from '../admin/admin-export';
 import { reportError } from './ReportDialog';
 
 interface Report {
@@ -14,18 +24,29 @@ interface Report {
   createdAt: string;
   snapshot: Record<string, unknown>;
 }
-const statuses = {
+
+const statuses: Record<Report['status'], string> = {
   open: 'Chờ xử lý',
   reviewing: 'Đang xem xét',
   resolved: 'Đã xử lý',
   dismissed: 'Đã bác bỏ',
 };
+
 const types: Record<string, string> = {
   user: 'Người dùng',
+  conversation: 'Hội thoại',
   message: 'Tin nhắn',
   call: 'Cuộc gọi',
-  attachment: 'Ảnh',
+  attachment: 'Ảnh đính kèm',
 };
+
+const statusTabs: { value: '' | Report['status']; label: string }[] = [
+  { value: '', label: 'Tất cả' },
+  { value: 'open', label: 'Chờ xử lý' },
+  { value: 'reviewing', label: 'Đang xem xét' },
+  { value: 'resolved', label: 'Đã xử lý' },
+  { value: 'dismissed', label: 'Đã bác bỏ' },
+];
 
 function ReportEvidence({ row }: { row: Report }) {
   const [url, setUrl] = useState('');
@@ -33,6 +54,7 @@ function ReportEvidence({ row }: { row: Report }) {
   const [error, setError] = useState('');
   const alive = useRef(true);
   const blobUrl = useRef('');
+
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -40,13 +62,14 @@ function ReportEvidence({ row }: { row: Report }) {
       URL.revokeObjectURL(blobUrl.current);
     };
   }, []);
+
   const labels: Record<string, string> = {
     displayName: 'Tên hiển thị',
     body: 'Nội dung tin nhắn',
-    fileName: 'Tên ảnh',
+    fileName: 'Tên tệp / ảnh',
     mimeType: 'Định dạng',
     size: 'Dung lượng (byte)',
-    type: 'Loại',
+    type: 'Loại nội dung',
     status: 'Trạng thái cuộc gọi',
     createdAt: 'Thời gian tạo',
   };
@@ -62,6 +85,7 @@ function ReportEvidence({ row }: { row: Report }) {
     missed: 'Cuộc gọi nhỡ',
     cancelled: 'Đã hủy',
   };
+
   async function showImage() {
     setLoading(true);
     setError('');
@@ -80,9 +104,10 @@ function ReportEvidence({ row }: { row: Report }) {
       if (alive.current) setLoading(false);
     }
   }
+
   return (
     <details>
-      <summary>Nội dung tại thời điểm báo cáo</summary>
+      <summary>Bằng chứng tại thời điểm báo cáo (Snapshot)</summary>
       <dl className="report-queue-detail">
         {Object.entries(labels)
           .filter(([key]) => row.snapshot[key] != null)
@@ -101,13 +126,15 @@ function ReportEvidence({ row }: { row: Report }) {
           ))}
       </dl>
       {(row.targetType === 'attachment' || row.snapshot.type === 'image') && (
-        <>
+        <div className="report-evidence-media">
           <button
+            type="button"
             className="admin-button"
             disabled={loading}
             onClick={() => void showImage()}
           >
-            {loading ? 'Đang tải ảnh…' : 'Xem ảnh được báo cáo'}
+            <ImageIcon size={15} />
+            {loading ? 'Đang tải ảnh…' : 'Xem ảnh bằng chứng'}
           </button>
           {url && (
             <img
@@ -116,8 +143,12 @@ function ReportEvidence({ row }: { row: Report }) {
               alt="Ảnh được báo cáo để kiểm duyệt"
             />
           )}
-          {error && <p role="alert">{error}</p>}
-        </>
+          {error && (
+            <p className="report-inline-error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
       )}
     </details>
   );
@@ -136,10 +167,11 @@ function ReportReview({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const lock = useRef(false);
+
   async function review(status: 'reviewing' | 'resolved' | 'dismissed') {
     if (lock.current) return;
     if (status !== 'reviewing' && resolution.trim().length < 3) {
-      setError('Nhập kết luận tối thiểu 3 ký tự.');
+      setError('Nhập kết luận xử lý tối thiểu 3 ký tự.');
       return;
     }
     lock.current = true;
@@ -163,10 +195,11 @@ function ReportReview({
       setBusy(false);
     }
   }
+
   async function deleteContentAndResolve() {
     if (lock.current) return;
     if (resolution.trim().length > 0 && resolution.trim().length < 3) {
-      setError('Nhập kết luận tối thiểu 3 ký tự.');
+      setError('Nhập kết luận xử lý tối thiểu 3 ký tự.');
       return;
     }
     lock.current = true;
@@ -197,59 +230,89 @@ function ReportReview({
       setBusy(false);
     }
   }
-  if (row.status === 'resolved' || row.status === 'dismissed')
-    return <p>Kết luận: {row.resolution}</p>;
-  if (row.reporterId === userId)
-    return <p>Cần quản trị viên khác xử lý báo cáo do bạn gửi.</p>;
-  if (row.reviewerId && row.reviewerId !== userId)
-    return <p>Đang được quản trị viên khác xử lý.</p>;
+
+  if (row.status === 'resolved' || row.status === 'dismissed') {
+    return (
+      <div className="report-resolution-box is-closed">
+        <CheckCircle2 size={16} />
+        <div>
+          <strong>Kết luận kiểm duyệt:</strong>{' '}
+          {row.resolution || 'Đã hoàn tất'}
+        </div>
+      </div>
+    );
+  }
+  if (row.reporterId === userId) {
+    return (
+      <div className="report-resolution-box is-note">
+        Cần một quản trị viên độc lập khác xử lý báo cáo do chính bạn gửi.
+      </div>
+    );
+  }
+  if (row.reviewerId && row.reviewerId !== userId) {
+    return (
+      <div className="report-resolution-box is-note">
+        Báo cáo này đang được một quản trị viên khác tiếp nhận xử lý.
+      </div>
+    );
+  }
+
   const canDeleteContent =
     row.targetType === 'message' || row.targetType === 'attachment';
+
   return (
     <div className="report-review-form">
-      <label htmlFor={`resolution-${row.id}`}>Kết luận xử lý</label>
+      <label htmlFor={`resolution-${row.id}`}>Kết luận &amp; hướng xử lý</label>
       <textarea
         id={`resolution-${row.id}`}
         value={resolution}
+        rows={2}
         maxLength={2000}
         disabled={busy}
         onChange={(event) => setResolution(event.target.value)}
-        placeholder="Ghi rõ kết quả xác minh và hướng xử lý…"
+        placeholder="Ghi rõ kết quả xác minh bằng chứng và biện pháp xử lý (tối thiểu 3 ký tự)…"
       />
-      {row.status === 'open' && (
+      <div className="report-review-actions">
+        {row.status === 'open' && (
+          <button
+            type="button"
+            className="admin-button"
+            disabled={busy}
+            onClick={() => void review('reviewing')}
+          >
+            Nhận xem xét
+          </button>
+        )}
         <button
+          type="button"
+          className="admin-button primary"
+          disabled={busy}
+          onClick={() => void review('resolved')}
+        >
+          Xác nhận đã xử lý
+        </button>
+        {canDeleteContent && (
+          <button
+            type="button"
+            className="admin-button danger"
+            disabled={busy}
+            onClick={() => void deleteContentAndResolve()}
+          >
+            <Trash2 size={14} />
+            Xóa nội dung vi phạm &amp; Đóng
+          </button>
+        )}
+        <button
+          type="button"
           className="admin-button"
           disabled={busy}
-          onClick={() => void review('reviewing')}
+          onClick={() => void review('dismissed')}
         >
-          Nhận xem xét
+          Bác bỏ báo cáo
         </button>
-      )}
-      {canDeleteContent && (
-        <button
-          className="admin-button danger"
-          disabled={busy}
-          onClick={() => void deleteContentAndResolve()}
-        >
-          Xóa nội dung vi phạm &amp; Xử lý
-        </button>
-      )}
-      <button
-        className="admin-button"
-        disabled={busy}
-        onClick={() => void review('resolved')}
-      >
-        Đã xử lý
-      </button>
-      <button
-        className="admin-button"
-        disabled={busy}
-        onClick={() => void review('dismissed')}
-      >
-        Bác bỏ
-      </button>
+      </div>
       {error && (
-        <p className="report-error" role="alert">
+        <p className="report-inline-error" role="alert">
           {error}
         </p>
       )}
@@ -267,23 +330,30 @@ export function ReportQueue({
   const [items, setItems] = useState<Report[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<'' | Report['status']>('');
+  const [targetFilter, setTargetFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const alive = useRef(true);
-  const loadingRef = useRef(false);
+  const requestSeq = useRef(0);
+
   const load = useCallback(
-    async (next?: string) => {
-      if (!user || loadingRef.current) return;
-      loadingRef.current = true;
+    async (next?: string, status = statusFilter, targetType = targetFilter) => {
+      if (!user) return;
+      const req = ++requestSeq.current;
       setLoading(true);
       setError('');
       try {
+        const params = new URLSearchParams({ limit: '20' });
+        if (next) params.set('cursor', next);
+        if (status) params.set('status', status);
+        if (targetType) params.set('targetType', targetType);
         const page = await api.authenticated<{
           items: Report[];
           nextCursor: string | null;
           pendingCount: number;
-        }>(`/admin/reports?limit=20${next ? `&cursor=${next}` : ''}`);
-        if (!alive.current) return;
+        }>(`/admin/reports?${params.toString()}`);
+        if (!alive.current || req !== requestSeq.current) return;
         setItems((previous) =>
           next
             ? [
@@ -298,92 +368,186 @@ export function ReportQueue({
         setPending(page.pendingCount);
         onCount(page.pendingCount);
       } catch (cause) {
-        if (alive.current) setError(reportError(cause));
+        if (alive.current && req === requestSeq.current) {
+          setError(reportError(cause));
+        }
       } finally {
-        loadingRef.current = false;
-        if (alive.current) setLoading(false);
+        if (alive.current && req === requestSeq.current) {
+          setLoading(false);
+        }
       }
     },
-    [user, onCount],
+    [user, onCount, statusFilter, targetFilter],
   );
+
   useEffect(() => {
     alive.current = true;
-    void load();
+    void load(undefined, statusFilter, targetFilter);
     return () => {
       alive.current = false;
     };
-  }, [load]);
+  }, [load, statusFilter, targetFilter]);
+
   return (
-    <section className="admin-panel">
+    <section className="admin-panel" aria-label="Hàng đợi kiểm duyệt báo cáo">
       <div className="admin-panel-heading">
         <div>
-          <h2>Hàng đợi kiểm duyệt</h2>
+          <h2>
+            Hàng đợi kiểm duyệt{' '}
+            <span className="admin-total">{pending} chờ xử lý</span>
+          </h2>
           <p>
             {user
-              ? `${pending} báo cáo đang chờ xử lý`
+              ? 'Xác minh bằng chứng snapshot, thu hồi nội dung vi phạm và ghi nhận kết luận kiểm toán.'
               : 'Đăng nhập bằng tài khoản quản trị viên để xem báo cáo thật.'}
           </p>
         </div>
-        <button
-          className="admin-button"
-          disabled={!user || loading}
-          onClick={() => void load()}
-        >
-          Tải lại
-        </button>
+        <div className="admin-heading-actions">
+          <button
+            type="button"
+            className="admin-button"
+            disabled={!user || loading}
+            onClick={() => void load(undefined, statusFilter, targetFilter)}
+          >
+            <RotateCw size={15} />
+            Làm mới
+          </button>
+          <button
+            type="button"
+            className="admin-button primary"
+            disabled={!items.length}
+            onClick={() => exportReportsCsv(items)}
+          >
+            <ArrowDownToLine size={15} />
+            Xuất báo cáo CSV
+          </button>
+        </div>
       </div>
+
+      {user && (
+        <div className="admin-report-toolbar">
+          <div
+            className="admin-pill-tabs"
+            role="tablist"
+            aria-label="Lọc theo trạng thái báo cáo"
+          >
+            {statusTabs.map((tab) => (
+              <button
+                key={tab.value || 'all'}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === tab.value}
+                className={statusFilter === tab.value ? 'is-active' : ''}
+                onClick={() => setStatusFilter(tab.value)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <select
+            aria-label="Lọc theo loại đối tượng báo cáo"
+            value={targetFilter}
+            onChange={(e) => setTargetFilter(e.target.value)}
+          >
+            <option value="">Tất cả loại đối tượng</option>
+            <option value="message">Tin nhắn</option>
+            <option value="attachment">Ảnh đính kèm</option>
+            <option value="user">Người dùng</option>
+            <option value="call">Cuộc gọi</option>
+          </select>
+        </div>
+      )}
+
       {error && (
-        <p className="report-error" role="alert">
+        <div className="admin-inline-alert danger" role="alert">
           {error}
-        </p>
+        </div>
       )}
-      {loading && <p role="status">Đang tải báo cáo…</p>}
-      {!loading && !error && user && !items.length && (
-        <p>Chưa có báo cáo vi phạm.</p>
+
+      {!user ? (
+        <div className="admin-empty">
+          <ShieldCheck size={30} />
+          <h3>Yêu cầu quyền Quản trị viên</h3>
+          <p>
+            Vui lòng đăng nhập tài khoản Admin để truy cập hàng đợi báo cáo.
+          </p>
+        </div>
+      ) : loading && !items.length ? (
+        <div className="admin-empty" role="status">
+          <Flag size={28} />
+          <h3>Đang tải danh sách báo cáo…</h3>
+          <p>Đang đồng bộ dữ liệu kiểm duyệt từ máy chủ PostgreSQL.</p>
+        </div>
+      ) : !loading && !error && !items.length ? (
+        <div className="admin-empty">
+          <ShieldCheck size={30} />
+          <h3>Không có báo cáo vi phạm nào trong bộ lọc này</h3>
+          <p>
+            Cộng đồng đang hoạt động an toàn. Bạn có thể chuyển tab trạng thái
+            để tra cứu lịch sử xử lý trước đó.
+          </p>
+        </div>
+      ) : (
+        <div className="admin-report-list">
+          {items.map((row) => (
+            <article className="admin-report" key={row.id}>
+              <div>
+                <div className="admin-report-top">
+                  <small>
+                    <span className="admin-report-type-badge">
+                      {types[row.targetType] ?? row.targetType}
+                    </span>{' '}
+                    · {new Date(row.createdAt).toLocaleString('vi-VN')}
+                  </small>
+                  <span className={`admin-status ${row.status}`}>
+                    <i />
+                    {statuses[row.status]}
+                  </span>
+                </div>
+                <h3>{row.reason}</h3>
+                <div className="admin-report-meta">
+                  <span>
+                    <strong>Mã báo cáo:</strong>{' '}
+                    <code className="admin-uuid">{row.id}</code>
+                  </span>
+                  <span>
+                    <strong>Người gửi:</strong>{' '}
+                    <code className="admin-uuid">{row.reporterId}</code>
+                  </span>
+                  <span>
+                    <strong>Đối tượng:</strong>{' '}
+                    <code className="admin-uuid">{row.targetId}</code>
+                  </span>
+                </div>
+                <ReportEvidence row={row} />
+                <ReportReview
+                  row={row}
+                  userId={user.id}
+                  onDone={() => load(undefined, statusFilter, targetFilter)}
+                />
+              </div>
+            </article>
+          ))}
+        </div>
       )}
-      <div className="admin-report-list">
-        {items.map((row) => (
-          <article className="admin-report" key={row.id}>
-            <div>
-              <div className="admin-report-top">
-                <small>
-                  {types[row.targetType] ?? row.targetType} ·{' '}
-                  {new Date(row.createdAt).toLocaleString('vi-VN')}
-                </small>
-                <span className={`admin-status ${row.status}`}>
-                  <i />
-                  {statuses[row.status]}
-                </span>
-              </div>
-              <h3>{row.reason}</h3>
-              <div className="admin-report-meta">
-                <span>
-                  <strong>Mã báo cáo:</strong>{' '}
-                  <code className="admin-uuid">{row.id}</code>
-                </span>
-                <span>
-                  <strong>Người gửi:</strong>{' '}
-                  <code className="admin-uuid">{row.reporterId}</code>
-                </span>
-                <span>
-                  <strong>Đối tượng:</strong>{' '}
-                  <code className="admin-uuid">{row.targetId}</code>
-                </span>
-              </div>
-              <ReportEvidence row={row} />
-              <ReportReview row={row} userId={user!.id} onDone={() => load()} />
-            </div>
-          </article>
-        ))}
-      </div>
-      {cursor && (
-        <button
-          className="admin-button"
-          disabled={loading}
-          onClick={() => void load(cursor)}
-        >
-          Xem thêm báo cáo
-        </button>
+
+      {user && (items.length > 0 || cursor) && (
+        <div className="admin-table-footer">
+          <span>
+            Đang hiển thị {items.length} báo cáo · {pending} báo cáo đang chờ xử
+            lý
+          </span>
+          {cursor && (
+            <button
+              type="button"
+              className="admin-button"
+              disabled={loading}
+              onClick={() => void load(cursor, statusFilter, targetFilter)}
+            >
+              Xem thêm báo cáo
+            </button>
+          )}
+        </div>
       )}
     </section>
   );

@@ -43,6 +43,26 @@ export interface GameMeta {
   groupOnly?: boolean;
 }
 
+export type CaroSessionStatus =
+  'invited' | 'active' | 'won' | 'draw' | 'declined' | 'forfeited';
+
+export interface CaroSession {
+  id: string;
+  conversationId: string;
+  gameType: GameType;
+  xUserId: string;
+  oUserId: string;
+  status: CaroSessionStatus;
+  turn: 'X' | 'O';
+  board: number[];
+  winnerId: string | null;
+  moveCount: number;
+  updatedAt?: string;
+  turnLimitSeconds?: number;
+  turnStartedAt?: string;
+  forfeitReason?: 'timeout' | 'surrender';
+}
+
 export const TRUTH_DARE_PROMPTS: Record<
   number,
   { kind: 'truth' | 'dare'; badge: string; text: string }

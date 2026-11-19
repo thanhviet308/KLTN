@@ -27,30 +27,12 @@ import {
   getOthelloFlips,
   getValidTargetsForPiece,
   isOwnCell,
+  type CaroSession,
   type GameCategory,
   type GameType,
 } from './game-rules';
 
-export { GAME_INFO, type GameType };
-
-type Status = 'invited' | 'active' | 'won' | 'draw' | 'declined' | 'forfeited';
-
-export interface CaroSession {
-  id: string;
-  conversationId: string;
-  gameType: GameType;
-  xUserId: string;
-  oUserId: string;
-  status: Status;
-  turn: 'X' | 'O';
-  board: number[];
-  winnerId: string | null;
-  moveCount: number;
-  updatedAt?: string;
-  turnLimitSeconds?: number;
-  turnStartedAt?: string;
-  forfeitReason?: 'timeout' | 'surrender';
-}
+export { GAME_INFO, type CaroSession, type GameType };
 
 function getDefaultTurnLimitSeconds(gameType: GameType): number {
   if (

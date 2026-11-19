@@ -19,9 +19,11 @@ import type { User } from '../database/entities/user.entity';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { ReportsService } from './reports.service';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Validation metadata.
-import { CreateReportDto, ReviewReportDto } from './reports.dto';
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Validation metadata.
-import { PageDto } from '../../common/page.dto';
+import {
+  AdminReportsDto,
+  CreateReportDto,
+  ReviewReportDto,
+} from './reports.dto';
 
 @Controller()
 export class ReportsController {
@@ -34,7 +36,7 @@ export class ReportsController {
     return this.reports.create(user.id, input);
   }
   @Get('admin/reports')
-  queue(@CurrentUser() user: User, @Query() input: PageDto) {
+  queue(@CurrentUser() user: User, @Query() input: AdminReportsDto) {
     return this.reports.queue(user, input);
   }
   @Patch('admin/reports/:id')

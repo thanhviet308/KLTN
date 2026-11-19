@@ -35,6 +35,11 @@ export interface Conversation {
     clearedAfterSequence?: string | null;
   };
   peer: { id: string; displayName: string; avatarUrl?: string | null } | null;
+  messageRequest?: {
+    id: string | null;
+    direction: 'incoming' | 'outgoing';
+    status: 'pending';
+  } | null;
   lastMessage: {
     id: string;
     senderId: string;

@@ -10,8 +10,11 @@ import { Attachment } from '../database/entities/attachment.entity';
 import { ConversationsService } from '../conversations/conversations.service';
 import { writeNotification } from '../notifications/notification-writer';
 import { pageResult } from '../../common/page.dto';
-import type { PageDto } from '../../common/page.dto';
-import type { CreateReportDto, ReviewReportDto } from './reports.dto';
+import type {
+  AdminReportsDto,
+  CreateReportDto,
+  ReviewReportDto,
+} from './reports.dto';
 
 function fail(status: number, code: string): never {
   throw new HttpException({ code, message: code }, status);
@@ -172,7 +175,7 @@ export class ReportsService {
     });
   }
 
-  async queue(user: User, input: PageDto) {
+  async queue(user: User, input: AdminReportsDto) {
     this.admin(user);
     const repository = this.db.getRepository(Report);
     const query = repository
@@ -188,6 +191,14 @@ export class ReportsService {
         '(report.createdAt, report.id) < ((SELECT created_at FROM reports WHERE id = :cursor), :cursor)',
         { cursor: input.cursor },
       );
+    }
+    if (input.status) {
+      query.andWhere('report.status = :status', { status: input.status });
+    }
+    if (input.targetType) {
+      query.andWhere('report.targetType = :targetType', {
+        targetType: input.targetType,
+      });
     }
     const [rows, pendingCount] = await Promise.all([
       query.getMany(),

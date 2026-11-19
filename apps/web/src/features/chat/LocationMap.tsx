@@ -160,7 +160,6 @@ export function LocationMap({
       cleanup?.();
     };
     // Initial view uses mount coordinates; markerRef updates keep selection responsive.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, zoom]);
 
   return (

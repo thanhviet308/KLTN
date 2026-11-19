@@ -28,7 +28,7 @@ export class RealtimeEvents {
   private friendshipListener?: (
     userA: string,
     userB: string,
-    status: 'accepted' | 'removed',
+    status: 'accepted' | 'removed' | 'request_updated',
   ) => void;
   onAccessChange(listener: (userId: string, status?: string) => void) {
     this.accessListener = listener;
@@ -40,7 +40,7 @@ export class RealtimeEvents {
     listener: (
       userA: string,
       userB: string,
-      status: 'accepted' | 'removed',
+      status: 'accepted' | 'removed' | 'request_updated',
     ) => void,
   ) {
     this.friendshipListener = listener;
@@ -48,7 +48,7 @@ export class RealtimeEvents {
   friendshipChanged(
     userA: string,
     userB: string,
-    status: 'accepted' | 'removed',
+    status: 'accepted' | 'removed' | 'request_updated',
   ) {
     try {
       this.friendshipListener?.(userA, userB, status);

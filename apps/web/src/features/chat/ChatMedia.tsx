@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Plus, Sparkles } from 'lucide-react';
 import { UiIcon } from '../../components/UiIcon';
-import { LocationMap } from './LocationMap';
+
+const LocationMap = lazy(() =>
+  import('./LocationMap').then((m) => ({ default: m.LocationMap })),
+);
 import {
   decodeVoiceDuration,
   measureVoiceDurationSeconds,
@@ -576,12 +579,20 @@ export function MediaTools({
             </header>
             {location ? (
               <>
-                <LocationMap
-                  latitude={location.latitude}
-                  longitude={location.longitude}
-                  zoom={manualLocation ? 12 : 16}
-                  onSelect={setLocation}
-                />
+                <Suspense
+                  fallback={
+                    <p className="location-map-status" role="status">
+                      Đang tải bản đồ…
+                    </p>
+                  }
+                >
+                  <LocationMap
+                    latitude={location.latitude}
+                    longitude={location.longitude}
+                    zoom={manualLocation ? 12 : 16}
+                    onSelect={setLocation}
+                  />
+                </Suspense>
                 <p>
                   {manualLocation
                     ? 'Nhấp hoặc chạm vào bản đồ để đặt ghim vị trí muốn chia sẻ.'
@@ -1027,7 +1038,6 @@ export function MessageMedia({
     observer.observe(holder.current);
     return () => observer.disconnect();
     // A message's file is immutable; fetch only when the image is visible.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message.id]);
   if (message.type === 'location') {
     const lat = message.content?.latitude;

@@ -1,89 +1,37 @@
 import * as api from '../../lib/api';
+import {
+  buildDashboardCsvContent,
+  buildFormalReportHtml,
+  computeChartAxisTicks,
+  computeGrowthBadge,
+  escapeCsvCell,
+  formatBytes,
+  formatDateTime,
+  formatDurationSeconds,
+  toCsvDocument,
+  type AdminAuditLogItem,
+  type AdminDashboardBreakdown,
+  type AdminDashboardData,
+  type AdminReportExportItem,
+  type AdminUserAccount,
+  type UserOverviewData,
+} from './admin-report-builder';
 
-export interface AdminUserAccount {
-  id: string;
-  displayName: string;
-  email: string;
-  role: 'user' | 'admin';
-  status: 'active' | 'blocked' | 'deleted';
-  lastActiveAt?: string | null;
-  createdAt: string;
-}
-
-export interface UserOverviewData {
-  user: AdminUserAccount & { updatedAt?: string };
-  friends: {
-    id: string;
-    email: string;
-    displayName: string;
-    status: string;
-    role: string;
-    since: string;
-  }[];
-  conversations: {
-    id: string;
-    type: 'direct' | 'group';
-    title: string | null;
-    lastMessageSequence: string;
-    createdAt: string;
-    memberRole: string;
-    joinedAt: string;
-    memberCount: number;
-  }[];
-  uploads: {
-    fileCount: number;
-    totalBytes: string;
-    recent: {
-      id: string;
-      fileName: string;
-      mimeType: string;
-      size: string;
-      status: string;
-      messageId: string | null;
-      createdAt: string;
-    }[];
-  };
-}
-
-export interface AdminDashboardData {
-  days: number;
-  users: {
-    total: number;
-    active: number;
-    blocked: number;
-    deleted: number;
-    admins: number;
-  };
-  totals: {
-    messagesToday: number;
-    messagesPeriod: number;
-    callsPeriod: number;
-    gamesPeriod: number;
-    groupsTotal: number;
-    pendingReports: number;
-    uploadFilesTotal: number;
-    uploadBytesTotal: string;
-  };
-  series: {
-    date: string;
-    newUsers: number;
-    messages: number;
-    calls: number;
-    games: number;
-  }[];
-}
-
-export interface AdminAuditLogItem {
-  id: string;
-  actorId: string | null;
-  actor: { id: string; email: string; displayName: string } | null;
-  action: string;
-  targetType: string | null;
-  targetId: string | null;
-  requestId: string | null;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-}
+export {
+  buildDashboardCsvContent,
+  buildFormalReportHtml,
+  computeChartAxisTicks,
+  computeGrowthBadge,
+  formatBytes,
+  formatDateTime,
+  formatDurationSeconds,
+  type AdminAuditLogItem,
+  type AdminDashboardBreakdown,
+  type AdminDashboardData,
+  type AdminReportExportItem,
+  type AdminUserAccount,
+  type UserOverviewData,
+};
 
 export interface UserExportPayload {
   exportedAt: string;
@@ -143,23 +91,6 @@ export interface UserExportPayload {
   }[];
 }
 
-export function formatBytes(value: string | number | undefined) {
-  const bytes = Number(value ?? 0);
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-export function formatDateTime(value?: string | null) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-}
-
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -169,9 +100,160 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function escapeCsvCell(value: unknown) {
-  const text = value == null ? '' : String(value);
-  return `"${text.replaceAll('"', '""')}"`;
+function todaySlug() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function exportDashboardCsv(
+  dashboard: AdminDashboardData,
+  exportedBy?: { displayName?: string; email?: string },
+) {
+  const csv = buildDashboardCsvContent(dashboard, exportedBy);
+  downloadBlob(
+    new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+    `pingpong-bao-cao-thong-ke-${dashboard.days}ngay-${todaySlug()}.csv`,
+  );
+}
+
+export function exportDashboardJson(
+  dashboard: AdminDashboardData,
+  exportedBy?: { displayName?: string; email?: string },
+) {
+  const payload = {
+    reportTitle: 'Báo cáo thống kê vận hành hệ thống PingPong',
+    exportedAt: new Date().toISOString(),
+    exportedBy: exportedBy ?? { displayName: 'Quản trị viên' },
+    ...dashboard,
+  };
+  downloadBlob(
+    new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json;charset=utf-8;',
+    }),
+    `pingpong-thong-ke-${dashboard.days}ngay-${todaySlug()}.json`,
+  );
+}
+
+export function printDashboardFormalReport(
+  dashboard: AdminDashboardData,
+  exportedBy?: { displayName?: string; email?: string },
+): boolean {
+  const html = buildFormalReportHtml(dashboard, exportedBy);
+  const win = window.open('', '_blank');
+  if (!win) return false;
+  win.opener = null;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  return true;
+}
+
+export function exportUsersListCsv(
+  users: AdminUserAccount[],
+  filename = `pingpong-danh-sach-nguoi-dung-${todaySlug()}.csv`,
+) {
+  const statusMap: Record<string, string> = {
+    active: 'Hoạt động',
+    blocked: 'Bị chặn',
+    deleted: 'Đã xóa mềm',
+  };
+  const rows: unknown[][] = [
+    [
+      'Mã người dùng (UUID)',
+      'Tên hiển thị',
+      'Email',
+      'Vai trò',
+      'Trạng thái',
+      'Hoạt động gần nhất',
+      'Ngày tạo tài khoản',
+    ],
+    ...users.map((u) => [
+      u.id,
+      u.displayName,
+      u.email,
+      u.role === 'admin' ? 'Quản trị viên' : 'Thành viên',
+      statusMap[u.status] ?? u.status,
+      formatDateTime(u.lastActiveAt),
+      formatDateTime(u.createdAt),
+    ]),
+  ];
+  downloadBlob(
+    new Blob([toCsvDocument(rows)], { type: 'text/csv;charset=utf-8;' }),
+    filename,
+  );
+}
+
+export function exportReportsCsv(reports: AdminReportExportItem[]) {
+  const statusLabels: Record<string, string> = {
+    open: 'Chờ xử lý',
+    reviewing: 'Đang xem xét',
+    resolved: 'Đã giải quyết',
+    dismissed: 'Đã bác bỏ',
+  };
+  const targetLabels: Record<string, string> = {
+    user: 'Người dùng',
+    message: 'Tin nhắn',
+    attachment: 'Ảnh đính kèm',
+    call: 'Cuộc gọi',
+    conversation: 'Hội thoại',
+  };
+  const rows: unknown[][] = [
+    [
+      'Mã báo cáo',
+      'Thời gian gửi',
+      'Loại đối tượng',
+      'ID đối tượng',
+      'ID người báo cáo',
+      'Lý do báo cáo',
+      'Trạng thái',
+      'ID người xử lý',
+      'Kết luận xử lý',
+    ],
+    ...reports.map((r) => [
+      r.id,
+      formatDateTime(r.createdAt),
+      targetLabels[r.targetType] ?? r.targetType,
+      r.targetId,
+      r.reporterId,
+      r.reason,
+      statusLabels[r.status] ?? r.status,
+      r.reviewerId ?? '—',
+      r.resolution ?? '—',
+    ]),
+  ];
+  downloadBlob(
+    new Blob([toCsvDocument(rows)], { type: 'text/csv;charset=utf-8;' }),
+    `pingpong-bao-cao-vi-pham-${todaySlug()}.csv`,
+  );
+}
+
+export function exportAuditLogsCsv(logs: AdminAuditLogItem[]) {
+  const rows: unknown[][] = [
+    [
+      'Mã Audit',
+      'Thời gian ghi nhận',
+      'Người thực hiện (Actor)',
+      'Email Actor',
+      'Hành động',
+      'Loại đối tượng',
+      'ID đối tượng',
+      'Metadata JSON',
+    ],
+    ...logs.map((log) => [
+      log.id,
+      formatDateTime(log.createdAt),
+      log.actor?.displayName ?? log.actorId ?? 'system',
+      log.actor?.email ?? '—',
+      log.action,
+      log.targetType ?? 'system',
+      log.targetId ?? '—',
+      JSON.stringify(log.metadata ?? {}),
+    ]),
+  ];
+  downloadBlob(
+    new Blob([toCsvDocument(rows)], { type: 'text/csv;charset=utf-8;' }),
+    `pingpong-nhat-ky-audit-${todaySlug()}.csv`,
+  );
 }
 
 export async function exportUserLogFile(
@@ -196,43 +278,43 @@ export async function exportUserLogFile(
     [
       'Tài khoản',
       payload.user.id,
-      payload.user.createdAt,
+      formatDateTime(payload.user.createdAt),
       `${payload.user.displayName} (${payload.user.email}) · ${payload.user.role} · ${payload.user.status}`,
     ],
     ...payload.sessions.map((s) => [
       'Phiên đăng nhập',
       s.id,
-      s.createdAt,
-      `${s.deviceName ?? 'Thiết bị'} · ${s.revokedAt ? `Thu hồi: ${s.revokedAt}` : `Hết hạn: ${s.expiresAt}`}`,
+      formatDateTime(s.createdAt),
+      `${s.deviceName ?? 'Thiết bị'} · ${s.revokedAt ? `Thu hồi: ${formatDateTime(s.revokedAt)}` : `Hết hạn: ${formatDateTime(s.expiresAt)}`}`,
     ]),
     ...payload.friends.map((f) => [
       'Bạn bè',
       f.id,
-      f.createdAt,
+      formatDateTime(f.createdAt),
       `${f.requesterId} -> ${f.recipientId} (${f.status})`,
     ]),
     ...payload.conversations.map((c) => [
       'Hội thoại',
       c.conversationId,
-      c.joinedAt,
-      `${c.type}${c.title ? ` "${c.title}"` : ''} · vai trò ${c.memberRole}${c.leftAt ? ` · rời lúc ${c.leftAt}` : ''}`,
+      formatDateTime(c.joinedAt),
+      `${c.type}${c.title ? ` "${c.title}"` : ''} · vai trò ${c.memberRole}${c.leftAt ? ` · rời lúc ${formatDateTime(c.leftAt)}` : ''}`,
     ]),
     ...payload.uploads.map((u) => [
       'Tệp tải lên',
       u.id,
-      u.createdAt,
-      `${u.fileName} (${u.mimeType}, ${u.size} bytes, ${u.status})`,
+      formatDateTime(u.createdAt),
+      `${u.fileName} (${u.mimeType}, ${formatBytes(u.size)}, ${u.status})`,
     ]),
     ...payload.reports.map((r) => [
       'Báo cáo',
       r.id,
-      r.createdAt,
+      formatDateTime(r.createdAt),
       `${r.targetType}:${r.targetId} · ${r.status} · "${r.reason}"${r.resolution ? ` -> ${r.resolution}` : ''}`,
     ]),
     ...payload.auditLogs.map((a) => [
       'Audit Log',
       a.id,
-      a.createdAt,
+      formatDateTime(a.createdAt),
       `${a.action} · ${a.targetType ?? 'system'}:${a.targetId ?? '-'} · ${JSON.stringify(a.metadata ?? {})}`,
     ]),
   ];

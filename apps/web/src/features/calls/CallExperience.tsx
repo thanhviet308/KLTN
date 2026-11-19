@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalVideoTrack, Room } from 'livekit-client';
+import './calls.css';
 import * as api from '../../lib/api';
 import { acquireChatSocket } from '../../lib/realtime';
 import { isEmbeddedInAppBrowser } from '../chat/location-helper';

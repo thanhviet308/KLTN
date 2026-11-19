@@ -7,23 +7,26 @@ export const sections: {
   {
     id: 'overview',
     label: 'Tổng quan',
-    description: 'Một góc nhìn rõ ràng về cộng đồng của bạn.',
+    description:
+      'Thống kê vận hành thời gian thực, phân tích lưu lượng và xuất báo cáo hệ thống.',
   },
   {
     id: 'users',
     label: 'Người dùng',
-    description: 'Theo dõi thành viên và quản lý trạng thái tài khoản.',
+    description:
+      'Quản lý tài khoản, phân quyền quản trị, tra cứu metadata và trích xuất danh sách.',
   },
   {
     id: 'reports',
     label: 'Báo cáo vi phạm',
-    description: 'Xem xét báo cáo để giữ cộng đồng an toàn.',
+    description:
+      'Tiếp nhận, xác minh bằng chứng snapshot và xử lý báo cáo vi phạm cộng đồng.',
   },
   {
     id: 'activity',
     label: 'Audit & Tuân thủ',
     description:
-      'Tra cứu audit_logs (chỉ đọc), export hồ sơ và chính sách lưu trữ.',
+      'Tra cứu nhật ký audit_logs bất biến, trích xuất hồ sơ khiếu nại và chính sách lưu trữ.',
   },
 ];
 export interface AdminUser {

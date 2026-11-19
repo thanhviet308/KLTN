@@ -191,7 +191,7 @@ export class ChatGateway
   private handleFriendshipChange(
     userA: string,
     userB: string,
-    status: 'accepted' | 'removed',
+    status: 'accepted' | 'removed' | 'request_updated',
   ) {
     this.emitToUser(userA, 'friends:updated', { peerId: userB, status });
     this.emitToUser(userB, 'friends:updated', { peerId: userA, status });

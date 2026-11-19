@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ArrowDownRight,
   ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Bot,
   Check,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileJson,
   Flag,
+  HardDrive,
   LayoutDashboard,
   MessageCircle,
+  Minus,
   PhoneCall,
+  Printer,
+  RotateCw,
   Search,
   ShieldCheck,
   Users,
@@ -22,8 +29,15 @@ import type { User } from '../../lib/api';
 import { AdminAuditCompliance } from './AdminAuditCompliance';
 import { AdminUsers } from './AdminUsers';
 import {
+  computeChartAxisTicks,
+  computeGrowthBadge,
+  exportDashboardCsv,
+  exportDashboardJson,
+  exportUsersListCsv,
   formatBytes,
   formatDateTime,
+  formatDurationSeconds,
+  printDashboardFormalReport,
   type AdminDashboardData,
   type AdminUserAccount,
 } from './admin-export';
@@ -44,13 +58,13 @@ const icons = {
 };
 
 const demoSeries = [32, 47, 38, 62, 51, 73, 64, 85, 69, 93, 82, 108, 96, 124];
-type SeriesMetric = 'newUsers' | 'messages' | 'calls' | 'games';
+type SeriesMetric = 'messages' | 'newUsers' | 'calls' | 'games';
 
 const metricLabels: Record<SeriesMetric, string> = {
-  newUsers: 'Đăng ký mới',
   messages: 'Tin nhắn',
+  newUsers: 'Đăng ký mới',
   calls: 'Cuộc gọi',
-  games: 'Phiên trò chơi',
+  games: 'Trò chơi',
 };
 
 function chartDate(index: number, period: string) {
@@ -77,6 +91,89 @@ function formatShortIsoDate(isoDate: string) {
   return d && m ? `${d}/${m}` : isoDate;
 }
 
+function buildDemoDashboard(
+  daysCount: number,
+  pendingCount: number,
+): AdminDashboardData {
+  const slice = demoSeries.slice(-Math.min(daysCount, demoSeries.length));
+  return {
+    days: daysCount,
+    users: {
+      total: 2846,
+      active: 2790,
+      blocked: 42,
+      deleted: 14,
+      admins: 5,
+      active24h: 612,
+      active7d: 1840,
+      newPeriod: 128,
+      newPreviousPeriod: 112,
+    },
+    totals: {
+      messagesToday: 1829,
+      messagesPeriod: 18294,
+      messagesPreviousPeriod: 16905,
+      callsPeriod: 412,
+      callsPreviousPeriod: 378,
+      gamesPeriod: 196,
+      gamesPreviousPeriod: 165,
+      groupsTotal: 326,
+      directConversationsTotal: 1480,
+      pendingReports: pendingCount,
+      spamDetectedPeriod: 19,
+      recalledMessagesPeriod: 64,
+      uploadFilesTotal: 1284,
+      uploadBytesTotal: String(428 * 1024 * 1024),
+    },
+    series: slice.map((val, idx) => ({
+      date: `2026-11-${String(Math.max(1, 18 - slice.length + idx + 1)).padStart(2, '0')}`,
+      newUsers: Math.max(2, Math.round(val / 10)),
+      messages: val * 12,
+      calls: Math.max(1, Math.round(val / 3)),
+      games: Math.max(1, Math.round(val / 5)),
+    })),
+    breakdown: {
+      messageTypes: {
+        text: 14120,
+        image: 2460,
+        file: 680,
+        voice: 520,
+        location: 102,
+        call: 412,
+      },
+      calls: {
+        audio: 248,
+        video: 164,
+        completed: 336,
+        missedOrRejected: 76,
+        totalDurationSeconds: 94200,
+        aiSummaries: 82,
+      },
+      aiJobs: {
+        total: 645,
+        completed: 638,
+        chat: 310,
+        summary: 145,
+        replySuggestions: 190,
+      },
+      reports: {
+        total: 48,
+        open: pendingCount,
+        reviewing: 2,
+        resolved: 36,
+        dismissed: 7,
+        byTarget: {
+          user: 9,
+          message: 26,
+          attachment: 8,
+          call: 5,
+          conversation: 0,
+        },
+      },
+    },
+  };
+}
+
 export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
   const isAdmin = user?.role === 'admin';
   const readSection = (): AdminSection =>
@@ -92,6 +189,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
   const [logs, setLogs] = useState<{ text: string; time: string }[]>([]);
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<AdminUser | null>(null);
+  const [focusUserId, setFocusUserId] = useState<string | null>(null);
 
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -203,7 +301,8 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
     Math.min(page, pageCount) * pageSize,
   );
 
-  function navigate(id: AdminSection) {
+  function navigate(id: AdminSection, targetUserId?: string) {
+    if (targetUserId) setFocusUserId(targetUserId);
     location.hash = id;
     setSection(id);
     setPage(1);
@@ -225,6 +324,44 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
     setNotice(`${text} — dữ liệu xem thử.`);
   }
 
+  function activeDashboardSnapshot(): AdminDashboardData {
+    if (isAdmin && dashboard) return dashboard;
+    return buildDemoDashboard(Number(period) || 14, pending);
+  }
+
+  function handleExportReportCsv() {
+    const snap = activeDashboardSnapshot();
+    exportDashboardCsv(snap, {
+      displayName: user?.displayName,
+      email: user?.email,
+    });
+    setNotice(`Đã xuất báo cáo thống kê (${snap.days} ngày) ra tệp CSV.`);
+  }
+
+  function handleExportReportJson() {
+    const snap = activeDashboardSnapshot();
+    exportDashboardJson(snap, {
+      displayName: user?.displayName,
+      email: user?.email,
+    });
+    setNotice(`Đã xuất dữ liệu thống kê (${snap.days} ngày) ra tệp JSON.`);
+  }
+
+  function handlePrintFormalReport() {
+    const snap = activeDashboardSnapshot();
+    const opened = printDashboardFormalReport(snap, {
+      displayName: user?.displayName,
+      email: user?.email,
+    });
+    if (!opened) {
+      setDashboardError(
+        'Trình duyệt đang chặn cửa sổ bật lên (popup). Hãy cho phép popup để mở trang In / Lưu PDF.',
+      );
+      return;
+    }
+    setNotice('Đã mở bản xem trước Báo cáo thống kê chuẩn A4 (In / Lưu PDF).');
+  }
+
   async function exportOverviewUsers() {
     if (isAdmin) {
       setDashboardLoading(true);
@@ -232,39 +369,8 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
         const res = await api.authenticated<{ items: AdminUserAccount[] }>(
           '/admin/users?limit=50',
         );
-        const csv =
-          '\uFEFF' +
-          [
-            [
-              'ID',
-              'Tên hiển thị',
-              'Email',
-              'Vai trò',
-              'Trạng thái',
-              'Ngày tạo',
-            ],
-            ...res.items.map((u) => [
-              u.id,
-              u.displayName,
-              u.email,
-              u.role,
-              u.status,
-              u.createdAt,
-            ]),
-          ]
-            .map((row) =>
-              row.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(','),
-            )
-            .join('\r\n');
-        const url = URL.createObjectURL(
-          new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
-        );
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'pingpong-users.csv';
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        setNotice(`Đã xuất ${res.items.length} người dùng ra CSV.`);
+        exportUsersListCsv(res.items);
+        setNotice(`Đã xuất ${res.items.length} người dùng ra tệp CSV.`);
       } catch (e) {
         setDashboardError(api.errorMessage(e));
       } finally {
@@ -273,35 +379,186 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
       return;
     }
 
-    const csv =
-      '\uFEFF' +
-      [
-        ['Mã', 'Họ tên', 'Email', 'Vai trò', 'Trạng thái'],
-        ...filtered.map((u) => [
-          u.id,
-          u.name,
-          u.email,
-          u.role,
-          u.status === 'active' ? 'Hoạt động' : 'Đã khóa',
-        ]),
-      ]
-        .map((row) => row.map((v) => `"${v.replaceAll('"', '""')}"`).join(','))
-        .join('\r\n');
-    const url = URL.createObjectURL(
-      new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
-    );
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'pingpong-nguoi-dung-mau.csv';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const csvRows = filtered.map((u) => ({
+      id: u.id,
+      displayName: u.name,
+      email: u.email,
+      role: (u.role === 'Quản trị viên' ? 'admin' : 'user') as 'admin' | 'user',
+      status: u.status,
+      lastActiveAt: null,
+      createdAt: u.joined,
+    }));
+    exportUsersListCsv(csvRows, 'pingpong-nguoi-dung-mau.csv');
     record('Đã xuất danh sách người dùng mẫu');
   }
 
-  const realSeries = dashboard?.series ?? [];
+  const activeData = activeDashboardSnapshot();
+  const realSeries = isAdmin ? (dashboard?.series ?? []) : activeData.series;
   const realValues = realSeries.map((point) => point[seriesMetric]);
-  const realMax = Math.max(1, ...realValues);
+  const realMax = Math.max(0, ...realValues);
+  const axisTicks = computeChartAxisTicks(realMax);
+  const axisMax = axisTicks[0];
   const periodSum = realValues.reduce((sum, n) => sum + n, 0);
+  const avgPerDay = realSeries.length > 0 ? periodSum / realSeries.length : 0;
+  const peakPoint = realSeries.reduce<{ date: string; value: number } | null>(
+    (best, p) => {
+      const val = p[seriesMetric];
+      if (!best || val >= best.value) return { date: p.date, value: val };
+      return best;
+    },
+    null,
+  );
+
+  const breakdown = activeData.breakdown;
+  const msgTypes = breakdown?.messageTypes ?? {
+    text: 0,
+    image: 0,
+    file: 0,
+    voice: 0,
+    location: 0,
+    call: 0,
+  };
+  const msgTypeTotal =
+    msgTypes.text +
+    msgTypes.image +
+    msgTypes.file +
+    msgTypes.voice +
+    msgTypes.location +
+    msgTypes.call;
+  const msgTypeItems = [
+    {
+      key: 'text',
+      label: 'Văn bản (Text)',
+      count: msgTypes.text,
+      tone: 'accent',
+    },
+    {
+      key: 'image',
+      label: 'Hình ảnh (Image)',
+      count: msgTypes.image,
+      tone: 'sage',
+    },
+    {
+      key: 'file',
+      label: 'Tệp tài liệu (File)',
+      count: msgTypes.file,
+      tone: 'lilac',
+    },
+    {
+      key: 'voice',
+      label: 'Tin nhắn thoại (Voice)',
+      count: msgTypes.voice,
+      tone: 'sand',
+    },
+    {
+      key: 'call',
+      label: 'Nhật ký cuộc gọi (Call)',
+      count: msgTypes.call,
+      tone: 'blue',
+    },
+    {
+      key: 'location',
+      label: 'Chia sẻ vị trí (GPS)',
+      count: msgTypes.location,
+      tone: 'muted',
+    },
+  ];
+
+  const reportSummary = breakdown?.reports ?? {
+    total: activeData.totals.pendingReports,
+    open: activeData.totals.pendingReports,
+    reviewing: 0,
+    resolved: 0,
+    dismissed: 0,
+    byTarget: { user: 0, message: 0, attachment: 0, call: 0, conversation: 0 },
+  };
+  const handledReports = reportSummary.resolved + reportSummary.dismissed;
+  const resolutionRate =
+    reportSummary.total > 0
+      ? Math.round((handledReports / reportSummary.total) * 100)
+      : 100;
+
+  const callStats = breakdown?.calls ?? {
+    audio: 0,
+    video: 0,
+    completed: 0,
+    missedOrRejected: 0,
+    totalDurationSeconds: 0,
+    aiSummaries: 0,
+  };
+  const aiStats = breakdown?.aiJobs ?? {
+    total: 0,
+    completed: 0,
+    chat: 0,
+    summary: 0,
+    replySuggestions: 0,
+  };
+
+  const userGrowth = computeGrowthBadge(
+    activeData.users.newPeriod,
+    activeData.users.newPreviousPeriod,
+  );
+  const msgGrowth = computeGrowthBadge(
+    activeData.totals.messagesPeriod,
+    activeData.totals.messagesPreviousPeriod,
+  );
+  const callGrowth = computeGrowthBadge(
+    activeData.totals.callsPeriod,
+    activeData.totals.callsPreviousPeriod,
+  );
+
+  const kpiCards = [
+    {
+      title: 'Người dùng hệ thống',
+      value: activeData.users.total.toLocaleString('vi-VN'),
+      badge: userGrowth.label,
+      tone: userGrowth.tone,
+      direction: userGrowth.direction,
+      icon: Users,
+      color: 'peach',
+      foot: `${activeData.users.active24h ?? 0} online 24h · ${activeData.users.active7d ?? 0} tuần qua · ${activeData.users.blocked} khóa`,
+    },
+    {
+      title: `Lưu lượng tin nhắn (${activeData.days}d)`,
+      value: activeData.totals.messagesPeriod.toLocaleString('vi-VN'),
+      badge: msgGrowth.label,
+      tone: msgGrowth.tone,
+      direction: msgGrowth.direction,
+      icon: MessageCircle,
+      color: 'sage',
+      foot: `Hôm nay: ${activeData.totals.messagesToday.toLocaleString('vi-VN')} · ${activeData.totals.directConversationsTotal ?? 0} chat 1-1 · ${activeData.totals.groupsTotal} nhóm`,
+    },
+    {
+      title: `Đàm thoại & Trò chơi (${activeData.days}d)`,
+      value: activeData.totals.callsPeriod.toLocaleString('vi-VN'),
+      badge: callGrowth.label,
+      tone: callGrowth.tone,
+      direction: callGrowth.direction,
+      icon: PhoneCall,
+      color: 'lilac',
+      foot: `${formatDurationSeconds(callStats.totalDurationSeconds)} gọi · ${activeData.totals.gamesPeriod} ván Caro`,
+    },
+    {
+      title: 'Kiểm duyệt & An toàn',
+      value: String(activeData.totals.pendingReports).padStart(2, '0'),
+      badge:
+        activeData.totals.pendingReports > 0
+          ? `${activeData.totals.pendingReports} chờ xử lý`
+          : '100% đã xử lý',
+      tone:
+        activeData.totals.pendingReports > 0
+          ? ('warning' as const)
+          : ('positive' as const),
+      direction: 'flat' as const,
+      icon: Flag,
+      color: 'sand',
+      foot: `Tỷ lệ xử lý ${resolutionRate}% · ${activeData.totals.spamDetectedPeriod ?? 0} cảnh báo Spam AI`,
+    },
+  ];
+
+  const handleClearFocusUser = useCallback(() => {
+    setFocusUserId(null);
+  }, []);
 
   return (
     <div className="admin-shell">
@@ -326,11 +583,11 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
           <ShieldCheck size={19} />
           <div>
             <strong>Không gian quản trị</strong>
-            <small>Quản lý hệ thống</small>
+            <small>Thống kê &amp; Điều hành</small>
           </div>
           <span className="admin-space-dot" />
         </div>
-        <p className="admin-nav-label">KHÔNG GIAN LÀM VIỆC</p>
+        <p className="admin-nav-label">PHÂN HỆ QUẢN TRỊ</p>
         <nav aria-label="Quản trị">
           {sections.map((s) => {
             const Icon = icons[s.id];
@@ -353,8 +610,11 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
         <div className="admin-sidebar-bottom">
           <div className="admin-help">
             <ShieldCheck size={26} />
-            <strong>Một cộng đồng tốt đẹp</strong>
-            <p>Bắt đầu từ những cuộc trò chuyện an toàn và tử tế.</p>
+            <strong>Báo cáo &amp; Kiểm toán</strong>
+            <p>
+              Hỗ trợ xuất báo cáo thống kê CSV, JSON và biểu mẫu in PDF chuẩn A4
+              từ dữ liệu thời gian thực.
+            </p>
           </div>
           <button className="admin-return" onClick={onBack}>
             <ArrowLeft size={17} />
@@ -382,7 +642,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
           <div className="admin-topbar-actions">
             <span className={`admin-preview-pill ${isAdmin ? 'is-live' : ''}`}>
               <i className="admin-live-dot" aria-hidden="true" />
-              {isAdmin ? 'Dữ liệu hệ thống' : 'Bản xem thử'}
+              {isAdmin ? 'Dữ liệu PostgreSQL trực tiếp' : 'Chế độ xem thử'}
             </span>
           </div>
         </header>
@@ -396,34 +656,78 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
               </h1>
               <p>{current.description}</p>
             </div>
-            <div className="admin-heading-actions">
-              {isAdmin && section === 'overview' && (
+            {section === 'overview' && (
+              <div className="admin-heading-actions">
+                <select
+                  aria-label="Kỳ thống kê báo cáo"
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                >
+                  <option value="7">Kỳ 7 ngày</option>
+                  <option value="14">Kỳ 14 ngày</option>
+                  <option value="30">Kỳ 30 ngày</option>
+                  {isAdmin && <option value="90">Kỳ 90 ngày</option>}
+                </select>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="admin-button"
+                    disabled={dashboardLoading}
+                    onClick={() => void loadDashboard(period)}
+                  >
+                    <RotateCw size={15} />
+                    Làm mới
+                  </button>
+                )}
                 <button
                   type="button"
                   className="admin-button"
-                  disabled={dashboardLoading}
-                  onClick={() => void loadDashboard(period)}
+                  disabled={isAdmin && dashboardLoading && !dashboard}
+                  onClick={handleExportReportCsv}
                 >
-                  Làm mới số liệu
+                  <ArrowDownToLine size={16} />
+                  Xuất thống kê CSV
                 </button>
-              )}
-              <button
-                type="button"
-                className="admin-button primary"
-                disabled={dashboardLoading}
-                onClick={() => void exportOverviewUsers()}
-              >
-                <ArrowDownToLine size={17} />
-                Xuất danh sách CSV
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="admin-button"
+                  disabled={isAdmin && dashboardLoading && !dashboard}
+                  onClick={handleExportReportJson}
+                  title="Xuất dữ liệu thống kê định dạng JSON"
+                >
+                  <FileJson size={16} />
+                  JSON
+                </button>
+                <button
+                  type="button"
+                  className="admin-button primary"
+                  disabled={isAdmin && dashboardLoading && !dashboard}
+                  onClick={handlePrintFormalReport}
+                >
+                  <Printer size={16} />
+                  Xuất báo cáo PDF / In
+                </button>
+              </div>
+            )}
+            {!isAdmin && section === 'users' && (
+              <div className="admin-heading-actions">
+                <button
+                  type="button"
+                  className="admin-button primary"
+                  onClick={() => void exportOverviewUsers()}
+                >
+                  <ArrowDownToLine size={16} />
+                  Xuất danh sách mẫu CSV
+                </button>
+              </div>
+            )}
           </div>
           <div className="admin-demo-note">
             <ShieldCheck size={17} />
             <span>
               {isAdmin
-                ? 'Dữ liệu từ PostgreSQL. Trang tổng quan tự cập nhật mỗi 10 giây và khi quay lại tab.'
-                : 'Đang hiển thị dữ liệu mẫu. Thay đổi chỉ áp dụng trong phiên xem thử.'}
+                ? 'Số liệu tổng hợp trực tiếp từ cơ sở dữ liệu PostgreSQL, tự động làm mới mỗi 10 giây và hỗ trợ xuất báo cáo đa định dạng (CSV Excel, JSON, PDF/A4).'
+                : 'Đang hiển thị dữ liệu mô phỏng để xem trước bố cục và mẫu xuất báo cáo.'}
             </span>
           </div>
 
@@ -435,90 +739,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                 </div>
               )}
               <div className="admin-metrics">
-                {(isAdmin && dashboard
-                  ? [
-                      {
-                        title: 'Người dùng hệ thống',
-                        value: dashboard.users.total.toLocaleString('vi-VN'),
-                        change: `${dashboard.users.active} active`,
-                        icon: Users,
-                        foot: `· ${dashboard.users.blocked} khóa · ${dashboard.users.deleted} xóa · ${dashboard.users.admins} admin`,
-                        color: 'peach',
-                        warn: false,
-                      },
-                      {
-                        title: 'Tin nhắn & Nhóm',
-                        value:
-                          dashboard.totals.messagesToday.toLocaleString(
-                            'vi-VN',
-                          ),
-                        change: `${dashboard.totals.messagesPeriod.toLocaleString('vi-VN')} / ${dashboard.days}d`,
-                        icon: MessageCircle,
-                        foot: `· ${dashboard.totals.groupsTotal} nhóm chat`,
-                        color: 'sage',
-                        warn: false,
-                      },
-                      {
-                        title: 'Cuộc gọi & Trò chơi',
-                        value: `${dashboard.totals.callsPeriod} / ${dashboard.totals.gamesPeriod}`,
-                        change: `${dashboard.totals.uploadFilesTotal} tệp`,
-                        icon: PhoneCall,
-                        foot: `(${formatBytes(dashboard.totals.uploadBytesTotal)})`,
-                        color: 'lilac',
-                        warn: false,
-                      },
-                      {
-                        title: 'Báo cáo chờ xử lý',
-                        value: String(dashboard.totals.pendingReports).padStart(
-                          2,
-                          '0',
-                        ),
-                        change: 'Cần xem xét',
-                        icon: Flag,
-                        foot: 'giữ cộng đồng an toàn',
-                        color: 'sand',
-                        warn: true,
-                      },
-                    ]
-                  : [
-                      {
-                        title: 'Tổng người dùng',
-                        value: '2.846',
-                        change: '+12,8%',
-                        icon: Users,
-                        foot: 'so với kỳ trước',
-                        color: 'peach',
-                        warn: false,
-                      },
-                      {
-                        title: 'Tin nhắn hôm nay',
-                        value: '18.294',
-                        change: '+8,2%',
-                        icon: MessageCircle,
-                        foot: 'so với hôm trước',
-                        color: 'sage',
-                        warn: false,
-                      },
-                      {
-                        title: 'Nhóm trò chuyện',
-                        value: '326',
-                        change: '+6,4%',
-                        icon: LayoutDashboard,
-                        foot: 'so với kỳ trước',
-                        color: 'lilac',
-                        warn: false,
-                      },
-                      {
-                        title: 'Báo cáo chờ xử lý',
-                        value: String(pending).padStart(2, '0'),
-                        change: 'Cần xem xét',
-                        icon: Flag,
-                        foot: 'giữ cộng đồng an toàn',
-                        color: 'sand',
-                        warn: true,
-                      },
-                    ]
-                ).map((m) => (
+                {kpiCards.map((m) => (
                   <article className="admin-metric" key={m.title}>
                     <div>
                       <span>{m.title}</span>
@@ -532,181 +753,364 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                         : m.value}
                     </strong>
                     <p>
-                      <span
-                        className={m.warn ? 'admin-warning' : 'admin-positive'}
-                      >
-                        {!m.warn && <ArrowUpRight size={13} />}
-                        {m.change}
+                      <span className={`admin-${m.tone}`}>
+                        {m.direction === 'up' && <ArrowUpRight size={13} />}
+                        {m.direction === 'down' && <ArrowDownRight size={13} />}
+                        {m.direction === 'flat' && <Minus size={12} />}
+                        {m.badge}
                       </span>{' '}
-                      {m.foot}
+                      <span>{m.foot}</span>
                     </p>
                   </article>
                 ))}
               </div>
+
               <div className="admin-insights">
                 <section className="admin-panel admin-chart">
                   <div className="admin-panel-heading">
                     <div>
-                      <h2>Nhịp sống hệ thống</h2>
+                      <h2>Biểu đồ biến động theo ngày</h2>
                       <p>
-                        {isAdmin
-                          ? `${metricLabels[seriesMetric]} theo ngày · ${period} ngày qua (dữ liệu thật)`
-                          : 'Lượt người dùng hoạt động mỗi ngày · dữ liệu mẫu'}
+                        Theo dõi chuỗi thời gian của{' '}
+                        <strong>
+                          {metricLabels[seriesMetric].toLowerCase()}
+                        </strong>{' '}
+                        trong {activeData.days} ngày gần nhất
                       </p>
                     </div>
-                    <div className="admin-chart-controls">
-                      {isAdmin && (
-                        <select
-                          aria-label="Chỉ số biểu đồ"
-                          value={seriesMetric}
-                          onChange={(e) =>
-                            setSeriesMetric(e.target.value as SeriesMetric)
-                          }
-                        >
-                          <option value="newUsers">Đăng ký mới</option>
-                          <option value="messages">Tin nhắn</option>
-                          <option value="calls">Cuộc gọi</option>
-                          <option value="games">Phiên trò chơi</option>
-                        </select>
+                    <div
+                      className="admin-pill-tabs"
+                      role="tablist"
+                      aria-label="Chọn chỉ số biểu đồ"
+                    >
+                      {(Object.keys(metricLabels) as SeriesMetric[]).map(
+                        (key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            role="tab"
+                            aria-selected={seriesMetric === key}
+                            className={seriesMetric === key ? 'is-active' : ''}
+                            onClick={() => setSeriesMetric(key)}
+                          >
+                            {metricLabels[key]}
+                          </button>
+                        ),
                       )}
-                      <select
-                        aria-label="Khoảng thời gian biểu đồ"
-                        value={period}
-                        onChange={(e) => setPeriod(e.target.value)}
-                      >
-                        <option value="7">7 ngày qua</option>
-                        <option value="14">14 ngày qua</option>
-                        {isAdmin && <option value="30">30 ngày qua</option>}
-                      </select>
                     </div>
                   </div>
-                  <div className="admin-chart-key">
-                    <span />
-                    {isAdmin
-                      ? `${metricLabels[seriesMetric]} (${periodSum.toLocaleString('vi-VN')} trong ${period} ngày)`
-                      : 'Người dùng hoạt động'}
+
+                  <div className="admin-chart-summary">
+                    <div>
+                      <span>Tổng trong kỳ ({activeData.days}d)</span>
+                      <strong>{periodSum.toLocaleString('vi-VN')}</strong>
+                    </div>
+                    <div>
+                      <span>Trung bình / ngày</span>
+                      <strong>
+                        {avgPerDay.toLocaleString('vi-VN', {
+                          maximumFractionDigits: 1,
+                        })}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Đỉnh cao nhất</span>
+                      <strong>
+                        {peakPoint
+                          ? `${peakPoint.value.toLocaleString('vi-VN')} (${formatShortIsoDate(peakPoint.date)})`
+                          : '0'}
+                      </strong>
+                    </div>
                   </div>
+
                   <div className="admin-plot">
-                    {isAdmin ? (
-                      <>
-                        <div className="admin-y-axis">
-                          <span>{realMax}</span>
-                          <span>{Math.ceil((realMax * 2) / 3)}</span>
-                          <span>{Math.ceil(realMax / 3)}</span>
-                          <span>0</span>
-                        </div>
-                        <div className="admin-bars">
-                          {realSeries.map((point, i) => {
-                            const val = point[seriesMetric];
-                            const pct =
-                              realMax > 0
-                                ? Math.max(
-                                    val > 0 ? 8 : 3,
-                                    (val / realMax) * 100,
-                                  )
-                                : 3;
-                            return (
-                              <div
-                                className="admin-bar-column"
-                                key={point.date}
-                              >
-                                <button
-                                  type="button"
-                                  className={
-                                    i === realSeries.length - 1
-                                      ? 'admin-bar latest'
-                                      : 'admin-bar'
-                                  }
-                                  style={{ height: `${pct}%` }}
-                                  aria-label={`Ngày ${formatShortIsoDate(point.date)}: ${val} ${metricLabels[seriesMetric]}`}
-                                  title={`${point.date}: ${val} ${metricLabels[seriesMetric]}`}
-                                >
-                                  <span>{val}</span>
-                                </button>
-                                {(realSeries.length <= 15 ||
-                                  i % 3 === 0 ||
-                                  i === realSeries.length - 1) && (
-                                  <small>
-                                    {formatShortIsoDate(point.date)}
-                                  </small>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="admin-y-axis">
-                          <span>1.500</span>
-                          <span>1.000</span>
-                          <span>500</span>
-                          <span>0</span>
-                        </div>
-                        <div className="admin-bars">
-                          {demoSeries.slice(-Number(period)).map((value, i) => (
-                            <div className="admin-bar-column" key={i}>
-                              <button
-                                className={
-                                  i === Number(period) - 1
-                                    ? 'admin-bar latest'
+                    <div className="admin-y-axis">
+                      {axisTicks.map((tick) => (
+                        <span key={tick}>{tick.toLocaleString('vi-VN')}</span>
+                      ))}
+                    </div>
+                    <div className="admin-bars">
+                      {realSeries.map((point, i) => {
+                        const val = point[seriesMetric];
+                        const pct =
+                          val > 0
+                            ? Math.max(8, Math.min(100, (val / axisMax) * 100))
+                            : 3;
+                        const labelDate = isAdmin
+                          ? formatShortIsoDate(point.date)
+                          : chartDate(i, period);
+                        const showTick =
+                          realSeries.length <= 15 ||
+                          i % Math.ceil(realSeries.length / 10) === 0 ||
+                          i === realSeries.length - 1;
+                        return (
+                          <div className="admin-bar-column" key={point.date}>
+                            <button
+                              type="button"
+                              className={
+                                i === realSeries.length - 1
+                                  ? 'admin-bar latest'
+                                  : val === 0
+                                    ? 'admin-bar is-zero'
                                     : 'admin-bar'
-                                }
-                                style={{ height: `${value / 1.4}%` }}
-                                aria-label={`Ngày ${chartDate(i, period)}: ${value * 10} người hoạt động`}
-                                title={`${value * 10} người hoạt động`}
-                              >
-                                <span>{value * 10}</span>
-                              </button>
-                              <small>{chartDate(i, period)}</small>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
+                              }
+                              style={{ height: `${pct}%` }}
+                              aria-label={`Ngày ${labelDate}: ${val} ${metricLabels[seriesMetric]}`}
+                              title={`${point.date}: ${val.toLocaleString('vi-VN')} ${metricLabels[seriesMetric]}`}
+                            >
+                              <span>
+                                {labelDate}: {val.toLocaleString('vi-VN')}
+                              </span>
+                            </button>
+                            {showTick && <small>{labelDate}</small>}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="admin-chart-footer">
                     <span>
                       <span className="admin-positive">
-                        {isAdmin
-                          ? `Σ ${periodSum.toLocaleString('vi-VN')}`
-                          : '↗ 12,8%'}
+                        Σ {periodSum.toLocaleString('vi-VN')}
                       </span>{' '}
-                      {isAdmin
-                        ? `${metricLabels[seriesMetric]} trong ${period} ngày qua`
-                        : 'tăng trưởng trong kỳ'}
+                      {metricLabels[seriesMetric].toLowerCase()} ghi nhận trong{' '}
+                      {activeData.days} ngày
                     </span>
                     <span>
-                      {isAdmin ? 'Tự cập nhật mỗi 10 giây' : 'Ví dụ minh họa'}
+                      {isAdmin
+                        ? 'Đồng bộ tự động mỗi 10 giây'
+                        : 'Dữ liệu mô phỏng'}
                     </span>
                   </div>
                 </section>
+
                 <section className="admin-panel admin-safety">
-                  <span className="admin-safety-icon">
-                    <ShieldCheck size={27} />
-                  </span>
-                  <p className="admin-eyebrow">AN TOÀN CỘNG ĐỒNG</p>
-                  <h2>
-                    Mỗi báo cáo đều
-                    <br />
-                    đáng được lắng nghe.
-                  </h2>
-                  <p>Cùng giữ PingPong là nơi mọi người an tâm kết nối.</p>
-                  <div className="admin-pending">
-                    <strong>{String(pending).padStart(2, '0')}</strong>
+                  <div className="admin-safety-top">
+                    <span className="admin-safety-icon">
+                      <ShieldCheck size={24} />
+                    </span>
+                    <div>
+                      <p className="admin-eyebrow">KIỂM DUYỆT &amp; AN TOÀN</p>
+                      <h2>Tình trạng xử lý báo cáo</h2>
+                    </div>
+                  </div>
+
+                  <div className="admin-safety-rate">
+                    <div>
+                      <span>Tỷ lệ hoàn tất giải quyết</span>
+                      <strong>{resolutionRate}%</strong>
+                    </div>
+                    <div className="admin-progress-track">
+                      <div
+                        className="admin-progress-fill sage"
+                        style={{ width: `${resolutionRate}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="admin-safety-grid">
+                    <div>
+                      <small>Chờ xử lý</small>
+                      <strong className="text-amber">
+                        {reportSummary.open}
+                      </strong>
+                    </div>
+                    <div>
+                      <small>Đang xem xét</small>
+                      <strong className="text-amber">
+                        {reportSummary.reviewing}
+                      </strong>
+                    </div>
+                    <div>
+                      <small>Đã giải quyết</small>
+                      <strong className="text-green">
+                        {reportSummary.resolved}
+                      </strong>
+                    </div>
+                    <div>
+                      <small>Đã bác bỏ</small>
+                      <strong>{reportSummary.dismissed}</strong>
+                    </div>
+                  </div>
+
+                  <div className="admin-safety-targets">
                     <span>
-                      báo cáo đang chờ
-                      <br />
-                      bạn xem xét
+                      Tin nhắn:{' '}
+                      <strong>{reportSummary.byTarget.message}</strong>
+                    </span>
+                    <span>
+                      Tài khoản: <strong>{reportSummary.byTarget.user}</strong>
+                    </span>
+                    <span>
+                      Hình ảnh:{' '}
+                      <strong>{reportSummary.byTarget.attachment}</strong>
+                    </span>
+                    <span>
+                      Cuộc gọi: <strong>{reportSummary.byTarget.call}</strong>
                     </span>
                   </div>
+
                   <button
+                    type="button"
                     className="admin-button primary"
                     onClick={() => navigate('reports')}
                   >
-                    Xem báo cáo
-                    <ArrowRight size={17} />
+                    Mở hàng đợi kiểm duyệt ({pending})
+                    <ArrowRight size={16} />
                   </button>
+                </section>
+              </div>
+
+              <div className="admin-breakdown-grid">
+                <section className="admin-panel">
+                  <div className="admin-panel-heading">
+                    <div>
+                      <h2>
+                        Cơ cấu loại tin nhắn{' '}
+                        <span className="admin-total">
+                          {msgTypeTotal.toLocaleString('vi-VN')}
+                        </span>
+                      </h2>
+                      <p>
+                        Phân bố tỷ trọng các định dạng nội dung gửi đi trong{' '}
+                        {activeData.days} ngày qua.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="admin-breakdown-body">
+                    <div
+                      className="admin-stacked-bar"
+                      aria-label="Thanh tỷ trọng loại tin nhắn"
+                    >
+                      {msgTypeTotal > 0 ? (
+                        msgTypeItems
+                          .filter((item) => item.count > 0)
+                          .map((item) => (
+                            <span
+                              key={item.key}
+                              className={`tone-${item.tone}`}
+                              style={{
+                                width: `${Math.max(2, (item.count / msgTypeTotal) * 100)}%`,
+                              }}
+                              title={`${item.label}: ${item.count.toLocaleString('vi-VN')}`}
+                            />
+                          ))
+                      ) : (
+                        <span
+                          className="tone-muted"
+                          style={{ width: '100%' }}
+                        />
+                      )}
+                    </div>
+                    <ul className="admin-dist-list">
+                      {msgTypeItems.map((item) => {
+                        const pct =
+                          msgTypeTotal > 0
+                            ? ((item.count / msgTypeTotal) * 100).toFixed(1)
+                            : '0.0';
+                        return (
+                          <li key={item.key}>
+                            <div className="admin-dist-label">
+                              <i className={`tone-${item.tone}`} />
+                              <span>{item.label}</span>
+                            </div>
+                            <div className="admin-dist-bar">
+                              <span
+                                className={`tone-${item.tone}`}
+                                style={{
+                                  width:
+                                    msgTypeTotal > 0
+                                      ? `${(item.count / msgTypeTotal) * 100}%`
+                                      : '0%',
+                                }}
+                              />
+                            </div>
+                            <div className="admin-dist-val">
+                              <strong>
+                                {item.count.toLocaleString('vi-VN')}
+                              </strong>
+                              <small>{pct}%</small>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </section>
+
+                <section className="admin-panel">
+                  <div className="admin-panel-heading">
+                    <div>
+                      <h2>Hạ tầng AI, Cuộc gọi &amp; Lưu trữ</h2>
+                      <p>
+                        Hiệu suất dịch vụ trợ lý AI, đàm thoại WebRTC/LiveKit và
+                        dung lượng tệp mã hóa.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="admin-ops-grid">
+                    <div className="admin-ops-card">
+                      <div className="admin-ops-head">
+                        <Bot size={17} />
+                        <span>Trợ lý AI thông minh ({activeData.days}d)</span>
+                      </div>
+                      <strong>
+                        {aiStats.total.toLocaleString('vi-VN')} yêu cầu
+                      </strong>
+                      <small>
+                        Chat AI: {aiStats.chat} · Tóm tắt: {aiStats.summary} ·
+                        Gợi ý trả lời: {aiStats.replySuggestions}
+                      </small>
+                    </div>
+
+                    <div className="admin-ops-card">
+                      <div className="admin-ops-head">
+                        <PhoneCall size={17} />
+                        <span>Chất lượng đàm thoại ({activeData.days}d)</span>
+                      </div>
+                      <strong>
+                        {callStats.audio} thoại · {callStats.video} video
+                      </strong>
+                      <small>
+                        Hoàn tất: {callStats.completed} · Nhỡ/Từ chối:{' '}
+                        {callStats.missedOrRejected} · AI Note:{' '}
+                        {callStats.aiSummaries}
+                      </small>
+                    </div>
+
+                    <div className="admin-ops-card">
+                      <div className="admin-ops-head">
+                        <HardDrive size={17} />
+                        <span>Lưu trữ Media mã hóa AES-256</span>
+                      </div>
+                      <strong>
+                        {formatBytes(activeData.totals.uploadBytesTotal)}
+                      </strong>
+                      <small>
+                        {activeData.totals.uploadFilesTotal.toLocaleString(
+                          'vi-VN',
+                        )}{' '}
+                        tệp đính kèm ·{' '}
+                        {activeData.totals.recalledMessagesPeriod ?? 0} tin thu
+                        hồi
+                      </small>
+                    </div>
+
+                    <div className="admin-ops-card">
+                      <div className="admin-ops-head">
+                        <Users size={17} />
+                        <span>Mức độ gắn kết người dùng</span>
+                      </div>
+                      <strong>
+                        {activeData.users.active24h ?? 0} DAU /{' '}
+                        {activeData.users.active7d ?? 0} WAU
+                      </strong>
+                      <small>
+                        Đăng ký mới kỳ này: {activeData.users.newPeriod ?? 0}{' '}
+                        tài khoản · {activeData.users.admins} Admin
+                      </small>
+                    </div>
+                  </div>
                 </section>
               </div>
             </>
@@ -715,6 +1119,8 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
           {section === 'users' && isAdmin && (
             <AdminUsers
               currentUserId={user?.id}
+              focusUserId={focusUserId}
+              onFocusHandled={handleClearFocusUser}
               onAuditChanged={() => void loadDashboard(period)}
             />
           )}
@@ -730,16 +1136,29 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                     </span>
                   </h2>
                   <p>
-                    Xem nhanh danh sách và truy cập đầy đủ công cụ quản trị.
+                    Danh sách thành viên tiêu biểu và lối tắt truy cập hồ sơ chi
+                    tiết.
                   </p>
                 </div>
-                <button
-                  className="admin-text-button"
-                  onClick={() => navigate('users')}
-                >
-                  Quản lý tất cả
-                  <ArrowRight size={16} />
-                </button>
+                <div className="admin-heading-actions">
+                  <button
+                    type="button"
+                    className="admin-button"
+                    disabled={dashboardLoading}
+                    onClick={() => void exportOverviewUsers()}
+                  >
+                    <ArrowDownToLine size={15} />
+                    Xuất DS người dùng CSV
+                  </button>
+                  <button
+                    type="button"
+                    className="admin-text-button"
+                    onClick={() => navigate('users')}
+                  >
+                    Quản lý tất cả
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
               </div>
               <div className="admin-table-wrap">
                 <table>
@@ -748,7 +1167,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                       <th scope="col">NGƯỜI DÙNG</th>
                       <th scope="col">VAI TRÒ</th>
                       <th scope="col">TRẠNG THÁI</th>
-                      <th scope="col">NGÀY TẠO</th>
+                      <th scope="col">HOẠT ĐỘNG CUỐI</th>
                       <th scope="col">THAO TÁC</th>
                     </tr>
                   </thead>
@@ -792,14 +1211,17 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                                 : 'Đã xóa mềm'}
                           </span>
                         </td>
-                        <td>{formatDateTime(u.createdAt)}</td>
+                        <td>
+                          <div>{formatDateTime(u.lastActiveAt)}</div>
+                          <small>Tạo: {formatDateTime(u.createdAt)}</small>
+                        </td>
                         <td>
                           <button
                             type="button"
                             className="admin-mini-btn"
-                            onClick={() => navigate('users')}
+                            onClick={() => navigate('users', u.id)}
                           >
-                            Quản lý
+                            Hồ sơ &amp; Quản lý
                             <ChevronRight size={14} />
                           </button>
                         </td>
@@ -1007,8 +1429,8 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
             ))}
 
           <footer className="admin-footer">
-            <span>PingPong Admin</span>
-            <span>Kết nối gần hơn. Quản lý dễ hơn.</span>
+            <span>PingPong Admin · Hệ thống Thống kê &amp; Tuân thủ</span>
+            <span>Dữ liệu trực tiếp · Xuất báo cáo CSV / JSON / PDF</span>
           </footer>
         </main>
       </div>
