@@ -78,6 +78,29 @@ function replyTypeIcon(type: ReplyTargetType) {
   }
 }
 
+function renderBodyWithMentions(body: string | null, mentionLabels: string[]) {
+  if (!body) return body;
+  const unique = [...new Set(mentionLabels.filter(Boolean))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (!unique.length) return body;
+  const escaped = unique.map((label) =>
+    `@${label}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+  );
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'g');
+  const parts = body.split(pattern);
+  if (parts.length === 1) return body;
+  return parts.map((part, index) =>
+    index % 2 === 1 ? (
+      <span key={index} className="message-mention-tag">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
 export interface Translation {
   version: string;
   text: string;
@@ -501,14 +524,6 @@ export function MessageBubble({
                 <br />
               </small>
             )}
-            {!message.deletedAt && !!message.content?.mentions?.length && (
-              <div className="workspace-mention-label">
-                Nhắc đến:{' '}
-                {message.content.mentions
-                  .map((id) => `@${names(id)}`)
-                  .join(', ')}
-              </div>
-            )}
             {message.deletedAt ? (
               'Tin nhắn đã thu hồi'
             ) : message.type && message.type !== 'text' ? (
@@ -588,7 +603,10 @@ export function MessageBubble({
                 </div>
               </div>
             ) : (
-              displayBody
+              renderBodyWithMentions(
+                displayBody,
+                (message.content?.mentions ?? []).map((id) => names(id)),
+              )
             )}
           </div>
           {!isCall && (

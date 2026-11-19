@@ -204,8 +204,20 @@
   background: #f4e6d5;
   border-color: #d6bfa9;
 }
+
 .home-shell .chat-message.mine .workspace-mention-label {
   color: rgba(255, 248, 240, 0.9);
+}
+
+.home-shell .message-mention-tag {
+  font-weight: 700;
+  color: #a44419;
+}
+.home-shell .chat-message.mine .message-mention-tag {
+  color: #ffffff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(255, 255, 255, 0.45);
 }
 .home-shell .message-sender-name {
   display: block;
