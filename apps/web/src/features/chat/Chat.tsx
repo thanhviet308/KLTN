@@ -4,6 +4,7 @@ import { type Socket } from 'socket.io-client';
 import * as api from '../../lib/api';
 import { acquireChatSocket } from '../../lib/realtime';
 import { UiIcon } from '../../components/UiIcon';
+import { Avatar } from '../../components/Avatar';
 import { MediaTools, type MediaDraft } from './ChatMedia';
 import { MessageBubble, type Translation } from './MessageBubble';
 import type { CallSummaryState } from './CallSummaryNote';
@@ -68,6 +69,33 @@ interface Draft {
   error?: string;
 }
 const drafts = new Map<string, { body: string; pending: Draft[] }>();
+interface MentionTrigger {
+  start: number;
+  end: number;
+  query: string;
+}
+
+function normalizeMentionSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .trim();
+}
+
+function findMentionTrigger(
+  text: string,
+  caret: number,
+): MentionTrigger | null {
+  const before = text.slice(0, caret);
+  const match = before.match(/(?:^|\s)@([^\s@\n]{0,40})$/);
+  if (!match) return null;
+  const query = match[1] ?? '';
+  const start = caret - query.length - 1;
+  return { start, end: caret, query };
+}
+
 export function Chat({
   conversationId,
   isGroup,
@@ -106,6 +134,8 @@ export function Chat({
   requestActionBusy?: boolean;
 }) {
   const [mentions, setMentions] = useState<string[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<MentionTrigger | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const draftKey = `${user.id}:${conversationId}`;
   const [cached] = useState(() => cachedHistory(draftKey));
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
@@ -1061,10 +1091,55 @@ export function Chat({
     };
     setBody('');
     setMentions([]);
+    setMentionQuery(null);
     setReplyTo(undefined);
     setError('');
     updateTyping(false);
     void send(draft);
+  }
+  const mentionCandidates =
+    isGroup && mentionQuery && !unavailable
+      ? peers
+          .filter((peer) => peer.id !== user.id)
+          .filter((peer) => {
+            if (!mentionQuery.query) return true;
+            const needle = normalizeMentionSearch(mentionQuery.query);
+            return (
+              normalizeMentionSearch(names(peer.id)).includes(needle) ||
+              normalizeMentionSearch(peer.displayName).includes(needle)
+            );
+          })
+          .slice(0, 8)
+      : [];
+  function syncMentionQuery(nextBody: string, caret: number) {
+    if (!isGroup || unavailable) {
+      setMentionQuery(null);
+      return;
+    }
+    const trigger = findMentionTrigger(nextBody, caret);
+    setMentionQuery(trigger);
+    setMentionIndex(0);
+  }
+  function pickMention(peer: Peer) {
+    if (!mentionQuery) return;
+    const label = names(peer.id);
+    const insertion = `@${label} `;
+    const nextBody =
+      body.slice(0, mentionQuery.start) +
+      insertion +
+      body.slice(mentionQuery.end);
+    const nextCaret = mentionQuery.start + insertion.length;
+    setMentions((old) => [...new Set([...old, peer.id])].slice(0, 20));
+    setBody(nextBody);
+    setMentionQuery(null);
+    setMentionIndex(0);
+    updateTyping(!!nextBody.trim());
+    requestAnimationFrame(() => {
+      const el = composer.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(nextCaret, nextCaret);
+    });
   }
   function updateTyping(value: boolean) {
     if (incomingRequestPending && value) return;
@@ -1526,32 +1601,42 @@ export function Chat({
             });
           }}
         />
-        {isGroup && (
-          <select
-            className="workspace-mention-select"
-            aria-label="Chọn thành viên để nhắc đến"
-            title="Nhắc đến thành viên (@)"
-            value=""
-            onChange={(event) => {
-              const id = event.target.value;
-              if (!id) return;
-              setMentions((old) => [...new Set([...old, id])].slice(0, 20));
-              setBody(
-                (old) =>
-                  `${old}${old && !old.endsWith(' ') ? ' ' : ''}@${names(id)} `,
-              );
-              composer.current?.focus();
-            }}
+        {mentionCandidates.length > 0 && (
+          <div
+            className="mention-suggestions"
+            role="listbox"
+            aria-label="Gợi ý nhắc đến thành viên"
           >
-            <option value="">@</option>
-            {peers
-              .filter((p) => p.id !== user.id)
-              .map((p) => (
-                <option key={p.id} value={p.id}>
-                  @{p.displayName}
-                </option>
-              ))}
-          </select>
+            <div className="mention-suggestions-header">
+              Nhắc đến thành viên
+            </div>
+            {mentionCandidates.map((peer, index) => {
+              const display = names(peer.id);
+              const activeOption = index === mentionIndex;
+              return (
+                <button
+                  key={peer.id}
+                  type="button"
+                  role="option"
+                  aria-selected={activeOption}
+                  className={`mention-suggestion-item${activeOption ? ' is-active' : ''}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setMentionIndex(index)}
+                  onClick={() => pickMention(peer)}
+                >
+                  <span className="mention-suggestion-avatar">
+                    <Avatar peer={peer} />
+                  </span>
+                  <span className="mention-suggestion-text">
+                    <strong>{display}</strong>
+                    {display !== peer.displayName && (
+                      <small>{peer.displayName}</small>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         )}
         <form
           className="message-composer"
@@ -1564,17 +1649,78 @@ export function Chat({
           <textarea
             ref={composer}
             aria-label="Nội dung tin nhắn"
-            placeholder="Nhập tin nhắn…"
+            placeholder={
+              isGroup ? 'Nhập tin nhắn… (gõ @ để nhắc tên)' : 'Nhập tin nhắn…'
+            }
             value={body}
             disabled={unavailable}
             maxLength={10000}
             rows={1}
             onChange={(e) => {
-              setBody(e.target.value);
-              updateTyping(!!e.target.value.trim());
+              const nextValue = e.target.value;
+              setBody(nextValue);
+              updateTyping(!!nextValue.trim());
+              syncMentionQuery(
+                nextValue,
+                e.target.selectionStart ?? nextValue.length,
+              );
             }}
-            onBlur={() => updateTyping(false)}
+            onClick={(e) =>
+              syncMentionQuery(
+                e.currentTarget.value,
+                e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+              )
+            }
+            onKeyUp={(e) => {
+              if (
+                e.key === 'ArrowLeft' ||
+                e.key === 'ArrowRight' ||
+                e.key === 'Home' ||
+                e.key === 'End'
+              ) {
+                syncMentionQuery(
+                  e.currentTarget.value,
+                  e.currentTarget.selectionStart ??
+                    e.currentTarget.value.length,
+                );
+              }
+            }}
+            onBlur={() => {
+              updateTyping(false);
+              setMentionQuery(null);
+            }}
             onKeyDown={(e) => {
+              if (mentionCandidates.length > 0) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setMentionIndex((i) => (i + 1) % mentionCandidates.length);
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setMentionIndex(
+                    (i) =>
+                      (i - 1 + mentionCandidates.length) %
+                      mentionCandidates.length,
+                  );
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setMentionQuery(null);
+                  return;
+                }
+                if (
+                  (e.key === 'Enter' || e.key === 'Tab') &&
+                  !e.nativeEvent.isComposing
+                ) {
+                  e.preventDefault();
+                  pickMention(
+                    mentionCandidates[mentionIndex] ?? mentionCandidates[0],
+                  );
+                  return;
+                }
+              }
               if (
                 e.key === 'Enter' &&
                 !e.shiftKey &&
