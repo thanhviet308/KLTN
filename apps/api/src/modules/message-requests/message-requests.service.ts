@@ -94,9 +94,16 @@ export class MessageRequestsService {
       const repository = manager.getRepository(MessageRequest);
       const existing = await repository.findOne({
         where: { pairLowId: low, pairHighId: high },
-        relations: { requester: true, recipient: true },
         lock: { mode: 'pessimistic_write' },
       });
+      if (existing) {
+        existing.requester = users.find(
+          (user) => user.id === existing.requesterId,
+        )!;
+        existing.recipient = users.find(
+          (user) => user.id === existing.recipientId,
+        )!;
+      }
 
       let savedRequest: MessageRequest | null = existing;
       let syncKind: 'accepted' | 'request_updated' = 'request_updated';
@@ -282,10 +289,11 @@ export class MessageRequestsService {
         fail(404, 'USER_UNAVAILABLE', 'User is unavailable');
       const row = await repository.findOne({
         where: { id },
-        relations: { requester: true, recipient: true },
         lock: { mode: 'pessimistic_write' },
       });
       if (!row) fail(404, 'MESSAGE_REQUEST_NOT_FOUND', 'Request not found');
+      row.requester = users.find((user) => user.id === row.requesterId)!;
+      row.recipient = users.find((user) => user.id === row.recipientId)!;
       if (row.status !== 'pending')
         fail(409, 'MESSAGE_REQUEST_STATE_CONFLICT', 'Request was handled');
       const peerId =

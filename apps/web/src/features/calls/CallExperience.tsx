@@ -674,6 +674,18 @@ export function CallExperience({
       if (disposed) return;
       const next = event.call;
       if (incomingEvent && next.initiatorId === user.id) return;
+      const me = next.participants.find(
+        (participant) => participant.userId === user.id,
+      );
+      if (!currentCall.current) {
+        if (
+          terminal.has(next.status) ||
+          !me ||
+          !['invited', 'accepted', 'joined'].includes(me.status)
+        ) {
+          return;
+        }
+      }
       if (
         !currentCall.current ||
         currentCall.current.id === next.id ||
@@ -881,7 +893,20 @@ export function CallExperience({
     setBusy(true);
     setError('');
     try {
-      await connectMedia(call);
+      let target = call;
+      const me = call.participants.find(
+        (participant) => participant.userId === user.id,
+      );
+      if (me && !['accepted', 'joined'].includes(me.status)) {
+        const result = await api.authenticated<CallResponse>(
+          `/calls/${call.id}/accept`,
+          {},
+        );
+        target = result.call;
+        currentCall.current = target;
+        setCall(target);
+      }
+      await connectMedia(target);
     } catch (failure) {
       setError(callErrorMessage(failure, call.type));
     } finally {
@@ -952,8 +977,17 @@ export function CallExperience({
     return () => window.clearInterval(timer);
   }, [call?.id, call?.status]);
 
+  const myParticipant = call?.participants.find(
+    (participant) => participant.userId === user.id,
+  );
   const incoming =
-    call?.status === 'ringing' && call.initiatorId !== user.id && !room;
+    !!call &&
+    ['ringing', 'active'].includes(call.status) &&
+    call.initiatorId !== user.id &&
+    !room &&
+    (myParticipant
+      ? myParticipant.status === 'invited'
+      : call.status === 'ringing');
   const [canFallbackSummarize, setCanFallbackSummarize] = useState(false);
 
   useEffect(() => {

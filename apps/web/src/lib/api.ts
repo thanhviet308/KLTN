@@ -620,6 +620,12 @@ export function errorMessage(error: unknown) {
       OWNER_TRANSFER_REQUIRED: 'Hãy chuyển quyền chủ nhóm trước khi rời nhóm.',
       CALL_ALREADY_OPEN:
         'Hội thoại đang có một cuộc gọi khác. Hãy tiếp tục hoặc kết thúc cuộc gọi đó.',
+      CALL_NOT_ACCEPTED:
+        'Hãy nhấn Trả lời hoặc Tham gia lại để kết nối vào cuộc gọi.',
+      CALL_STATE_CONFLICT:
+        'Trạng thái cuộc gọi vừa thay đổi. Vui lòng thử lại.',
+      CALL_NO_RECIPIENTS:
+        'Cuộc gọi cần ít nhất một thành viên đang hoạt động khác.',
       CALL_SUMMARY_NOT_READY:
         'Bản ghi âm cuộc gọi chưa sẵn sàng hoặc cuộc gọi này không hỗ trợ tóm tắt AI.',
       GAME_DIRECT_ONLY:

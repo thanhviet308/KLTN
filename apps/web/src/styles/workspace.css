@@ -1958,7 +1958,8 @@
 .chat-composer-bar:has(.media-tools.is-recording) {
   padding-right: 0;
 }
-.chat-composer-bar:has(.media-tools.is-recording) .message-composer {
+.chat-composer-bar:has(.media-tools.is-recording) .message-composer,
+.chat-composer-bar:has(.media-tools.is-recording) .workspace-mention-select {
   display: none;
 }
 .chat-composer-bar .media-tools.is-recording {

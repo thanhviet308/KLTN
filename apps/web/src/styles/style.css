@@ -43,7 +43,8 @@ html {
   gap: 0.25rem;
 }
 
-.conversations select {
+.conversations
+  select:not(.workspace-mention-select):not(.voice-transcript-select) {
   display: block;
   margin-top: 9px;
   width: 100%;
@@ -56,7 +57,10 @@ html {
   font-size: 12px;
 }
 
-.conversations select:focus-visible {
+.conversations
+  select:not(.workspace-mention-select):not(
+    .voice-transcript-select
+  ):focus-visible {
   outline: 2px solid #8aaf7c;
   outline-offset: -2px;
 }

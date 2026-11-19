@@ -508,10 +508,14 @@ export class CallsService {
     const result = await this.db.transaction(async (manager) => {
       const { call, participant } = await this.lockedCall(manager, id, actorId);
       if (participant.status === 'joined') return this.result(manager, call);
-      if (
-        !['ringing', 'active'].includes(call.status) ||
-        participant.status !== 'invited'
-      )
+      const canAccept =
+        (call.status === 'ringing' &&
+          ['invited', 'accepted'].includes(participant.status)) ||
+        (call.status === 'active' &&
+          ['invited', 'accepted', 'left', 'rejected'].includes(
+            participant.status,
+          ));
+      if (!canAccept)
         fail(409, 'CALL_STATE_CONFLICT', 'Call can no longer be accepted');
       const now = monotonicCallTime(call, participant);
       if (call.status === 'ringing') {
@@ -532,6 +536,7 @@ export class CallsService {
         {
           status: 'joined',
           joinedAt: () => 'GREATEST(CURRENT_TIMESTAMP, invited_at)',
+          leftAt: null,
         },
       );
       if (actorId !== call.initiatorId)
