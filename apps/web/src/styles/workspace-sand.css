@@ -118,6 +118,14 @@
 .home-shell .chat-message.mine .workspace-mention-label {
   color: rgba(255, 248, 240, 0.9);
 }
+.home-shell .message-sender-name {
+  display: block;
+  margin: 0 0 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #7c6756;
+  line-height: 1.2;
+}
 
 .home-shell .chat-composer-bar .message-composer {
   position: relative;

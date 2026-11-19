@@ -1197,9 +1197,18 @@ export function CallExperience({
       onSwitchCamera={() => void switchCamera()}
       onAccept={() => void transition('accept')}
       onReject={() => void transition('reject')}
-      onHangup={() =>
-        void transition(call.initiatorId === user.id ? 'end' : 'leave')
-      }
+      onHangup={() => {
+        const otherJoinedCount = call.participants.filter(
+          (participant) =>
+            participant.userId !== user.id && participant.status === 'joined',
+        ).length;
+        const action =
+          call.initiatorId === user.id &&
+          (call.status === 'ringing' || otherJoinedCount < 2)
+            ? 'end'
+            : 'leave';
+        void transition(action);
+      }}
       onRejoin={() => void rejoin()}
       onToggleSwap={() => setSwapped((prev) => !prev)}
       onCyclePipCorner={() => setPipCorner((prev) => nextPipCorner(prev))}

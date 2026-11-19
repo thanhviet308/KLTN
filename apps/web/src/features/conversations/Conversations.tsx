@@ -1749,7 +1749,7 @@ export function Conversations({
                   </span>
                   <div>
                     <strong>
-                      {selected.nicknames?.[member.id] ??
+                      {selected.nicknames?.[member.user.id] ??
                         member.user.displayName}
                       {member.user.id === user.id ? ' (bạn)' : ''}
                     </strong>
@@ -1830,55 +1830,65 @@ export function Conversations({
                 >
                   Chọn bạn để mời
                 </button>
-                {friends.length > 0 && (
-                  <form
-                    noValidate
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (!invite) {
-                        setError('Chọn người bạn muốn mời.');
-                        return;
-                      }
-                      void run(async () => {
-                        await api.authenticated(
-                          `/conversations/${selected.id}/members`,
-                          { userId: invite },
-                        );
-                        setInvite('');
-                        await detail(selected.id);
-                      }, 'Đã thêm thành viên.');
-                    }}
-                  >
-                    <label>
-                      Mời thành viên
-                      <select
-                        value={invite}
-                        disabled={busy}
-                        onChange={(e) => setInvite(e.target.value)}
+                {friends.length > 0 &&
+                  (() => {
+                    const invitable = friends.filter(
+                      (peer) =>
+                        !members.some((member) => member.user.id === peer.id),
+                    );
+                    if (invitable.length === 0) {
+                      return (
+                        <p className="hint">
+                          Tất cả bạn bè của bạn đã có trong nhóm.
+                        </p>
+                      );
+                    }
+                    return (
+                      <form
+                        noValidate
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!invite) {
+                            setError('Chọn người bạn muốn mời.');
+                            return;
+                          }
+                          void run(async () => {
+                            await api.authenticated(
+                              `/conversations/${selected.id}/members`,
+                              { userId: invite },
+                            );
+                            setInvite('');
+                            await Promise.all([
+                              detail(selected.id),
+                              list(undefined, true),
+                            ]);
+                          }, 'Đã thêm thành viên.');
+                        }}
                       >
-                        <option value="">Chọn một người bạn</option>
-                        {friends
-                          .filter(
-                            (peer) =>
-                              !members.some(
-                                (member) => member.user.id === peer.id,
-                              ),
-                          )
-                          .map((peer) => (
-                            <option key={peer.id} value={peer.id}>
-                              {peer.displayName}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <button
-                      className="secondary"
-                      disabled={busy || members.length >= 50}
-                    >
-                      Thêm vào nhóm
-                    </button>
-                  </form>
-                )}
+                        <label>
+                          Mời thành viên
+                          <select
+                            value={invite}
+                            disabled={busy}
+                            onChange={(e) => setInvite(e.target.value)}
+                          >
+                            <option value="">Chọn một người bạn</option>
+                            {invitable.map((peer) => (
+                              <option key={peer.id} value={peer.id}>
+                                {peer.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          className="secondary"
+                          disabled={busy || !invite || members.length >= 50}
+                        >
+                          Thêm vào nhóm
+                        </button>
+                      </form>
+                    );
+                  })()}
               </div>
             )}
             <div className="conversation-danger-zone">

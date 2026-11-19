@@ -1307,6 +1307,14 @@ export function Chat({
             Date.parse(message.createdAt) - Date.parse(previous.createdAt) >=
               5 * 60 * 1000;
           const mine = message.senderId === user.id;
+          const showSenderName =
+            !!isGroup &&
+            !mine &&
+            message.type !== 'call' &&
+            (!previous ||
+              previous.senderId !== message.senderId ||
+              previous.type === 'call' ||
+              showTime);
           const lastSent = mine && message.id === lastSentId;
           const values = Object.values(receipts[message.id] ?? {}).filter(
             (item) => item.userId !== user.id,
@@ -1339,6 +1347,7 @@ export function Chat({
                 mine={mine}
                 currentUserId={user.id}
                 isGroup={isGroup}
+                showSenderName={showSenderName}
                 pinned={pins.some((pin) => pin.id === message.id)}
                 continuesGroup={continuesGroup}
                 replyTargetDeleted={
@@ -1354,7 +1363,10 @@ export function Chat({
                 reactionOpen={reactionTarget === message.id}
                 translation={translations[message.id]}
                 showStatus={
-                  lastSent || (!!isGroup && message.senderId === user.id)
+                  lastSent ||
+                  (!!isGroup &&
+                    message.senderId === user.id &&
+                    readers.length > 0)
                 }
                 readers={readers}
                 delivered={delivered}

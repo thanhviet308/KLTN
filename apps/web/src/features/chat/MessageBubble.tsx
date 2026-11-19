@@ -89,6 +89,7 @@ interface MessageBubbleProps {
   mine: boolean;
   currentUserId: string;
   isGroup?: boolean;
+  showSenderName?: boolean;
   pinned?: boolean;
   continuesGroup: boolean;
   replyTargetDeleted?: boolean;
@@ -128,6 +129,7 @@ export function MessageBubble({
   mine,
   currentUserId,
   isGroup,
+  showSenderName,
   pinned,
   continuesGroup,
   replyTargetDeleted,
@@ -429,6 +431,9 @@ export function MessageBubble({
         </span>
       )}
       <div className="message-bubble-slot">
+        {showSenderName && (
+          <span className="message-sender-name">{senderLabel}</span>
+        )}
         {reply && (
           <div className="message-reply-stack">
             <span className="message-reply-context">
