@@ -38,6 +38,10 @@ Không lưu khóa này trong PostgreSQL hoặc Git. Sau khi migration và API m�
 `docker compose run --rm api npm run messages:encrypt-existing --workspace=@chat/api`.
 Giữ nguyên các khóa version cũ khi thêm version mới để lịch sử vẫn giải mã được.
 Điền `JWT_ACCESS_SECRET`, SMTP và `WEB_ORIGIN` là URL frontend HTTPS thực tế.
+Để Android kết nối Socket.IO, đặt `REALTIME_NATIVE_ORIGIN=https://pingpongapi.id.vn`
+trong `deploy/vps/.env` trên VPS, kể cả khi cập nhật một bản cài có sẵn.
+Giá trị phải khớp chính xác Origin HTTPS của API, không có dấu `/` cuối.
+Compose cấp cùng file này cho cả `api` và `api-green`.
 Không commit hai file secret. PostgreSQL cấp ứng dụng quyền sở hữu database để chạy
 migration, nhưng tài khoản ứng dụng không có quyền superuser hoặc tạo role/database.
 

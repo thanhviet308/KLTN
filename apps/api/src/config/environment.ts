@@ -3,6 +3,7 @@ export interface Environment {
   HOST: string;
   PORT: number;
   WEB_ORIGIN: string;
+  REALTIME_NATIVE_ORIGIN?: string;
   TRUST_PROXY?: boolean;
   DATABASE_URL: string;
   JWT_ACCESS_SECRET: string;
@@ -70,6 +71,22 @@ export function validateEnvironment(
     throw new Error(
       'WEB_ORIGIN must be an exact origin; production requires HTTPS',
     );
+  }
+
+  const realtimeNativeOrigin = input.REALTIME_NATIVE_ORIGIN;
+  if (realtimeNativeOrigin !== undefined) {
+    const nativeUrl =
+      typeof realtimeNativeOrigin === 'string' &&
+      URL.canParse(realtimeNativeOrigin)
+        ? new URL(realtimeNativeOrigin)
+        : undefined;
+    if (
+      !nativeUrl ||
+      nativeUrl.origin !== realtimeNativeOrigin ||
+      nativeUrl.protocol !== 'https:'
+    ) {
+      throw new Error('REALTIME_NATIVE_ORIGIN must be an exact HTTPS origin');
+    }
   }
 
   const databaseUrl = validateDatabaseUrl(input.DATABASE_URL);
@@ -181,6 +198,10 @@ export function validateEnvironment(
     HOST: host,
     PORT: port,
     WEB_ORIGIN: origin,
+    REALTIME_NATIVE_ORIGIN:
+      typeof realtimeNativeOrigin === 'string'
+        ? realtimeNativeOrigin
+        : undefined,
     TRUST_PROXY: trustProxy === 'true' || trustProxy === true,
     DATABASE_URL: databaseUrl,
     JWT_ACCESS_SECRET: jwtSecret,

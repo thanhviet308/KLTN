@@ -1,42 +1,99 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { createServer } = require('node:http');
+const { once } = require('node:events');
+const { Server } = require('socket.io');
+const { io } = require('socket.io-client');
 require('reflect-metadata');
 const {
   Friendship,
 } = require('../dist/modules/database/entities/friendship.entity');
 const { ChatGateway } = require('../dist/modules/realtime/chat.gateway');
+const { validateEnvironment } = require('../dist/config/environment');
 
-test('realtime allows the native API origin and still requires a token', async () => {
-  const config = {
-    get: (key) =>
-      ({ WEB_ORIGIN: 'https://app.example.com', TRUST_PROXY: true })[key],
-  };
-  const gateway = new ChatGateway({}, {}, {}, {}, config);
-  const connect = (origin) =>
-    gateway.connect({
-      request: { socket: {} },
-      handshake: {
-        headers: {
-          origin,
-          host: 'api.example.com',
-          'x-forwarded-proto': 'https',
-        },
-        query: {},
-        auth: {},
-      },
-    });
-  for (const origin of [
-    undefined,
-    'https://app.example.com',
-    'https://api.example.com',
-  ]) {
-    await assert.rejects(connect(origin), {
-      response: { code: 'AUTH_REQUIRED', message: 'Access token is required' },
-    });
-  }
-  await assert.rejects(connect('https://other.example.com'), {
-    response: { code: 'ORIGIN_FORBIDDEN', message: 'Origin is not allowed' },
+test('WebSocket namespace accepts configured origins and still enforces authentication', async (t) => {
+  const nativeOrigin = 'https://pingpongapi.id.vn';
+  const webOrigin = 'https://www.pingpong.id.vn';
+  const env = validateEnvironment({
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgresql://app:secret@localhost:5432/chat',
+    JWT_ACCESS_SECRET: 'a'.repeat(64),
+    WEB_ORIGIN: webOrigin,
+    REALTIME_NATIVE_ORIGIN: nativeOrigin,
   });
+  // Stub account lookup while using the actual Socket.IO transport and middleware.
+  const claims = Buffer.from(JSON.stringify({ exp: Date.now() / 1000 + 60 }));
+  const token = `header.${claims.toString('base64url')}.signature`;
+  const gateway = new ChatGateway(
+    { query: async () => [] },
+    {
+      authenticate: async (accessToken) => {
+        assert.equal(accessToken, token);
+        return { user: { id: 'me' } };
+      },
+    },
+    {},
+    { onAccessChange() {}, listen() {}, close() {} },
+    { get: (key) => env[key] },
+  );
+  const http = createServer();
+  const server = new Server(http, { transports: ['websocket'] });
+  gateway.afterInit(server.of('/chat'));
+  t.after(async () => {
+    await gateway.onModuleDestroy();
+    await server.close();
+  });
+  http.listen(0, '127.0.0.1');
+  await once(http, 'listening');
+  const url = `http://127.0.0.1:${http.address().port}/chat`;
+
+  async function connect(origin, accessToken) {
+    const client = io(url, {
+      transports: ['websocket'],
+      forceNew: true,
+      reconnection: false,
+      timeout: 2000,
+      extraHeaders: origin === undefined ? {} : { Origin: origin },
+      auth: { accessToken },
+    });
+    try {
+      return await new Promise((resolve, reject) => {
+        client.once('connect', () => resolve('connected'));
+        client.once('connect_error', (error) => {
+          if (error.data?.code) resolve(error.data.code);
+          else reject(error);
+        });
+      });
+    } finally {
+      client.disconnect();
+    }
+  }
+
+  for (const origin of [nativeOrigin, webOrigin, undefined]) {
+    assert.equal(await connect(origin), 'AUTH_REQUIRED');
+    assert.equal(await connect(origin, token), 'connected');
+  }
+  const unrelatedOrigin = 'https://other.example.com';
+  assert.equal(await connect(unrelatedOrigin, token), 'ORIGIN_FORBIDDEN');
+});
+
+test('realtime native origin configuration requires an exact HTTPS origin', () => {
+  const env = {
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgresql://app:secret@localhost:5432/chat',
+    JWT_ACCESS_SECRET: 'a'.repeat(64),
+  };
+  assert.equal(validateEnvironment(env).REALTIME_NATIVE_ORIGIN, undefined);
+  for (const origin of [
+    '*',
+    'http://pingpongapi.id.vn',
+    'https://pingpongapi.id.vn/',
+  ]) {
+    assert.throws(
+      () => validateEnvironment({ ...env, REALTIME_NATIVE_ORIGIN: origin }),
+      /REALTIME_NATIVE_ORIGIN must be an exact HTTPS origin/,
+    );
+  }
 });
 
 test('presence only exposes friends and handles multiple devices and expired sessions', async () => {
