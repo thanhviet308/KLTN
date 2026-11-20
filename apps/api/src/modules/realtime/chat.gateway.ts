@@ -1,3 +1,4 @@
+import { TLSSocket } from 'node:tls';
 import { HttpException, Inject, Logger } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -129,10 +130,23 @@ export class ChatGateway
   }
 
   private async connect(socket: Socket) {
-    const origin = socket.handshake.headers.origin;
+    const {
+      origin,
+      host,
+      'x-forwarded-proto': forwardedProto,
+    } = socket.handshake.headers;
+    // React Native defaults Origin to the HTTP(S) origin of the WebSocket URL.
+    const secure =
+      socket.request.socket instanceof TLSSocket ||
+      (this.config.get('TRUST_PROXY', { infer: true }) &&
+        forwardedProto === 'https');
+    const apiOrigin = host
+      ? `${secure ? 'https' : 'http'}://${host}`
+      : undefined;
     if (
       origin !== undefined &&
-      origin !== this.config.get('WEB_ORIGIN', { infer: true })
+      origin !== this.config.get('WEB_ORIGIN', { infer: true }) &&
+      origin !== apiOrigin
     )
       reject(403, 'ORIGIN_FORBIDDEN', 'Origin is not allowed');
     if (Object.keys(socket.handshake.query).some((key) => /token/i.test(key)))

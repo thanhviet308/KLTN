@@ -365,10 +365,11 @@ export function CallScreen({
             </View>
 
             {call?.summaryEnabled && (
-              <View style={[s.errorBanner, { bottom: insets.bottom + 180 }]}>
-                <Text accessibilityLiveRegion="polite" style={s.errorText}>
-                  Có thể dùng AI tóm tắt theo yêu cầu sau cuộc gọi.
-                </Text>
+              <View
+                style={s.aiChip}
+                accessibilityLabel="Có thể dùng AI tóm tắt theo yêu cầu sau cuộc gọi"
+              >
+                <Text style={s.aiChipText}>✦ AI tóm tắt</Text>
               </View>
             )}
 
@@ -432,9 +433,9 @@ export function CallScreen({
                 {status}
               </Text>
               {call?.summaryEnabled && (
-                <Text style={s.stageStatus}>
-                  Có thể dùng AI tóm tắt theo yêu cầu sau cuộc gọi.
-                </Text>
+                <View style={s.aiChipInline}>
+                  <Text style={s.aiChipText}>✦ AI tóm tắt</Text>
+                </View>
               )}
               {busy && (
                 <ActivityIndicator
@@ -764,5 +765,30 @@ const s = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     textAlign: 'center',
+  },
+  aiChip: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: 130,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(243, 210, 184, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(243, 210, 184, 0.32)',
+  },
+  aiChipInline: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(243, 210, 184, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(243, 210, 184, 0.32)',
+  },
+  aiChipText: {
+    color: '#f3d2b8',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

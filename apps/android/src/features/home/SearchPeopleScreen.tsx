@@ -9,17 +9,24 @@ import {
   View,
 } from 'react-native';
 import * as api from '../../api';
-import { Avatar, InlineNotice, ScreenIntro } from '../../components/Common';
+import { Avatar, InlineNotice } from '../../components/Common';
+import { NavIcon } from '../../components/Icons';
 import type { Peer, PersonRow } from '../../presence';
 import { styles } from '../../styles';
 
 export function SearchPeopleScreen({
+  incomingCount = 0,
   onExpired,
   onOpen,
+  onSwitchSection,
   onGoRequests,
 }: {
+  incomingCount?: number;
   onExpired: () => void;
   onOpen?: (conversation: api.Conversation) => void;
+  onSwitchSection?: (
+    section: 'friends' | 'incoming' | 'outgoing' | 'search',
+  ) => void;
   onGoRequests?: () => void;
 }) {
   const [query, setQuery] = useState('');
@@ -93,36 +100,136 @@ export function SearchPeopleScreen({
   }
 
   return (
-    <View style={styles.screen}>
-      <ScreenIntro title="Tìm bạn" caption="Tìm theo tên hiển thị hoặc email" />
-      <View style={styles.searchBar}>
-        <Text style={styles.searchIcon}>⌕</Text>
-        <TextInput
-          accessibilityLabel="Tên người dùng cần tìm"
-          autoCapitalize="words"
-          maxLength={100}
-          onChangeText={value => {
-            setQuery(value);
-            setError('');
-          }}
-          onSubmitEditing={() => void search()}
-          placeholder="Nhập ít nhất 2 ký tự"
-          placeholderTextColor="#8c7662"
-          returnKeyType="search"
-          style={styles.searchInput}
-          value={query}
-        />
-        <Pressable
-          disabled={loading}
-          onPress={() => void search()}
-          style={styles.searchButton}
-        >
-          {loading ? (
-            <ActivityIndicator color="white" size="small" />
-          ) : (
-            <Text style={styles.searchButtonText}>Tìm</Text>
-          )}
-        </Pressable>
+    <View style={styles.threadCardInner}>
+      <View style={styles.peopleHeaderRow}>
+        <View>
+          <Text style={styles.screenEyebrow}>DANH BẠ & KẾT NỐI</Text>
+          <Text style={styles.sectionTitle}>Bạn bè</Text>
+        </View>
+        {searched && (
+          <Pressable
+            disabled={loading || refreshing}
+            onPress={() => void search(true)}
+            style={({ pressed }) => [
+              styles.smallSecondary,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.smallSecondaryText}>Tải lại</Text>
+          </Pressable>
+        )}
+      </View>
+      <View style={styles.friendsHubGrid}>
+        {(
+          [
+            [
+              'friends',
+              'Tất cả bạn bè',
+              'Danh sách bạn bè đã kết nối',
+              'people',
+            ],
+            [
+              'incoming',
+              'Lời mời nhận',
+              'Lời mời kết bạn gửi đến bạn',
+              'incoming',
+            ],
+            ['outgoing', 'Lời mời đã gửi', 'Lời mời bạn đã gửi đi', 'outgoing'],
+            ['search', 'Tìm bạn', 'Tìm kiếm và kết bạn mới', 'search'],
+          ] as const
+        ).map(([key, label, hint, iconName]) => {
+          const active = key === 'search';
+          return (
+            <Pressable
+              key={key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              onPress={() => {
+                if (key !== 'search') {
+                  if (onSwitchSection) onSwitchSection(key);
+                  else onGoRequests?.();
+                }
+              }}
+              style={({ pressed }) => [
+                styles.friendsHubTab,
+                active && styles.friendsHubTabActive,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View
+                style={[
+                  styles.friendsHubIconBox,
+                  active && styles.friendsHubIconBoxActive,
+                ]}
+              >
+                <NavIcon
+                  name={iconName}
+                  color={active ? '#ffffff' : '#89542f'}
+                  size={16}
+                />
+              </View>
+              <View style={styles.friendsHubCopy}>
+                <View style={styles.friendsHubTitleRow}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.friendsHubTitle,
+                      active && styles.friendsHubTitleActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                  {key === 'incoming' && incomingCount > 0 && (
+                    <View style={styles.friendsHubBadge}>
+                      <Text style={styles.friendsHubBadgeText}>
+                        {incomingCount > 99 ? '99+' : incomingCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text numberOfLines={1} style={styles.friendsHubHint}>
+                  {hint}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={styles.searchCardForm}>
+        <Text style={[styles.fieldLabel, { marginTop: 0, marginBottom: 2 }]}>
+          Tìm theo tên hiển thị
+        </Text>
+        <View style={styles.searchCardInputRow}>
+          <TextInput
+            accessibilityLabel="Tên người dùng cần tìm"
+            autoCapitalize="words"
+            maxLength={100}
+            onChangeText={value => {
+              setQuery(value);
+              setError('');
+            }}
+            onSubmitEditing={() => void search()}
+            placeholder="Nhập tên hiển thị của bạn bè"
+            placeholderTextColor="#8c7662"
+            returnKeyType="search"
+            style={[styles.input, { flex: 1, minHeight: 44 }]}
+            value={query}
+          />
+          <Pressable
+            disabled={loading}
+            onPress={() => void search()}
+            style={[
+              styles.smallPrimary,
+              { minHeight: 44, paddingHorizontal: 16 },
+            ]}
+          >
+            {loading ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <Text style={styles.smallPrimaryText}>Tìm kiếm</Text>
+            )}
+          </Pressable>
+        </View>
       </View>
       {!!error && (
         <View style={styles.listNotice}>

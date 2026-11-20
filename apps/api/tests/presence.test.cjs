@@ -6,6 +6,39 @@ const {
 } = require('../dist/modules/database/entities/friendship.entity');
 const { ChatGateway } = require('../dist/modules/realtime/chat.gateway');
 
+test('realtime allows the native API origin and still requires a token', async () => {
+  const config = {
+    get: (key) =>
+      ({ WEB_ORIGIN: 'https://app.example.com', TRUST_PROXY: true })[key],
+  };
+  const gateway = new ChatGateway({}, {}, {}, {}, config);
+  const connect = (origin) =>
+    gateway.connect({
+      request: { socket: {} },
+      handshake: {
+        headers: {
+          origin,
+          host: 'api.example.com',
+          'x-forwarded-proto': 'https',
+        },
+        query: {},
+        auth: {},
+      },
+    });
+  for (const origin of [
+    undefined,
+    'https://app.example.com',
+    'https://api.example.com',
+  ]) {
+    await assert.rejects(connect(origin), {
+      response: { code: 'AUTH_REQUIRED', message: 'Access token is required' },
+    });
+  }
+  await assert.rejects(connect('https://other.example.com'), {
+    response: { code: 'ORIGIN_FORBIDDEN', message: 'Origin is not allowed' },
+  });
+});
+
 test('presence only exposes friends and handles multiple devices and expired sessions', async () => {
   const db = {
     query: async () => {},

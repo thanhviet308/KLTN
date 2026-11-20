@@ -26,12 +26,24 @@ export async function allPages<T>(path: string) {
   return items;
 }
 
-export function presenceLabel(state?: Presence) {
+export function presenceBadge(state?: Presence, now = Date.now()) {
+  if (!state || state.online || !state.lastActiveAt) return '';
+  const timestamp = Date.parse(state.lastActiveAt);
+  if (!Number.isFinite(timestamp)) return '';
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
+  if (minutes < 1) return '1 phút';
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ`;
+  return `${Math.floor(hours / 24)} ngày`;
+}
+
+export function presenceLabel(state?: Presence, now = Date.now()) {
   if (!state) return 'Chưa xác định trạng thái';
   if (state.online) return 'Đang hoạt động';
   const timestamp = state.lastActiveAt ? Date.parse(state.lastActiveAt) : NaN;
   if (!Number.isFinite(timestamp)) return 'Hiện không hoạt động';
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
   if (minutes < 1) return 'Vừa hoạt động';
   if (minutes < 60) return `Hoạt động ${minutes} phút trước`;
   const hours = Math.floor(minutes / 60);

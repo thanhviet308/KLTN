@@ -155,15 +155,17 @@ export function CallProvider({
         current.current?.id === next.id &&
         canJoin(current.current, user.id);
       if (!valid()) return;
-      // Voice messages and calls share the same microphone/audio focus.
-      await Sound.stopRecorder().catch(() => undefined);
-      await Sound.stopPlayer().catch(() => undefined);
+      // Release the voice-message audio devices while the server issues the room token.
+      const [credentials] = await Promise.allSettled([
+        api.authenticated<{ url: string; token: string }>(
+          `/calls/${next.id}/token`,
+          {},
+        ),
+        Sound.stopRecorder(),
+        Sound.stopPlayer(),
+      ]);
       if (!valid()) return;
-      const credentials = await api.authenticated<{
-        url: string;
-        token: string;
-      }>(`/calls/${next.id}/token`, {});
-      if (!valid()) return;
+      if (credentials.status === 'rejected') throw credentials.reason;
       const activeRoom = new Room({
         adaptiveStream: { pixelDensity: 'screen' },
         dynacast: true,
@@ -197,7 +199,10 @@ export function CallProvider({
           await AudioSession.stopAudioSession();
           return;
         }
-        await activeRoom.connect(credentials.url, credentials.token);
+        await activeRoom.connect(
+          credentials.value.url,
+          credentials.value.token,
+        );
         if (!valid()) {
           await activeRoom.disconnect();
           return;

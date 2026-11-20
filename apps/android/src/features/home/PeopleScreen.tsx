@@ -8,12 +8,8 @@ import {
   View,
 } from 'react-native';
 import * as api from '../../api';
-import {
-  Avatar,
-  Centered,
-  InlineNotice,
-  ScreenIntro,
-} from '../../components/Common';
+import { Avatar, Centered, InlineNotice } from '../../components/Common';
+import { NavIcon } from '../../components/Icons';
 import {
   allPages,
   presenceLabel,
@@ -23,11 +19,15 @@ import {
 import { styles } from '../../styles';
 
 export function PeopleScreen({
+  incomingCount = 0,
+  onIncomingCount,
   onExpired,
   onOpen,
   onSearch,
   presence,
 }: {
+  incomingCount?: number;
+  onIncomingCount?: (count: number) => void;
   onExpired: () => void;
   onOpen: (conversation: api.Conversation) => void;
   onSearch: () => void;
@@ -53,7 +53,9 @@ export function PeopleScreen({
           section === 'friends'
             ? '/friends'
             : `/friend-requests?direction=${section}`;
-        setRows(await allPages<PersonRow>(path));
+        const loaded = await allPages<PersonRow>(path);
+        setRows(loaded);
+        if (section === 'incoming') onIncomingCount?.(loaded.length);
       } catch (next) {
         if (next instanceof api.ApiError && next.status === 401) onExpired();
         else setError(api.errorMessage(next));
@@ -62,7 +64,7 @@ export function PeopleScreen({
         setRefreshing(false);
       }
     },
-    [onExpired, section],
+    [onExpired, onIncomingCount, section],
   );
 
   useEffect(() => {
@@ -112,36 +114,96 @@ export function PeopleScreen({
   }
 
   return (
-    <View style={styles.screen}>
-      <ScreenIntro title="Kết nối" caption="Bạn bè và lời mời của bạn" />
-      <View style={styles.segmentedControl}>
+    <View style={styles.threadCardInner}>
+      <View style={styles.peopleHeaderRow}>
+        <View>
+          <Text style={styles.screenEyebrow}>DANH BẠ & KẾT NỐI</Text>
+          <Text style={styles.sectionTitle}>Bạn bè</Text>
+        </View>
+        <Pressable
+          disabled={loading || refreshing || !!busyId}
+          onPress={() => void load(true)}
+          style={({ pressed }) => [
+            styles.smallSecondary,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.smallSecondaryText}>Tải lại</Text>
+        </Pressable>
+      </View>
+      <View style={styles.friendsHubGrid}>
         {(
           [
-            ['friends', 'Bạn bè'],
-            ['incoming', 'Lời mời'],
-            ['outgoing', 'Đã gửi'],
+            [
+              'friends',
+              'Tất cả bạn bè',
+              'Danh sách bạn bè đã kết nối',
+              'people',
+            ],
+            [
+              'incoming',
+              'Lời mời nhận',
+              'Lời mời kết bạn gửi đến bạn',
+              'incoming',
+            ],
+            ['outgoing', 'Lời mời đã gửi', 'Lời mời bạn đã gửi đi', 'outgoing'],
+            ['search', 'Tìm bạn', 'Tìm kiếm và kết bạn mới', 'search'],
           ] as const
-        ).map(([key, label]) => (
-          <Pressable
-            key={key}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: section === key }}
-            onPress={() => setSection(key)}
-            style={[
-              styles.segmentButton,
-              section === key && styles.segmentButtonActive,
-            ]}
-          >
-            <Text
-              style={[
-                styles.segmentText,
-                section === key && styles.segmentTextActive,
+        ).map(([key, label, hint, iconName]) => {
+          const active = key !== 'search' && section === key;
+          return (
+            <Pressable
+              key={key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              onPress={() => {
+                if (key === 'search') onSearch();
+                else setSection(key);
+              }}
+              style={({ pressed }) => [
+                styles.friendsHubTab,
+                active && styles.friendsHubTabActive,
+                pressed && styles.pressed,
               ]}
             >
-              {label}
-            </Text>
-          </Pressable>
-        ))}
+              <View
+                style={[
+                  styles.friendsHubIconBox,
+                  active && styles.friendsHubIconBoxActive,
+                ]}
+              >
+                <NavIcon
+                  name={iconName}
+                  color={active ? '#ffffff' : '#89542f'}
+                  size={16}
+                />
+              </View>
+              <View style={styles.friendsHubCopy}>
+                <View style={styles.friendsHubTitleRow}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.friendsHubTitle,
+                      active && styles.friendsHubTitleActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                  {key === 'incoming' && incomingCount > 0 && (
+                    <View style={styles.friendsHubBadge}>
+                      <Text style={styles.friendsHubBadgeText}>
+                        {incomingCount > 99 ? '99+' : incomingCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text numberOfLines={1} style={styles.friendsHubHint}>
+                  {hint}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
       </View>
       {!!notice && (
         <View style={styles.listSuccessNotice}>

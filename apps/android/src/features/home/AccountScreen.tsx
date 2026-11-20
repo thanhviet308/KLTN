@@ -53,9 +53,13 @@ export function AccountScreen({
       contentContainerStyle={styles.accountScreen}
       keyboardShouldPersistTaps="handled"
     >
-      <ScreenIntro title="Tài khoản" caption="Thông tin và bảo mật" />
+      <ScreenIntro
+        eyebrow="KHÔNG GIAN CỦA BẠN"
+        title="Tài khoản"
+        caption="Chọn thông tin bạn muốn xem hoặc thay đổi."
+      />
       <View style={styles.accountHero}>
-        <Avatar peer={user} size={68} />
+        <Avatar peer={user} size={64} />
         <View style={styles.accountHeroText}>
           <Text style={styles.accountName}>{user.displayName}</Text>
           <Text numberOfLines={1} style={styles.accountEmail}>
@@ -74,129 +78,141 @@ export function AccountScreen({
         </View>
       )}
       {section === 'main' ? (
-        <View style={styles.settingsCard}>
-          <Pressable
-            disabled={busy}
-            onPress={() =>
-              void (async () => {
-                const result = await launchImageLibrary({
-                  mediaType: 'photo',
-                  selectionLimit: 1,
-                  includeBase64: true,
-                  maxWidth: 640,
-                  maxHeight: 640,
-                  quality: 0.8,
-                });
-                if (result.didCancel) return;
-                if (result.errorCode) {
-                  setError(result.errorMessage ?? 'Không thể chọn ảnh.');
-                  return;
-                }
-                const image = result.assets?.[0];
-                if (!image?.base64 || !image.type) {
-                  setError('Không thể đọc ảnh đã chọn.');
-                  return;
-                }
-                await run(async () => {
-                  const updated = await api.authenticated<{
-                    user: api.User;
-                  }>(
-                    '/users/me/avatar',
-                    { image: `data:${image.type};base64,${image.base64}` },
-                    'PATCH',
-                  );
-                  onUser(updated.user);
-                }, 'Đã cập nhật ảnh đại diện.');
-              })().catch(next => setError(api.errorMessage(next)))
-            }
-            style={styles.settingRow}
-          >
-            <View style={styles.settingIcon}>
-              <Text style={styles.settingIconText}>▧</Text>
-            </View>
-            <View style={styles.settingText}>
-              <Text style={styles.settingTitle}>Ảnh đại diện</Text>
-              <Text style={styles.settingCaption}>Chọn ảnh từ thiết bị</Text>
-            </View>
-            <Text style={styles.settingArrow}>›</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              setName(user.displayName);
-              setSection('name');
-            }}
-            style={styles.settingRow}
-          >
-            <View style={styles.settingIcon}>
-              <Text style={styles.settingIconText}>Aa</Text>
-            </View>
-            <View style={styles.settingText}>
-              <Text style={styles.settingTitle}>Tên hiển thị</Text>
-              <Text style={styles.settingCaption}>Tên bạn bè nhìn thấy</Text>
-            </View>
-            <Text style={styles.settingArrow}>›</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setSection('password')}
-            style={styles.settingRow}
-          >
-            <View style={styles.settingIcon}>
-              <Text style={styles.settingIconText}>●</Text>
-            </View>
-            <View style={styles.settingText}>
-              <Text style={styles.settingTitle}>Đổi mật khẩu</Text>
-              <Text style={styles.settingCaption}>Đăng xuất mọi thiết bị</Text>
-            </View>
-            <Text style={styles.settingArrow}>›</Text>
-          </Pressable>
-          {!!user.avatarUrl && (
+        <>
+          <View style={styles.accountOptionsStack}>
             <Pressable
               disabled={busy}
               onPress={() =>
-                Alert.alert('Gỡ ảnh đại diện?', undefined, [
-                  { text: 'Giữ lại', style: 'cancel' },
-                  {
-                    text: 'Gỡ ảnh',
-                    style: 'destructive',
-                    onPress: () =>
-                      void run(async () => {
-                        const result = await api.authenticated<{
-                          user: api.User;
-                        }>('/users/me/avatar', undefined, 'DELETE');
-                        onUser(result.user);
-                      }, 'Đã gỡ ảnh đại diện.'),
-                  },
-                ])
+                void (async () => {
+                  const result = await launchImageLibrary({
+                    mediaType: 'photo',
+                    selectionLimit: 1,
+                    includeBase64: true,
+                    maxWidth: 640,
+                    maxHeight: 640,
+                    quality: 0.8,
+                  });
+                  if (result.didCancel) return;
+                  if (result.errorCode) {
+                    setError(result.errorMessage ?? 'Không thể chọn ảnh.');
+                    return;
+                  }
+                  const image = result.assets?.[0];
+                  if (!image?.base64 || !image.type) {
+                    setError('Không thể đọc ảnh đã chọn.');
+                    return;
+                  }
+                  await run(async () => {
+                    const updated = await api.authenticated<{
+                      user: api.User;
+                    }>(
+                      '/users/me/avatar',
+                      { image: `data:${image.type};base64,${image.base64}` },
+                      'PATCH',
+                    );
+                    onUser(updated.user);
+                  }, 'Đã cập nhật ảnh đại diện.');
+                })().catch(next => setError(api.errorMessage(next)))
               }
-              style={styles.settingRow}
+              style={({ pressed }) => [
+                styles.accountOptionCard,
+                pressed && styles.pressed,
+              ]}
             >
-              <View style={styles.settingIcon}>
-                <Text style={styles.settingIconText}>×</Text>
-              </View>
               <View style={styles.settingText}>
-                <Text style={styles.settingTitle}>Gỡ ảnh đại diện</Text>
-                <Text style={styles.settingCaption}>Dùng chữ cái thay thế</Text>
-              </View>
-              <Text style={styles.settingArrow}>›</Text>
-            </Pressable>
-          )}
-          <View style={styles.accountDetails}>
-            <Text style={styles.detailLabel}>EMAIL</Text>
-            <Text selectable style={styles.detailValue}>
-              {user.email}
-            </Text>
-            {!!user.createdAt && (
-              <>
-                <Text style={styles.detailLabel}>NGÀY THAM GIA</Text>
-                <Text style={styles.detailValue}>
-                  {new Intl.DateTimeFormat('vi-VN').format(
-                    new Date(user.createdAt),
-                  )}
+                <Text style={styles.settingTitle}>Ảnh đại diện</Text>
+                <Text style={styles.settingCaption}>
+                  Thay đổi hoặc chọn ảnh từ thiết bị
                 </Text>
-              </>
+              </View>
+              <Text style={styles.accountOptionArrow}>→</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setName(user.displayName);
+                setSection('name');
+              }}
+              style={({ pressed }) => [
+                styles.accountOptionCard,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.settingText}>
+                <Text style={styles.settingTitle}>Tên hiển thị</Text>
+                <Text style={styles.settingCaption}>
+                  Tên bạn bè nhìn thấy trên PingPong
+                </Text>
+              </View>
+              <Text style={styles.accountOptionArrow}>→</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setSection('password')}
+              style={({ pressed }) => [
+                styles.accountOptionCard,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.settingText}>
+                <Text style={styles.settingTitle}>Đổi mật khẩu</Text>
+                <Text style={styles.settingCaption}>
+                  Cập nhật mật khẩu đăng nhập
+                </Text>
+              </View>
+              <Text style={styles.accountOptionArrow}>→</Text>
+            </Pressable>
+            {!!user.avatarUrl && (
+              <Pressable
+                disabled={busy}
+                onPress={() =>
+                  Alert.alert('Gỡ ảnh đại diện?', undefined, [
+                    { text: 'Giữ lại', style: 'cancel' },
+                    {
+                      text: 'Gỡ ảnh',
+                      style: 'destructive',
+                      onPress: () =>
+                        void run(async () => {
+                          const result = await api.authenticated<{
+                            user: api.User;
+                          }>('/users/me/avatar', undefined, 'DELETE');
+                          onUser(result.user);
+                        }, 'Đã gỡ ảnh đại diện.'),
+                    },
+                  ])
+                }
+                style={({ pressed }) => [
+                  styles.accountOptionCard,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.settingText}>
+                  <Text style={styles.settingTitle}>Gỡ ảnh đại diện</Text>
+                  <Text style={styles.settingCaption}>
+                    Dùng chữ cái thay thế
+                  </Text>
+                </View>
+                <Text style={styles.accountOptionArrow}>→</Text>
+              </Pressable>
             )}
           </View>
-        </View>
+          <View style={styles.settingsCard}>
+            <View style={styles.accountDetails}>
+              <Text style={styles.detailLabel}>EMAIL</Text>
+              <Text selectable style={styles.detailValue}>
+                {user.email}
+              </Text>
+              {!!user.createdAt && (
+                <>
+                  <Text style={styles.detailLabel}>NGÀY THAM GIA</Text>
+                  <Text style={styles.detailValue}>
+                    {new Intl.DateTimeFormat('vi-VN').format(
+                      new Date(user.createdAt),
+                    )}
+                  </Text>
+                </>
+              )}
+            </View>
+          </View>
+        </>
       ) : (
         <View style={styles.formCard}>
           <Pressable

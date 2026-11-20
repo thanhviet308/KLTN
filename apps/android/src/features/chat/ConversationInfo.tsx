@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import * as api from '../../api';
 import { Avatar, InlineNotice } from '../../components/Common';
+import { UiGlyph } from '../../components/Icons';
 import { allPages, type Peer, type PersonRow } from '../../presence';
 import { styles } from '../../styles';
 
@@ -18,9 +19,20 @@ type ConversationMember = {
   role: 'owner' | 'admin' | 'member';
 };
 
+const THEME_OPTIONS = [
+  ['default', 'Mặc định', '#faf7f0'],
+  ['ocean', 'Biển xanh', '#e7f3f8'],
+  ['mint', 'Bạc hà', '#e8f5ee'],
+  ['sunset', 'Hoàng hôn', '#fceee2'],
+  ['rose', 'Hoa hồng', '#fbeaf0'],
+  ['sand', 'Cát ấm', '#f3eadc'],
+] as const;
+
 export function ConversationInfo({
   conversation,
   currentTitle,
+  currentBackground = 'default',
+  nicknames = {},
   members,
   user,
   onClose,
@@ -29,9 +41,13 @@ export function ConversationInfo({
   onLeave,
   onMembers,
   onTitle,
+  onBackgroundChange,
+  onNicknamesChange,
 }: {
   conversation: api.Conversation;
   currentTitle: string;
+  currentBackground?: string;
+  nicknames?: Record<string, string>;
   members: ConversationMember[];
   user: api.User;
   onClose: () => void;
@@ -40,8 +56,14 @@ export function ConversationInfo({
   onLeave: () => void;
   onMembers: (members: ConversationMember[]) => void;
   onTitle: (title: string) => void;
+  onBackgroundChange?: (background: string) => void;
+  onNicknamesChange?: (nicknames: Record<string, string>) => void;
 }) {
   const [rename, setRename] = useState(currentTitle);
+  const [targetMemberId, setTargetMemberId] = useState(
+    members[0]?.id ?? user.id,
+  );
+  const [nicknameDraft, setNicknameDraft] = useState('');
   const [friends, setFriends] = useState<Peer[]>([]);
   const [friendFilter, setFriendFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -71,6 +93,19 @@ export function ConversationInfo({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const activeTargetMember =
+    members.find(m => m.id === targetMemberId) ?? members[0];
+
+  useEffect(() => {
+    if (activeTargetMember) {
+      setNicknameDraft(
+        nicknames[activeTargetMember.id] ??
+          nicknames[activeTargetMember.user.id] ??
+          '',
+      );
+    }
+  }, [activeTargetMember, nicknames]);
 
   async function run(
     work: () => Promise<void>,
@@ -105,8 +140,14 @@ export function ConversationInfo({
   return (
     <View style={styles.page}>
       <View style={styles.chatHeader}>
-        <Pressable onPress={onClose} style={styles.backButton}>
-          <Text style={styles.back}>‹</Text>
+        <Pressable
+          onPress={onClose}
+          style={({ pressed }) => [
+            styles.backButton,
+            pressed && styles.infoButtonActive,
+          ]}
+        >
+          <UiGlyph name="back" color="#b75020" size={18} />
         </Pressable>
         <Text style={styles.infoHeaderTitle}>Thông tin trò chuyện</Text>
       </View>
@@ -143,6 +184,158 @@ export function ConversationInfo({
             <InlineNotice message={error} onRetry={() => void refresh()} />
           </View>
         )}
+        <View style={styles.infoCard}>
+          <Text style={styles.infoSectionTitle}>Tùy chỉnh đoạn chat</Text>
+          <Text
+            style={[styles.infoCaption, { marginTop: 0, marginBottom: 10 }]}
+          >
+            Biệt danh và nền được hiển thị cho mọi thành viên trong đoạn chat
+            này.
+          </Text>
+          {members.length > 0 && activeTargetMember && (
+            <View style={{ marginBottom: 14 }}>
+              <Text style={[styles.fieldLabel, { marginTop: 4 }]}>
+                Đặt biệt danh cho
+              </Text>
+              <View style={styles.nicknameMemberChips}>
+                {members.map(m => {
+                  const selected = m.id === activeTargetMember.id;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      onPress={() => setTargetMemberId(m.id)}
+                      style={[
+                        styles.nicknameMemberChip,
+                        selected && styles.nicknameMemberChipActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.nicknameMemberChipText,
+                          selected && styles.nicknameMemberChipTextActive,
+                        ]}
+                      >
+                        {m.user.displayName}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <TextInput
+                editable={!busy}
+                maxLength={50}
+                onChangeText={setNicknameDraft}
+                placeholder="Nhập biệt danh (để trống để dùng tên gốc)"
+                placeholderTextColor="#8c7662"
+                style={styles.input}
+                value={nicknameDraft}
+              />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <Pressable
+                  disabled={busy}
+                  onPress={() =>
+                    void run(
+                      async () => {
+                        const res = await api.authenticated<{
+                          conversation: api.Conversation;
+                        }>(
+                          `/conversations/${conversation.id}/members/${activeTargetMember.id}/nickname`,
+                          { nickname: nicknameDraft.trim() },
+                          'PATCH',
+                        );
+                        onNicknamesChange?.(res.conversation.nicknames ?? {});
+                      },
+                      'Đã cập nhật biệt danh.',
+                      false,
+                    )
+                  }
+                  style={styles.smallPrimary}
+                >
+                  <Text style={styles.smallPrimaryText}>Lưu biệt danh</Text>
+                </Pressable>
+                {!!(
+                  nicknames[activeTargetMember.id] ||
+                  nicknames[activeTargetMember.user.id]
+                ) && (
+                  <Pressable
+                    disabled={busy}
+                    onPress={() =>
+                      void run(
+                        async () => {
+                          const res = await api.authenticated<{
+                            conversation: api.Conversation;
+                          }>(
+                            `/conversations/${conversation.id}/members/${activeTargetMember.id}/nickname`,
+                            { nickname: '' },
+                            'PATCH',
+                          );
+                          setNicknameDraft('');
+                          onNicknamesChange?.(res.conversation.nicknames ?? {});
+                        },
+                        'Đã khôi phục tên gốc.',
+                        false,
+                      )
+                    }
+                    style={styles.smallSecondary}
+                  >
+                    <Text style={styles.smallSecondaryText}>
+                      Khôi phục tên gốc
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          )}
+          <Text style={[styles.fieldLabel, { marginTop: 2 }]}>
+            Nền đoạn chat
+          </Text>
+          <View style={styles.themeSwatchGrid}>
+            {THEME_OPTIONS.map(([val, label, swatchColor]) => {
+              const active = currentBackground === val;
+              return (
+                <Pressable
+                  key={val}
+                  disabled={busy}
+                  onPress={() =>
+                    void run(
+                      async () => {
+                        const res = await api.authenticated<{
+                          conversation: api.Conversation;
+                        }>(
+                          `/conversations/${conversation.id}/background`,
+                          { background: val },
+                          'PATCH',
+                        );
+                        onBackgroundChange?.(
+                          res.conversation.background ?? val,
+                        );
+                      },
+                      'Đã cập nhật nền đoạn chat.',
+                      false,
+                    )
+                  }
+                  style={[
+                    styles.themeSwatchOption,
+                    active && styles.themeSwatchOptionActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.themeSwatchCircle,
+                      { backgroundColor: swatchColor },
+                    ]}
+                  />
+                  <Text style={styles.themeSwatchLabel}>{label}</Text>
+                  {active && (
+                    <Text style={{ color: '#b75020', fontWeight: '800' }}>
+                      ✓
+                    </Text>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
         {manager && (
           <View style={styles.infoCard}>
             <Text style={styles.infoSectionTitle}>Tên nhóm</Text>

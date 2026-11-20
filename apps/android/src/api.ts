@@ -27,6 +27,8 @@ export interface Conversation {
   id: string;
   type: 'direct' | 'group';
   title: string | null;
+  background?: string;
+  nicknames?: Record<string, string>;
   unreadCount: number;
   lastMessageSequence: string;
   membership: {
@@ -43,9 +45,11 @@ export interface Conversation {
   lastMessage: {
     id: string;
     senderId: string;
-    senderName: string;
+    senderName?: string;
     sequence: string;
+    type?: Message['type'];
     body: string | null;
+    content?: Message['content'];
     createdAt: string;
     deletedAt: string | null;
   } | null;
@@ -62,6 +66,8 @@ export interface Message {
   type: 'text' | 'image' | 'file' | 'voice' | 'location' | 'call';
   body: string | null;
   content?: {
+    mentions?: string[];
+    forwarded?: boolean;
     attachmentId?: string;
     fileName?: string;
     mimeType?: string;
@@ -80,6 +86,11 @@ export interface Message {
         'text' | 'image' | 'file' | 'voice' | 'location' | 'call' | 'deleted';
       excerpt: string;
     };
+  } | null;
+  spam?: {
+    suspicious: boolean;
+    score: number;
+    model: string;
   } | null;
   createdAt: string;
   editedAt: string | null;

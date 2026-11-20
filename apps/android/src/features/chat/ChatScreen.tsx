@@ -26,12 +26,16 @@ import Sound from 'react-native-nitro-sound';
 import { io } from 'socket.io-client';
 import * as api from '../../api';
 import { Avatar, Centered, InlineNotice } from '../../components/Common';
+import { UiGlyph } from '../../components/Icons';
 import { allPages, type Peer } from '../../presence';
 import {
   clientMessageId,
   conversationName,
+  dividerTime,
   extractMessageReply,
+  GAME_CATALOG,
   mergeMessages,
+  parseGameInviteBody,
   shortTime,
 } from '../../utils';
 import { styles } from '../../styles';
@@ -136,6 +140,7 @@ export function Chat({
     void Sound.stopPlayer().catch(() => undefined);
   }, [calls.busy]);
   const [connected, setConnected] = useState(false);
+  const [realtimeUnavailable, setRealtimeUnavailable] = useState(false);
   const [error, setError] = useState('');
   const [replyTo, setReplyTo] = useState<api.Message>();
   const [editing, setEditing] = useState<api.Message>();
@@ -167,6 +172,18 @@ export function Chat({
   const handledJumpTokenRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [title, setTitle] = useState(conversationName(conversation));
+  const [background, setBackground] = useState(
+    conversation.background ?? 'default',
+  );
+  const [nicknames, setNicknames] = useState<Record<string, string>>(
+    conversation.nicknames ?? {},
+  );
+  const [pins, setPins] = useState<api.Message[]>([]);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState(
+    conversation.messageRequest ?? null,
+  );
+  const [requestBusy, setRequestBusy] = useState(false);
   const messagesRef = useRef<api.Message[]>([]);
   const messageList = useRef<FlatList<api.Message>>(null);
   const composerRef = useRef<TextInputInstance>(null);
@@ -177,6 +194,7 @@ export function Chat({
   const hasPositionedList = useRef(false);
   const nearBottomRef = useRef(true);
   const socketRef = useRef<ReturnType<typeof io> | undefined>(undefined);
+  const retryRealtimeRef = useRef<(() => void) | undefined>(undefined);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -277,17 +295,87 @@ export function Chat({
 
   const loadMembers = useCallback(async () => {
     try {
-      setMembers(
-        await allPages<{
+      const [loadedMembers, pinsRes, convRes] = await Promise.all([
+        allPages<{
           id: string;
           user: Peer;
           role: 'owner' | 'admin' | 'member';
         }>(`/conversations/${conversation.id}/members`),
-      );
+        api
+          .authenticated<{ items: api.Message[] }>(
+            `/conversations/${conversation.id}/pins`,
+          )
+          .catch(() => ({ items: [] as api.Message[] })),
+        api
+          .authenticated<{ conversation: api.Conversation }>(
+            `/conversations/${conversation.id}`,
+          )
+          .catch(() => undefined),
+      ]);
+      setMembers(loadedMembers);
+      setPins(pinsRes.items ?? []);
+      if (convRes?.conversation) {
+        if (convRes.conversation.background) {
+          setBackground(convRes.conversation.background);
+        }
+        if (convRes.conversation.nicknames) {
+          setNicknames(convRes.conversation.nicknames);
+        }
+        setPendingRequest(convRes.conversation.messageRequest ?? null);
+      }
     } catch (next) {
       fail(next);
     }
   }, [conversation.id, fail]);
+
+  async function togglePinMessage(target: api.Message) {
+    const isPinned = pins.some(p => p.id === target.id);
+    try {
+      if (isPinned) {
+        await api.authenticated(
+          `/conversations/${conversation.id}/pins/${target.id}`,
+          undefined,
+          'DELETE',
+        );
+        setPins(prev => prev.filter(p => p.id !== target.id));
+      } else {
+        await api.authenticated(
+          `/conversations/${conversation.id}/pins/${target.id}`,
+          {},
+          'POST',
+        );
+        setPins(prev => [target, ...prev.filter(p => p.id !== target.id)]);
+      }
+    } catch (next) {
+      fail(next);
+    }
+  }
+
+  async function handleMessageRequestDecision(action: 'accept' | 'reject') {
+    if (requestBusy) return;
+    setRequestBusy(true);
+    try {
+      if (pendingRequest?.id) {
+        await api.authenticated(
+          `/message-requests/${pendingRequest.id}`,
+          { action },
+          'PATCH',
+        );
+      } else if (action === 'reject') {
+        await api.authenticated(
+          `/conversations/${conversation.id}/history`,
+          undefined,
+          'DELETE',
+        );
+      }
+      setPendingRequest(null);
+      if (action === 'reject') onBack();
+    } catch (next) {
+      fail(next);
+    } finally {
+      setRequestBusy(false);
+    }
+  }
 
   async function loadOlderMessages() {
     if (!older || loadingOlder) return;
@@ -340,6 +428,10 @@ export function Chat({
   useEffect(() => {
     let stopped = false;
     let refreshingToken = false;
+    let connecting = false;
+    let subscribed = false;
+    let syncingThroughApi = false;
+    let catchUpAfterSync = false;
     const socket = io(`${api.API_ORIGIN}/chat`, {
       transports: ['websocket'],
       autoConnect: false,
@@ -347,6 +439,8 @@ export function Chat({
     });
     socketRef.current = socket;
     async function connect() {
+      if (stopped || connecting || refreshingToken || socket.active) return;
+      connecting = true;
       try {
         const token = await api.accessToken();
         if (!stopped) {
@@ -354,9 +448,31 @@ export function Chat({
           socket.connect();
         }
       } catch (next) {
-        fail(next);
+        if (!stopped) fail(next);
+      } finally {
+        connecting = false;
       }
     }
+    async function syncThroughApi() {
+      if (stopped || syncingThroughApi) return;
+      syncingThroughApi = true;
+      try {
+        await sync();
+      } finally {
+        syncingThroughApi = false;
+        if (catchUpAfterSync) {
+          catchUpAfterSync = false;
+          void syncThroughApi();
+        }
+      }
+    }
+    function recover() {
+      void syncThroughApi();
+      void connect();
+    }
+    retryRealtimeRef.current = recover;
+    setConnected(false);
+    setRealtimeUnavailable(false);
     socket.on('connect', () => {
       socket
         .timeout(10000)
@@ -364,18 +480,26 @@ export function Chat({
           'conversation:subscribe',
           { conversationId: conversation.id },
           (problem: Error | null, result?: { ok: boolean }) => {
-            if (stopped) return;
+            if (stopped || !socket.connected) return;
             if (problem || !result?.ok) {
               setConnected(false);
-              setError('Không thể đăng ký nhận tin realtime.');
+              setRealtimeUnavailable(true);
+              socket.disconnect();
               return;
             }
+            subscribed = true;
             setConnected(true);
-            void sync();
+            setRealtimeUnavailable(false);
+            if (syncingThroughApi) catchUpAfterSync = true;
+            else void syncThroughApi();
           },
         );
     });
-    socket.on('disconnect', () => setConnected(false));
+    socket.on('disconnect', () => {
+      subscribed = false;
+      setConnected(false);
+      setRealtimeUnavailable(true);
+    });
     socket.on(
       'connect_error',
       async (problem: Error & { data?: { code?: string } }) => {
@@ -387,9 +511,7 @@ export function Chat({
           'SESSION_EXPIRED',
         ].includes(code);
         if (!authenticationFailed) {
-          setError(
-            'Không thể kết nối realtime; ứng dụng sẽ tiếp tục đồng bộ qua API.',
-          );
+          setRealtimeUnavailable(true);
           return;
         }
         if (refreshingToken || stopped) return;
@@ -456,12 +578,12 @@ export function Chat({
       },
     );
     const subscription = AppState.addEventListener('change', state => {
-      if (state === 'active') {
-        void sync();
-        if (!socket.connected) void connect();
-      }
+      if (state === 'active') recover();
     });
-    void sync();
+    const fallback = setInterval(() => {
+      if (!subscribed && AppState.currentState === 'active') recover();
+    }, 5000);
+    void syncThroughApi();
     void loadMembers();
     void connect();
     const typingExpiry = setInterval(() => {
@@ -484,6 +606,8 @@ export function Chat({
           () => undefined,
         );
       clearInterval(typingExpiry);
+      clearInterval(fallback);
+      retryRealtimeRef.current = undefined;
       subscription.remove();
       socket.removeAllListeners();
       socket.disconnect();
@@ -524,13 +648,14 @@ export function Chat({
       .catch(fail);
   }, [conversation.id, fail, messages, user.id]);
 
-  async function send() {
-    const text = body.trim();
-    if (sending || !text.trim()) return;
+  async function send(quickText?: string) {
+    const text = (quickText ?? body).trim();
+    if (sending || !text) return;
     setSending(true);
     setError('');
+    setEmojiOpen(false);
     try {
-      if (editing) {
+      if (editing && !quickText) {
         const result = await api.authenticated<{ message: api.Message }>(
           `/conversations/${conversation.id}/messages/${editing.id}`,
           { body: text, expectedEditedAt: editing.editedAt ?? null },
@@ -559,8 +684,9 @@ export function Chat({
         },
       );
       accept([result.message]);
-      setBody('');
+      if (!quickText) setBody('');
       setReplyTo(undefined);
+      if (pendingRequest?.direction === 'incoming') setPendingRequest(null);
       updateTyping(false);
     } catch (next) {
       fail(next);
@@ -857,10 +983,13 @@ export function Chat({
 
   function memberName(id: string) {
     if (id === user.id) return 'Bạn';
+    const found = members.find(member => member.user.id === id);
+    if (found && (nicknames[found.id] || nicknames[id])) {
+      return nicknames[found.id] ?? nicknames[id]!;
+    }
+    if (nicknames[id]) return nicknames[id]!;
     return (
-      members.find(member => member.user.id === id)?.user.displayName ??
-      conversation.peer?.displayName ??
-      'Thành viên'
+      found?.user.displayName ?? conversation.peer?.displayName ?? 'Thành viên'
     );
   }
 
@@ -1138,8 +1267,11 @@ export function Chat({
     return (
       <ConversationInfo
         conversation={conversation}
+        currentBackground={background}
         currentTitle={title}
         members={members}
+        nicknames={nicknames}
+        onBackgroundChange={setBackground}
         onClearHistory={clearedAfterSequence => {
           applyClearedHistory(clearedAfterSequence);
           setInfoOpen(false);
@@ -1148,10 +1280,35 @@ export function Chat({
         onExpired={onExpired}
         onLeave={onBack}
         onMembers={setMembers}
+        onNicknamesChange={nextNicknames => {
+          setNicknames(nextNicknames);
+          if (conversation.type === 'direct' && conversation.peer) {
+            const peerMember = members.find(
+              m => m.user.id === conversation.peer?.id,
+            );
+            const custom =
+              (peerMember && nextNicknames[peerMember.id]) ||
+              nextNicknames[conversation.peer.id];
+            setTitle(custom || conversation.peer.displayName);
+          }
+        }}
         onTitle={setTitle}
         user={user}
       />
     );
+
+  const THEME_BG: Record<string, string> = {
+    default: '#faf7f0',
+    ocean: '#edf6fa',
+    mint: '#eef7f2',
+    sunset: '#fdf2e9',
+    rose: '#fcf0f4',
+    sand: '#f5ede0',
+  };
+  const timelineBg = THEME_BG[background] ?? '#faf7f0';
+  const lastOwnMessageId = [...messages]
+    .reverse()
+    .find(m => m.senderId === user.id && m.type !== 'call' && !m.deletedAt)?.id;
 
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase('vi');
   const displayedMessages = normalizedSearch
@@ -1176,10 +1333,10 @@ export function Chat({
           onPress={onBack}
           style={({ pressed }) => [
             styles.backButton,
-            pressed && styles.pressed,
+            pressed && styles.infoButtonActive,
           ]}
         >
-          <Text style={styles.back}>‹</Text>
+          <UiGlyph name="back" color="#b75020" size={18} />
         </Pressable>
         <Avatar
           peer={{
@@ -1187,7 +1344,7 @@ export function Chat({
             displayName: title,
             avatarUrl: conversation.peer?.avatarUrl,
           }}
-          size={36}
+          size={34}
         />
         <Pressable
           accessibilityRole="button"
@@ -1205,7 +1362,11 @@ export function Chat({
               numberOfLines={1}
               style={[styles.connection, connected && styles.connectionOnline]}
             >
-              {connected ? 'Đang hoạt động' : 'Đang kết nối…'}
+              {connected
+                ? 'Đang hoạt động'
+                : realtimeUnavailable
+                  ? 'Đang đồng bộ qua API'
+                  : 'Đang kết nối…'}
             </Text>
           </View>
         </Pressable>
@@ -1217,14 +1378,17 @@ export function Chat({
               accessibilityLabel={type === 'audio' ? 'Gọi thoại' : 'Gọi video'}
               disabled={calls.busy || recording}
               onPress={() => calls.start(conversation, type)}
-              style={[
+              style={({ pressed }) => [
                 styles.infoButton,
+                pressed && styles.infoButtonActive,
                 (calls.busy || recording) && styles.disabled,
               ]}
             >
-              <Text style={styles.infoButtonText}>
-                {type === 'audio' ? '📞' : '📹'}
-              </Text>
+              <UiGlyph
+                name={type === 'audio' ? 'phone' : 'video'}
+                color="#b75020"
+                size={18}
+              />
             </Pressable>
           ))}
           <Pressable
@@ -1232,9 +1396,12 @@ export function Chat({
             accessibilityRole="button"
             accessibilityState={{ expanded: headerMenuOpen }}
             onPress={() => setHeaderMenuOpen(true)}
-            style={[styles.infoButton, searchOpen && styles.infoButtonActive]}
+            style={({ pressed }) => [
+              styles.infoButton,
+              (searchOpen || pressed) && styles.infoButtonActive,
+            ]}
           >
-            <Text style={styles.infoButtonText}>⋯</Text>
+            <UiGlyph name="more" color="#b75020" size={18} />
           </Pressable>
         </View>
       </View>
@@ -1271,10 +1438,43 @@ export function Chat({
           <InlineNotice message={error} onRetry={() => void sync()} />
         </View>
       )}
+      {!error && realtimeUnavailable && (
+        <View style={styles.chatNotice}>
+          <InlineNotice
+            message="Không thể kết nối realtime; ứng dụng đang đồng bộ qua API."
+            onRetry={() => retryRealtimeRef.current?.()}
+          />
+        </View>
+      )}
+      {!normalizedSearch && pins.length > 0 && (
+        <Pressable
+          onPress={() => void jumpToMessage(pins[0]!.id)}
+          style={styles.pinnedBanner}
+        >
+          <UiGlyph name="pin" color="#b75020" size={16} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.pinnedBannerKicker}>
+              📌 Tin nhắn đã ghim ({pins.length})
+            </Text>
+            <Text numberOfLines={1} style={styles.pinnedBannerBody}>
+              {messageLabel(pins[0]!)}
+            </Text>
+          </View>
+          <Pressable
+            hitSlop={8}
+            onPress={() => void togglePinMessage(pins[0]!)}
+            style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+          >
+            <Text style={{ color: '#8d7866', fontSize: 12, fontWeight: '700' }}>
+              Bỏ ghim
+            </Text>
+          </Pressable>
+        </Pressable>
+      )}
       {loading ? (
         <Centered label="Đang tải tin nhắn…" />
       ) : (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, backgroundColor: timelineBg }}>
           <FlatList
             ref={messageList}
             contentContainerStyle={styles.messageList}
@@ -1358,8 +1558,50 @@ export function Chat({
                 </Text>
               </View>
             }
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const mine = item.senderId === user.id;
+              const prev = index > 0 ? displayedMessages[index - 1] : undefined;
+              const next =
+                index < displayedMessages.length - 1
+                  ? displayedMessages[index + 1]
+                  : undefined;
+              const showTimeDivider =
+                !prev ||
+                Date.parse(item.createdAt) - Date.parse(prev.createdAt) >=
+                  5 * 60 * 1000;
+              const nextTimeGap =
+                !!next &&
+                Date.parse(next.createdAt) - Date.parse(item.createdAt) >=
+                  5 * 60 * 1000;
+              const prevSame =
+                !!prev &&
+                !showTimeDivider &&
+                prev.senderId === item.senderId &&
+                prev.type !== 'call' &&
+                item.type !== 'call';
+              const nextSame =
+                !!next &&
+                !nextTimeGap &&
+                next.senderId === item.senderId &&
+                next.type !== 'call' &&
+                item.type !== 'call';
+              const isPinned = pins.some(p => p.id === item.id);
+              const extractedBody = extractMessageReply(item).body;
+              const gameInvite =
+                !item.deletedAt && (!item.type || item.type === 'text')
+                  ? parseGameInviteBody(extractedBody)
+                  : null;
+              const gameMeta = gameInvite
+                ? GAME_CATALOG[gameInvite.gameType]
+                : undefined;
+              const senderPeer =
+                members.find(m => m.user.id === item.senderId)?.user ??
+                (conversation.peer?.id === item.senderId
+                  ? conversation.peer
+                  : {
+                      id: item.senderId,
+                      displayName: memberName(item.senderId),
+                    });
               const { reply } = extractMessageReply(item);
               const quotedTarget = reply?.messageId
                 ? messagesRef.current.find(m => m.id === reply.messageId)
@@ -1386,11 +1628,9 @@ export function Chat({
               const replyExcerpt = quotedDeleted
                 ? 'Tin nhắn đã thu hồi'
                 : (reply?.excerpt ?? '');
-              return (
-                <View
-                  style={[styles.messageRow, mine && styles.messageRowMine]}
-                >
-                  {!mine && conversation.type === 'group' && (
+              const bubbleNode = (
+                <>
+                  {!mine && conversation.type === 'group' && !prevSame && (
                     <Text style={styles.messageSender}>
                       {memberName(item.senderId)}
                     </Text>
@@ -1444,6 +1684,10 @@ export function Chat({
                       style={({ pressed }) => [
                         styles.bubble,
                         mine ? styles.bubbleMine : styles.bubblePeer,
+                        mine && nextSame && styles.bubbleMineContinuesBottom,
+                        mine && prevSame && styles.bubbleMineContinuesTop,
+                        !mine && nextSame && styles.bubblePeerContinuesBottom,
+                        !mine && prevSame && styles.bubblePeerContinuesTop,
                         highlightedMessageId === item.id &&
                           (mine
                             ? styles.bubbleMineHighlighted
@@ -1481,15 +1725,73 @@ export function Chat({
                         callSummarizing={!!callSummaries[item.id]?.loading}
                       />
                       {(item.type === 'text' || !!item.deletedAt) && (
-                        <Text
-                          style={[
-                            styles.messageText,
-                            mine && styles.messageTextMine,
-                            !!item.deletedAt && styles.deletedMessage,
-                          ]}
-                        >
-                          {messageLabel(item)}
-                        </Text>
+                        <>
+                          {!item.deletedAt && isPinned && (
+                            <Text
+                              style={[
+                                styles.pinTagText,
+                                mine && styles.pinTagTextMine,
+                              ]}
+                            >
+                              📌 Đã ghim
+                            </Text>
+                          )}
+                          {gameInvite && !item.deletedAt ? (
+                            <View
+                              style={[
+                                styles.gameInviteCard,
+                                mine && styles.gameInviteCardMine,
+                              ]}
+                            >
+                              <View style={styles.gameInviteHeader}>
+                                <Text
+                                  style={[
+                                    styles.gameInviteKicker,
+                                    mine && styles.gameInviteKickerMine,
+                                  ]}
+                                >
+                                  🎮{' '}
+                                  {gameMeta?.groupOnly
+                                    ? 'TRÒ CHƠI NHÓM'
+                                    : 'MỜI CHƠI'}
+                                </Text>
+                                {gameMeta && (
+                                  <View style={styles.gameInviteBadge}>
+                                    <Text style={styles.gameInviteBadgeText}>
+                                      {gameMeta.badge}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              <Text
+                                style={[
+                                  styles.gameInviteTitle,
+                                  mine && styles.gameInviteTitleMine,
+                                ]}
+                              >
+                                {gameMeta?.name ?? 'Trò chơi trực tuyến'}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.gameInviteDesc,
+                                  mine && styles.gameInviteDescMine,
+                                ]}
+                              >
+                                {gameMeta?.subtitle ?? gameInvite.text}
+                              </Text>
+                            </View>
+                          ) : (
+                            <Text
+                              style={[
+                                styles.messageText,
+                                mine && styles.messageTextMine,
+                                !!item.deletedAt && styles.deletedMessage,
+                              ]}
+                            >
+                              {messageLabel(item)}
+                            </Text>
+                          )}
+                        </>
                       )}
                       <View style={styles.messageTimeRow}>
                         {!!item.editedAt && !item.deletedAt && (
@@ -1594,7 +1896,43 @@ export function Chat({
                       ))}
                     </View>
                   )}
-                </View>
+                  {mine && item.id === lastOwnMessageId && (
+                    <Text style={styles.sentStatusText}>Đã gửi</Text>
+                  )}
+                </>
+              );
+              return (
+                <>
+                  {showTimeDivider && !normalizedSearch && (
+                    <View style={styles.timeDividerRow}>
+                      <View style={styles.timeDividerLine} />
+                      <Text style={styles.timeDividerText}>
+                        {dividerTime(item.createdAt)}
+                      </Text>
+                      <View style={styles.timeDividerLine} />
+                    </View>
+                  )}
+                  <View
+                    style={[
+                      styles.messageRow,
+                      nextSame && styles.messageRowContinues,
+                      mine && styles.messageRowMine,
+                    ]}
+                  >
+                    {mine ? (
+                      bubbleNode
+                    ) : (
+                      <View style={styles.peerMessageLine}>
+                        <View style={styles.peerAvatarSlot}>
+                          {!nextSame && <Avatar peer={senderPeer} size={28} />}
+                        </View>
+                        <View style={styles.peerMessageColumn}>
+                          {bubbleNode}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                </>
               );
             }}
           />
@@ -1615,14 +1953,49 @@ export function Chat({
         </View>
       )}
       {Object.values(typing).some(expiry => expiry > Date.now()) && (
-        <Text style={styles.typingNote}>
-          {Object.entries(typing)
-            .filter(([, expiry]) => expiry > Date.now())
-            .map(([id]) => memberName(id))
-            .join(', ')}{' '}
-          đang nhập…
-        </Text>
+        <View style={styles.typingNote}>
+          <View style={styles.typingBubble}>
+            <View style={styles.typingDot} />
+            <View style={[styles.typingDot, styles.typingDotAccent]} />
+            <View style={styles.typingDot} />
+          </View>
+          <Text numberOfLines={1} style={styles.typingCaption}>
+            {Object.entries(typing)
+              .filter(([, expiry]) => expiry > Date.now())
+              .map(([id]) => memberName(id))
+              .join(', ')}{' '}
+            đang nhập…
+          </Text>
+        </View>
       )}
+      {pendingRequest?.direction === 'incoming' &&
+        pendingRequest.status === 'pending' && (
+          <View style={styles.chatRequestBanner}>
+            <Text style={styles.chatRequestBannerTitle}>
+              {title} muốn gửi tin nhắn cho bạn
+            </Text>
+            <Text style={styles.chatRequestBannerCopy}>
+              Hai bạn chưa kết bạn trên PingPong. Chấp nhận hoặc trả lời trực
+              tiếp bên dưới để chuyển đoạn chat về mục Tất cả.
+            </Text>
+            <View style={styles.chatRequestBannerActions}>
+              <Pressable
+                disabled={requestBusy}
+                onPress={() => void handleMessageRequestDecision('accept')}
+                style={styles.smallPrimary}
+              >
+                <Text style={styles.smallPrimaryText}>Chấp nhận</Text>
+              </Pressable>
+              <Pressable
+                disabled={requestBusy}
+                onPress={() => void handleMessageRequestDecision('reject')}
+                style={styles.smallSecondary}
+              >
+                <Text style={styles.smallSecondaryText}>Xóa tin nhắn chờ</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
       {(replyTo || editing) && (
         <View style={styles.composerContext}>
           <View style={styles.composerContextText}>
@@ -1649,6 +2022,46 @@ export function Chat({
         </View>
       )}
       <View style={styles.composerShell}>
+        {emojiOpen && !recording && (
+          <View style={styles.emojiPickerCard}>
+            {[
+              '😀',
+              '😂',
+              '🥰',
+              '😍',
+              '🤩',
+              '😊',
+              '🙏',
+              '👍',
+              '❤️',
+              '🔥',
+              '🎉',
+              '✨',
+              '😢',
+              '😮',
+              '🤔',
+              '👏',
+              '💯',
+              '👋',
+            ].map(emoji => (
+              <Pressable
+                key={emoji}
+                onPress={() => {
+                  setBody(prev =>
+                    prev.length + emoji.length <= 10000 ? prev + emoji : prev,
+                  );
+                  setEmojiOpen(false);
+                }}
+                style={({ pressed }) => [
+                  styles.emojiPickerCell,
+                  pressed && styles.attachButtonPressed,
+                ]}
+              >
+                <Text style={{ fontSize: 22 }}>{emoji}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         {recording ? (
           <View style={styles.recordingBar}>
             <View style={styles.recordingPulse} />
@@ -1680,73 +2093,100 @@ export function Chat({
             </Pressable>
           </View>
         ) : (
-          <View style={styles.composer}>
-            {!editing && (
-              <Pressable
-                accessibilityLabel="Gửi ảnh, tệp, vị trí hoặc ghi âm"
-                accessibilityRole="button"
-                disabled={sending}
-                onPress={showMediaMenu}
-                style={styles.attachButton}
-              >
-                <Text style={styles.attachButtonText}>＋</Text>
-              </Pressable>
-            )}
+          <View style={styles.composerRow}>
             {!editing && !body.trim() && (
+              <View style={styles.composerMediaTools}>
+                <Pressable
+                  accessibilityLabel="Gửi ảnh, tệp, vị trí hoặc ghi âm"
+                  accessibilityRole="button"
+                  disabled={sending}
+                  onPress={showMediaMenu}
+                  style={({ pressed }) => [
+                    styles.attachButton,
+                    pressed && styles.attachButtonPressed,
+                  ]}
+                >
+                  <UiGlyph name="plus" color="#b75020" size={18} />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="Ghi âm tin nhắn thoại"
+                  accessibilityRole="button"
+                  disabled={sending}
+                  onPress={() => void startRecording().catch(fail)}
+                  style={({ pressed }) => [
+                    styles.attachButton,
+                    pressed && styles.attachButtonPressed,
+                  ]}
+                >
+                  <UiGlyph name="mic" color="#b75020" size={18} />
+                </Pressable>
+              </View>
+            )}
+            <View style={styles.composer}>
+              <TextInput
+                ref={composerRef}
+                accessibilityLabel="Nội dung tin nhắn"
+                editable={!sending}
+                maxLength={10000}
+                multiline
+                onChangeText={value => {
+                  setBody(value);
+                  setError('');
+                  updateTyping(!!value.trim());
+                }}
+                onBlur={() => updateTyping(false)}
+                placeholder={editing ? 'Sửa tin nhắn…' : 'Nhập tin nhắn…'}
+                placeholderTextColor="#897e73"
+                style={styles.composerInput}
+                textAlignVertical="center"
+                value={body}
+              />
               <Pressable
-                accessibilityLabel="Ghi âm tin nhắn thoại"
+                accessibilityLabel="Chọn biểu tượng cảm xúc"
                 accessibilityRole="button"
                 disabled={sending}
-                onPress={() => void startRecording().catch(fail)}
-                style={styles.attachButton}
+                onPress={() => setEmojiOpen(prev => !prev)}
+                style={({ pressed }) => [
+                  styles.composerEmojiBtn,
+                  (emojiOpen || pressed) && styles.attachButtonPressed,
+                ]}
               >
-                <Text style={[styles.attachButtonText, { fontSize: 16 }]}>
-                  🎤
-                </Text>
+                <UiGlyph name="smile" color="#76553b" size={18} />
               </Pressable>
-            )}
-            <TextInput
-              ref={composerRef}
-              accessibilityLabel="Nội dung tin nhắn"
-              editable={!sending}
-              maxLength={10000}
-              multiline
-              onChangeText={value => {
-                setBody(value);
-                setError('');
-                updateTyping(!!value.trim());
-              }}
-              onBlur={() => updateTyping(false)}
-              placeholder={editing ? 'Sửa tin nhắn…' : 'Nhắn tin…'}
-              placeholderTextColor="#8c7662"
-              style={styles.composerInput}
-              textAlignVertical="center"
-              value={body}
-            />
-            <Pressable
-              accessibilityLabel="Gửi tin nhắn"
-              accessibilityRole="button"
-              accessibilityState={{
-                busy: sending,
-                disabled: sending || !body.trim(),
-              }}
-              disabled={sending || !body.trim()}
-              onPress={() => {
-                nearBottomRef.current = true;
-                void send();
-              }}
-              style={({ pressed }) => [
-                styles.sendButton,
-                pressed && styles.pressed,
-                (sending || !body.trim()) && styles.sendButtonDisabled,
-              ]}
-            >
-              {sending ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={styles.sendText}>➤</Text>
-              )}
-            </Pressable>
+              <Pressable
+                accessibilityLabel={
+                  body.trim() || editing ? 'Gửi tin nhắn' : 'Gửi lượt thích'
+                }
+                accessibilityRole="button"
+                accessibilityState={{
+                  busy: sending,
+                  disabled: sending || (!!editing && !body.trim()),
+                }}
+                disabled={sending || (!!editing && !body.trim())}
+                onPress={() => {
+                  nearBottomRef.current = true;
+                  if (!body.trim() && !editing) {
+                    void send('👍');
+                  } else {
+                    void send();
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.sendButton,
+                  pressed && styles.pressed,
+                  (sending || (!!editing && !body.trim())) &&
+                    styles.sendButtonDisabled,
+                ]}
+              >
+                {sending ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : body.trim() || editing ? (
+                  <UiGlyph name="send" color="#ffffff" size={15} />
+                ) : (
+                  <UiGlyph name="like" color="#ffffff" size={16} />
+                )}
+              </Pressable>
+            </View>
           </View>
         )}
         {body.length > 9000 && (
@@ -1808,6 +2248,23 @@ export function Chat({
                     <Text style={styles.sheetOptionIconText}>↩</Text>
                   </View>
                   <Text style={styles.sheetOptionText}>Trả lời tin nhắn</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const target = actionTarget;
+                    setActionTarget(undefined);
+                    void togglePinMessage(target);
+                  }}
+                  style={styles.sheetOption}
+                >
+                  <View style={styles.sheetOptionIcon}>
+                    <UiGlyph name="pin" color="#b75020" size={16} />
+                  </View>
+                  <Text style={styles.sheetOptionText}>
+                    {pins.some(p => p.id === actionTarget.id)
+                      ? 'Bỏ ghim tin nhắn'
+                      : 'Ghim tin nhắn'}
+                  </Text>
                 </Pressable>
                 {actionTarget.type === 'voice' && (
                   <Pressable

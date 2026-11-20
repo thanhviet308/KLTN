@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as api from '../../api';
-import { Brand, InlineNotice } from '../../components/Common';
+import { SocialBrandIcon, UiGlyph } from '../../components/Icons';
 import { styles } from '../../styles';
 
 export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
@@ -29,6 +30,31 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
   const [notice, setNotice] = useState('');
   const [emailError, setEmailError] = useState('');
   const passwordInput = useRef<React.ElementRef<typeof TextInput>>(null);
+  const formScroll = useRef<React.ElementRef<typeof ScrollView>>(null);
+
+  const revealFocusedInput = React.useCallback(() => {
+    const input = TextInput.State.currentlyFocusedInput();
+    if (input) {
+      formScroll.current?.scrollResponderScrollNativeHandleToKeyboard(
+        input,
+        16,
+        true,
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const subscription = Keyboard.addListener(
+      'keyboardDidShow',
+      revealFocusedInput,
+    );
+    return () => subscription.remove();
+  }, [revealFocusedInput]);
+
+  function revealInputOnFocus() {
+    if (Platform.OS === 'android' && Keyboard.isVisible()) revealFocusedInput();
+  }
 
   function validatedEmail() {
     const normalizedEmail = email.trim();
@@ -143,48 +169,54 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.loginPage}
     >
       <ScrollView
+        ref={formScroll}
         bounces={false}
         contentContainerStyle={styles.loginScroll}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.loginHero}>
-          <Brand inverse />
-          <Text style={styles.loginEyebrow}>GẦN NHAU HƠN, MỖI NGÀY</Text>
-          <Text style={styles.loginHeroTitle}>
-            Mọi kết nối tốt đẹp bắt đầu từ một lời chào.
-          </Text>
-          <Text style={styles.loginHeroCopy}>
-            Trò chuyện và giữ liên lạc với những người quan trọng.
+        <View style={styles.loginBlushGlow} pointerEvents="none" />
+        <View style={styles.loginBrandRow}>
+          <SocialBrandIcon />
+          <Text style={styles.loginBrandText}>
+            Ping<Text style={styles.loginBrandCoral}>Pong</Text>
           </Text>
         </View>
         <View style={styles.loginCard}>
+          <View style={styles.loginTopEyebrowWrap}>
+            <Text style={styles.loginTopEyebrow}>
+              TRÒ CHUYỆN THẬT · GẦN NHAU HƠN
+            </Text>
+            <View style={styles.loginTopEyebrowBar} />
+          </View>
           <View style={styles.loginHeadingRow}>
-            <View>
-              <Text style={styles.loginEyebrowDark}>BẮT ĐẦU KẾT NỐI</Text>
+            {mode === 'login' ? (
               <Text style={styles.loginHeading}>
-                {mode === 'login'
-                  ? 'Chào mừng trở lại.'
-                  : step === 1
-                    ? 'Tạo tài khoản.'
-                    : step === 2
-                      ? 'Xác minh email.'
-                      : 'Hoàn tất tài khoản.'}
+                Một lời chào.{'\n'}
+                <Text style={styles.loginHeadingCoral}>Ngàn kết nối.</Text>
               </Text>
-              <Text style={styles.loginCaption}>
-                {mode === 'login'
-                  ? 'Đăng nhập để tiếp tục những cuộc trò chuyện.'
-                  : step === 1
-                    ? 'Dùng email của bạn để bắt đầu.'
-                    : step === 2
-                      ? `Nhập mã đã gửi đến ${email.trim()}.`
-                      : 'Chọn tên hiển thị và mật khẩu.'}
+            ) : (
+              <Text style={styles.loginHeading}>
+                {step === 1
+                  ? 'Tạo tài khoản mới'
+                  : step === 2
+                    ? 'Xác minh email'
+                    : 'Hoàn tất tài khoản'}
               </Text>
-            </View>
+            )}
+            <Text style={styles.loginCaption}>
+              {mode === 'login'
+                ? 'Chia sẻ khoảnh khắc, giữ gần những người bạn yêu quý.'
+                : step === 1
+                  ? 'Nhập email để nhận mã xác minh.'
+                  : step === 2
+                    ? `Xác minh địa chỉ email ${email.trim()}.`
+                    : 'Tạo mật khẩu và hoàn tất tài khoản của bạn.'}
+            </Text>
           </View>
           {mode === 'register' && (
             <View style={styles.registrationSteps}>
@@ -192,14 +224,15 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
                 <View
                   key={label}
                   style={[
-                    styles.registrationStep,
-                    step >= index + 1 && styles.registrationStepActive,
+                    styles.authRegistrationStep,
+                    step >= index + 1 && styles.authRegistrationStepActive,
                   ]}
                 >
                   <Text
                     style={[
-                      styles.registrationStepText,
-                      step >= index + 1 && styles.registrationStepTextActive,
+                      styles.authRegistrationStepText,
+                      step >= index + 1 &&
+                        styles.authRegistrationStepTextActive,
                     ]}
                   >
                     {index + 1}. {label}
@@ -208,56 +241,77 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
               ))}
             </View>
           )}
+          {!!notice && (
+            <View style={styles.authSuccessNotice}>
+              <Text style={styles.authSuccessNoticeText}>{notice}</Text>
+            </View>
+          )}
+          {!!error && (
+            <View style={styles.authErrorNotice}>
+              <Text style={styles.authErrorNoticeText}>{error}</Text>
+            </View>
+          )}
           {(mode === 'login' || step === 1) && (
             <>
-              <Text style={styles.fieldLabel}>Email</Text>
-              <TextInput
-                accessibilityLabel="Email"
-                accessibilityState={{ disabled: busy }}
-                autoCapitalize="none"
-                autoComplete="email"
-                blurOnSubmit={false}
-                editable={!busy}
-                keyboardType="email-address"
-                maxLength={254}
-                onChangeText={value => {
-                  setEmail(value);
-                  setEmailError('');
-                  setError('');
-                }}
-                onSubmitEditing={() => {
-                  if (mode === 'login') passwordInput.current?.focus();
-                  else submit();
-                }}
-                placeholder="ban@example.com"
-                placeholderTextColor="#9aa59e"
-                returnKeyType={mode === 'login' ? 'next' : 'done'}
-                style={[styles.input, !!emailError && styles.inputInvalid]}
-                value={email}
-              />
+              <Text style={styles.authFieldLabel}>Email</Text>
+              <View style={styles.authInputWrap}>
+                <View style={styles.authInputIcon} pointerEvents="none">
+                  <UiGlyph name="mail" color="#976e8b" size={18} />
+                </View>
+                <TextInput
+                  accessibilityLabel="Email"
+                  accessibilityState={{ disabled: busy }}
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  blurOnSubmit={false}
+                  editable={!busy}
+                  keyboardType="email-address"
+                  maxLength={254}
+                  onFocus={revealInputOnFocus}
+                  onChangeText={value => {
+                    setEmail(value);
+                    setEmailError('');
+                    setError('');
+                  }}
+                  onSubmitEditing={() => {
+                    if (mode === 'login') passwordInput.current?.focus();
+                    else submit();
+                  }}
+                  placeholder="yourname@email.com"
+                  placeholderTextColor="#aa8fa6"
+                  returnKeyType={mode === 'login' ? 'next' : 'done'}
+                  style={[
+                    styles.authInput,
+                    styles.authInputWithIcon,
+                    !!emailError && styles.authInputInvalid,
+                  ]}
+                  value={email}
+                />
+              </View>
               {!!emailError && (
-                <Text style={styles.fieldError}>{emailError}</Text>
+                <Text style={styles.authFieldError}>{emailError}</Text>
               )}
             </>
           )}
           {mode === 'register' && step === 2 && (
             <>
-              <Text style={styles.fieldLabel}>Mã xác minh</Text>
+              <Text style={styles.authFieldLabel}>Mã xác minh</Text>
               <TextInput
                 accessibilityLabel="Mã xác minh"
                 autoComplete="one-time-code"
                 editable={!busy}
                 keyboardType="number-pad"
                 maxLength={6}
+                onFocus={revealInputOnFocus}
                 onChangeText={value => {
                   setCode(value.replace(/\D/g, '').slice(0, 6));
                   setError('');
                 }}
                 onSubmitEditing={submit}
                 placeholder="000000"
-                placeholderTextColor="#9aa59e"
+                placeholderTextColor="#aa8fa6"
                 returnKeyType="done"
-                style={[styles.input, styles.codeInput]}
+                style={[styles.authInput, styles.codeInput]}
                 value={code}
               />
               <Pressable
@@ -273,33 +327,37 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
                     setNotice('Đã gửi một mã xác minh mới.');
                   });
                 }}
-                style={styles.linkButton}
+                style={styles.authLinkButton}
               >
-                <Text style={styles.linkButtonText}>Gửi lại mã</Text>
+                <Text style={styles.authLinkButtonText}>Gửi lại mã</Text>
               </Pressable>
             </>
           )}
           {mode === 'register' && step === 3 && (
             <>
-              <Text style={styles.fieldLabel}>Tên hiển thị</Text>
+              <Text style={styles.authFieldLabel}>Tên hiển thị</Text>
               <TextInput
                 accessibilityLabel="Tên hiển thị"
                 autoComplete="name"
                 editable={!busy}
                 maxLength={100}
+                onFocus={revealInputOnFocus}
                 onChangeText={setDisplayName}
                 placeholder="Bạn muốn được gọi là gì?"
-                placeholderTextColor="#9aa59e"
+                placeholderTextColor="#aa8fa6"
                 returnKeyType="next"
-                style={styles.input}
+                style={styles.authInput}
                 value={displayName}
               />
             </>
           )}
           {(mode === 'login' || step === 3) && (
             <>
-              <Text style={styles.fieldLabel}>Mật khẩu</Text>
-              <View style={styles.passwordField}>
+              <Text style={styles.authFieldLabel}>Mật khẩu</Text>
+              <View style={styles.authInputWrap}>
+                <View style={styles.authInputIcon} pointerEvents="none">
+                  <UiGlyph name="lock" color="#976e8b" size={18} />
+                </View>
                 <TextInput
                   ref={passwordInput}
                   accessibilityLabel="Mật khẩu"
@@ -309,6 +367,7 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
                   }
                   editable={!busy}
                   maxLength={128}
+                  onFocus={revealInputOnFocus}
                   onChangeText={value => {
                     setPassword(value);
                     setError('');
@@ -321,10 +380,10 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
                       ? 'Nhập mật khẩu của bạn'
                       : 'Tạo mật khẩu từ 6 ký tự'
                   }
-                  placeholderTextColor="#9aa59e"
+                  placeholderTextColor="#aa8fa6"
                   returnKeyType={mode === 'login' ? 'done' : 'next'}
                   secureTextEntry={!passwordVisible}
-                  style={[styles.input, styles.passwordInput]}
+                  style={[styles.authInput, styles.authPasswordInput]}
                   value={password}
                 />
                 <Pressable
@@ -335,9 +394,9 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
                   accessibilityState={{ expanded: passwordVisible }}
                   hitSlop={6}
                   onPress={() => setPasswordVisible(value => !value)}
-                  style={styles.passwordToggle}
+                  style={styles.authPasswordToggle}
                 >
-                  <Text style={styles.passwordToggleText}>
+                  <Text style={styles.authPasswordToggleText}>
                     {passwordVisible ? 'Ẩn' : 'Hiện'}
                   </Text>
                 </Pressable>
@@ -346,48 +405,39 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
           )}
           {mode === 'register' && step === 3 && (
             <>
-              <Text style={styles.fieldLabel}>Xác nhận mật khẩu</Text>
+              <Text style={styles.authFieldLabel}>Xác nhận mật khẩu</Text>
               <TextInput
                 accessibilityLabel="Xác nhận mật khẩu"
                 autoComplete="new-password"
                 editable={!busy}
                 maxLength={128}
                 onChangeText={setConfirmPassword}
+                onFocus={revealInputOnFocus}
                 onSubmitEditing={submit}
                 placeholder="Nhập lại mật khẩu"
-                placeholderTextColor="#9aa59e"
+                placeholderTextColor="#aa8fa6"
                 returnKeyType="done"
                 secureTextEntry={!passwordVisible}
-                style={styles.input}
+                style={styles.authInput}
                 value={confirmPassword}
               />
             </>
-          )}
-          {!!notice && (
-            <View style={styles.successNotice}>
-              <Text style={styles.successNoticeText}>{notice}</Text>
-            </View>
-          )}
-          {!!error && (
-            <View style={styles.loginNotice}>
-              <InlineNotice message={error} />
-            </View>
           )}
           <Pressable
             accessibilityRole="button"
             disabled={buttonDisabled}
             onPress={submit}
             style={({ pressed }) => [
-              styles.primaryButton,
+              styles.authPrimaryButton,
               pressed && styles.pressed,
               buttonDisabled && styles.disabled,
             ]}
           >
             {busy ? (
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color="#48132f" />
             ) : (
-              <View style={styles.primaryButtonContent}>
-                <Text style={styles.primaryButtonText}>
+              <View style={styles.authPrimaryButtonContent}>
+                <Text style={styles.authPrimaryButtonText}>
                   {mode === 'login'
                     ? 'Đăng nhập'
                     : step === 1
@@ -396,13 +446,13 @@ export function Login({ onLogin }: { onLogin: (user: api.User) => void }) {
                         ? 'Xác minh email'
                         : 'Tạo tài khoản'}
                 </Text>
-                <Text style={styles.primaryButtonArrow}>→</Text>
+                <Text style={styles.authPrimaryButtonArrow}>→</Text>
               </View>
             )}
           </Pressable>
           <View style={styles.authSwitch}>
             <Text style={styles.authSwitchText}>
-              {mode === 'login' ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}
+              {mode === 'login' ? 'Chưa có tài khoản?' : 'Bạn đã có tài khoản?'}
             </Text>
             <Pressable
               disabled={busy}

@@ -81,9 +81,7 @@ function Root() {
         { paddingTop: insets.top, paddingBottom: insets.bottom },
       ]}
     >
-      <StatusBar
-        barStyle={!booting && !user ? 'light-content' : 'dark-content'}
-      />
+      <StatusBar barStyle="dark-content" />
       {booting ? (
         <Centered label="Đang khôi phục phiên…" />
       ) : !user ? (

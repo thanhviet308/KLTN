@@ -60,24 +60,43 @@ export function InlineNotice({
   );
 }
 
-export function Avatar({ peer, size = 44 }: { peer: Peer; size?: number }) {
+export function Avatar({
+  peer,
+  size = 44,
+  circular = true,
+}: {
+  peer: Peer;
+  size?: number;
+  circular?: boolean;
+}) {
   const source = api.avatarUrl(peer.avatarUrl);
+  const radius = circular ? Math.round(size / 2) : Math.round(size * 0.34);
   return (
     <View
       accessibilityLabel={`Ảnh đại diện của ${peer.displayName}`}
       accessibilityRole="image"
       style={[
         styles.dynamicAvatar,
-        { width: size, height: size, borderRadius: Math.round(size * 0.34) },
+        { width: size, height: size, borderRadius: radius },
       ]}
     >
       {source ? (
         <Image
           source={{ uri: source }}
-          style={{ width: size, height: size, resizeMode: 'cover' }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: radius,
+            resizeMode: 'cover',
+          }}
         />
       ) : (
-        <Text style={styles.dynamicAvatarText}>
+        <Text
+          style={[
+            styles.dynamicAvatarText,
+            { fontSize: Math.max(10, Math.round(size * 0.34)) },
+          ]}
+        >
           {initials(peer.displayName)}
         </Text>
       )}
@@ -86,16 +105,19 @@ export function Avatar({ peer, size = 44 }: { peer: Peer; size?: number }) {
 }
 
 export function ScreenIntro({
+  eyebrow,
   title,
   caption,
 }: {
+  eyebrow?: string;
   title: string;
-  caption: string;
+  caption?: string;
 }) {
   return (
     <View style={styles.screenIntro}>
+      {!!eyebrow && <Text style={styles.screenEyebrow}>{eyebrow}</Text>}
       <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.sectionCaption}>{caption}</Text>
+      {!!caption && <Text style={styles.sectionCaption}>{caption}</Text>}
     </View>
   );
 }
