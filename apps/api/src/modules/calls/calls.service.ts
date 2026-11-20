@@ -269,6 +269,8 @@ export class CallsService {
         const message = await this.expire(manager, duplicate);
         return {
           result: await this.result(manager, duplicate),
+          roomName: duplicate.roomName,
+          callType: duplicate.type,
           created: false,
           message,
         };
@@ -374,12 +376,21 @@ export class CallsService {
       );
       return {
         result: await this.result(manager, call),
+        roomName: call.roomName,
+        callType: call.type,
         created: true,
         message: undefined,
       };
     });
-    if (result.created)
-      return this.publish('call:incoming', actorId, result.result);
+    if (result.created) {
+      const published = this.publish('call:incoming', actorId, result.result);
+      const media = await this.issueMediaToken(
+        actorId,
+        result.roomName,
+        result.callType,
+      );
+      return media ? { ...published, media } : published;
+    }
     if (result.message)
       return this.publish(
         'call:updated',
@@ -397,6 +408,35 @@ export class CallsService {
     });
     if (value.message) this.publishMessage(value.message);
     return value.result;
+  }
+
+  private async issueMediaToken(
+    actorId: string,
+    roomName: string,
+    callType: 'audio' | 'video',
+  ) {
+    const livekitUrl = this.config.get('LIVEKIT_URL', { infer: true });
+    const apiKey = this.config.get('LIVEKIT_API_KEY', { infer: true });
+    const apiSecret = this.config.get('LIVEKIT_API_SECRET', { infer: true });
+    if (!livekitUrl || !apiKey || !apiSecret) return undefined;
+    const ttlSeconds = 10 * 60;
+    const accessToken = new AccessToken(apiKey, apiSecret, {
+      identity: actorId,
+      ttl: ttlSeconds,
+    });
+    accessToken.addGrant({
+      room: roomName,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: false,
+    });
+    return {
+      url: livekitUrl,
+      token: await accessToken.toJwt(),
+      expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+      callType,
+    };
   }
 
   async token(actorId: string, id: string) {
@@ -419,24 +459,11 @@ export class CallsService {
       return { roomName: call.roomName, type: call.type };
     });
 
-    const ttlSeconds = 10 * 60;
-    const accessToken = new AccessToken(apiKey, apiSecret, {
-      identity: actorId,
-      ttl: ttlSeconds,
-    });
-    accessToken.addGrant({
-      room: authorization.roomName,
-      roomJoin: true,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: false,
-    });
-    return {
-      url: livekitUrl,
-      token: await accessToken.toJwt(),
-      expiresAt: new Date(Date.now() + ttlSeconds * 1000),
-      callType: authorization.type,
-    };
+    return (await this.issueMediaToken(
+      actorId,
+      authorization.roomName,
+      authorization.type,
+    ))!;
   }
 
   async list(actorId: string, input: PageDto) {
@@ -505,9 +532,14 @@ export class CallsService {
   }
 
   async accept(actorId: string, id: string, input?: AcceptCallDto) {
-    const result = await this.db.transaction(async (manager) => {
+    const value = await this.db.transaction(async (manager) => {
       const { call, participant } = await this.lockedCall(manager, id, actorId);
-      if (participant.status === 'joined') return this.result(manager, call);
+      if (participant.status === 'joined')
+        return {
+          result: await this.result(manager, call),
+          roomName: call.roomName,
+          callType: call.type,
+        };
       const canAccept =
         (call.status === 'ringing' &&
           ['invited', 'accepted'].includes(participant.status)) ||
@@ -547,9 +579,19 @@ export class CallsService {
             joinedAt: () => 'GREATEST(CURRENT_TIMESTAMP, invited_at)',
           },
         );
-      return this.result(manager, call);
+      return {
+        result: await this.result(manager, call),
+        roomName: call.roomName,
+        callType: call.type,
+      };
     });
-    return this.publish('call:updated', actorId, result);
+    const published = this.publish('call:updated', actorId, value.result);
+    const media = await this.issueMediaToken(
+      actorId,
+      value.roomName,
+      value.callType,
+    );
+    return media ? { ...published, media } : published;
   }
 
   async reject(actorId: string, id: string) {

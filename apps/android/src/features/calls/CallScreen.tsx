@@ -95,6 +95,7 @@ function MediaControls({
 }) {
   const [mic, setMic] = useState(room.localParticipant.isMicrophoneEnabled);
   const [camera, setCamera] = useState(room.localParticipant.isCameraEnabled);
+  const [facing, setFacing] = useState<'user' | 'environment'>('user');
   const [speaker, setSpeaker] = useState(video);
   const [working, setWorking] = useState(false);
 
@@ -146,6 +147,33 @@ function MediaControls({
             void change(async () => {
               await room.localParticipant.setCameraEnabled(!camera);
               setCamera(!camera);
+            });
+          }}
+        />
+      )}
+      {video && camera && (
+        <DockButton
+          icon="🔄"
+          label="Đổi cam"
+          disabled={working}
+          onPress={() => {
+            void change(async () => {
+              const nextFacing = facing === 'user' ? 'environment' : 'user';
+              const pub = room.localParticipant.getTrackPublication(
+                Track.Source.Camera,
+              );
+              const videoTrack = pub?.videoTrack;
+              if (videoTrack) {
+                const rawTrack = videoTrack.mediaStreamTrack as
+                  | { _switchCamera?: () => void }
+                  | undefined;
+                if (typeof rawTrack?._switchCamera === 'function') {
+                  rawTrack._switchCamera();
+                } else {
+                  await videoTrack.restartTrack({ facingMode: nextFacing });
+                }
+                setFacing(nextFacing);
+              }
             });
           }}
         />
@@ -265,6 +293,7 @@ export function CallScreen({
   title,
   incoming,
   busy,
+  canHangupWhileBusy,
   connection,
   error,
   onJoin,
@@ -276,6 +305,7 @@ export function CallScreen({
   title: string;
   incoming: boolean;
   busy: boolean;
+  canHangupWhileBusy: boolean;
   connection: ConnectionState;
   error: string;
   onJoin: () => void;
@@ -316,7 +346,11 @@ export function CallScreen({
             ? 'Đang đổ chuông…'
             : room
               ? duration
-              : 'Đang kết nối…';
+              : busy
+                ? connection === ConnectionState.Connected
+                  ? 'Đang thiết lập âm thanh…'
+                  : 'Đang kết nối…'
+                : 'Chưa kết nối âm thanh/video';
 
   const combinedError = error || deviceError;
 
@@ -397,7 +431,7 @@ export function CallScreen({
                   icon="✕"
                   label="Kết thúc"
                   danger
-                  disabled={busy}
+                  disabled={busy && !canHangupWhileBusy}
                   onPress={onHangup}
                 />
               </View>
@@ -467,7 +501,7 @@ export function CallScreen({
                     icon="✕"
                     label={incoming ? 'Từ chối' : 'Kết thúc'}
                     danger
-                    disabled={busy}
+                    disabled={busy && !canHangupWhileBusy}
                     onPress={onHangup}
                   />
                 </>

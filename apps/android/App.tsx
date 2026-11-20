@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { StatusBar, View } from 'react-native';
+import { BackHandler, StatusBar, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -8,6 +8,10 @@ import * as api from './src/api';
 import { Centered } from './src/components/Common';
 import { Login } from './src/features/auth/LoginScreen';
 import { Chat } from './src/features/chat/ChatScreen';
+import {
+  ChatHistoryCache,
+  isFreshHistory,
+} from './src/features/chat/chat-history-cache';
 import { Home } from './src/features/home/HomeScreen';
 import { styles } from './src/styles';
 import { CallProvider } from './src/features/calls/CallProvider';
@@ -24,6 +28,19 @@ function Root() {
   const insets = useSafeAreaInsets();
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<api.User>();
+  const userId = user?.id;
+  const history = React.useMemo(
+    () => (userId ? new ChatHistoryCache() : undefined),
+    [userId],
+  );
+  const preloadHistory = useCallback(
+    (next: api.Conversation) => {
+      if (!history || isFreshHistory(history.get(next.id), next)) return;
+      const cutoff = BigInt(next.membership.clearedAfterSequence ?? '0');
+      void history.loadRecent(next.id, cutoff).catch(() => {});
+    },
+    [history],
+  );
   const [conversation, setConversation] = useState<api.Conversation>();
   const [jumpTarget, setJumpTarget] = useState<{
     conversationId: string;
@@ -58,6 +75,16 @@ function Root() {
   }, []);
 
   useEffect(() => {
+    if (!conversation) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setConversation(undefined);
+      setJumpTarget(undefined);
+      return true;
+    });
+    return () => sub.remove();
+  }, [conversation]);
+
+  useEffect(() => {
     let active = true;
     void api
       .restore()
@@ -88,22 +115,32 @@ function Root() {
         <Login onLogin={setUser} />
       ) : (
         <CallProvider key={user.id} user={user} onExpired={expire}>
-          {conversation ? (
+          <View
+            style={[
+              styles.page,
+              conversation && history ? { display: 'none' } : undefined,
+            ]}
+          >
+            <Home
+              active={!conversation}
+              user={user}
+              onUser={acceptUser}
+              onOpen={openConversation}
+              onPreload={preloadHistory}
+              onExpired={expire}
+            />
+          </View>
+          {conversation && history && (
             <Chat
+              key={conversation.id}
               conversation={conversation}
+              history={history}
               jumpTarget={jumpTarget}
               user={user}
               onBack={() => {
                 setConversation(undefined);
                 setJumpTarget(undefined);
               }}
-              onExpired={expire}
-            />
-          ) : (
-            <Home
-              user={user}
-              onUser={acceptUser}
-              onOpen={openConversation}
               onExpired={expire}
             />
           )}

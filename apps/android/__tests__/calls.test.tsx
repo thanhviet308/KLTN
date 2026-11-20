@@ -11,6 +11,7 @@ import {
 } from '../src/features/calls/call-model';
 import * as api from '../src/api';
 import { Room } from 'livekit-client';
+import { AudioSession } from '@livekit/react-native';
 
 jest.mock('../src/api', () => ({
   API_ORIGIN: 'https://example.test',
@@ -217,6 +218,57 @@ test('reject sends the matching server action without requesting device permissi
   expect(Room).not.toHaveBeenCalled();
 });
 
+test('a stalled microphone can be cancelled while the call is connecting', async () => {
+  const createRoom = jest.mocked(Room).getMockImplementation()!;
+  jest.mocked(Room).mockImplementationOnce(() => {
+    const room = createRoom();
+    room.localParticipant.setMicrophoneEnabled = jest.fn(
+      () => new Promise<never>(() => {}),
+    );
+    return room;
+  });
+  jest.useFakeTimers();
+  try {
+    await mount();
+    await receive(incoming);
+    await act(async () => screen().onJoin());
+    expect(screen().busy).toBe(true);
+    expect(screen().canHangupWhileBusy).toBe(true);
+    await act(async () => screen().onHangup());
+    expect(request).toHaveBeenCalledWith('/calls/call-1/leave', {});
+    expect(screen().busy).toBe(false);
+    await act(async () => jest.advanceTimersByTimeAsync(15000));
+    expect(screen().error).toBe('');
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a stalled microphone reaches a retryable error after the deadline', async () => {
+  const createRoom = jest.mocked(Room).getMockImplementation()!;
+  jest.mocked(Room).mockImplementationOnce(() => {
+    const room = createRoom();
+    jest
+      .spyOn(room.localParticipant, 'setMicrophoneEnabled')
+      .mockImplementation(() => new Promise<never>(() => {}));
+    return room;
+  });
+  jest.useFakeTimers();
+  try {
+    await mount();
+    await receive(incoming);
+    await act(async () => screen().onJoin());
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15000);
+    });
+    expect(screen().busy).toBe(false);
+    expect(screen().room).toBeUndefined();
+    expect(screen().error).toContain('Hãy thử kết nối lại');
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('remote hangup during token request cannot start a microphone or camera', async () => {
   await mount();
   await receive(incoming);
@@ -232,11 +284,14 @@ test('remote hangup during token request cannot start a microphone or camera', a
   await act(async () => {
     screen().onJoin();
   });
+  expect(AudioSession.configureAudio).toHaveBeenCalled();
+  expect(AudioSession.startAudioSession).not.toHaveBeenCalled();
   await receive(ended, 'call:updated');
   await act(async () => {
     resolveToken({ url: 'wss://example.test', token: 'media-token' });
   });
   expect(Room).not.toHaveBeenCalled();
+  expect(AudioSession.startAudioSession).not.toHaveBeenCalled();
 });
 
 test('a double tap creates one outgoing call and audio calls never enable the camera', async () => {

@@ -15,9 +15,9 @@ import {
 } from 'react-native';
 import { AudioSession, AndroidAudioTypePresets } from '@livekit/react-native';
 import { ConnectionState, Room, RoomEvent } from 'livekit-client';
-import { io } from 'socket.io-client';
 import Sound from 'react-native-nitro-sound';
 import * as api from '../../api';
+import { acquireChatSocket } from '../../realtime';
 import { clientMessageId } from '../../utils';
 import {
   applyCall,
@@ -30,8 +30,13 @@ import {
 } from './call-model';
 import { CallScreen } from './CallScreen';
 
+interface MediaCredentials {
+  url: string;
+  token: string;
+}
 interface CallResponse {
   call: Call;
+  media?: MediaCredentials;
 }
 type StartCall = (conversation: api.Conversation, type: CallType) => void;
 const CallContext = createContext<{ start: StartCall; busy: boolean }>({
@@ -89,19 +94,36 @@ export function CallProvider({
   const [title, setTitle] = useState('Cuộc gọi');
   const current = useRef<Call | undefined>(undefined);
   const media = useRef<Room | undefined>(undefined);
-  const locked = useRef(false);
+  const operation = useRef<symbol | undefined>(undefined);
+  const ending = useRef(false);
   const alive = useRef(true);
   const generation = useRef(0);
   const closed = useRef(new Set<string>());
   const cleanup = useRef(Promise.resolve());
+  const titleConversationRef = useRef<string | undefined>(undefined);
 
-  const closeMedia = useCallback(async () => {
+  const prepareAudio = useCallback(async (type: CallType) => {
+    await Promise.allSettled([Sound.stopRecorder(), Sound.stopPlayer()]);
+    await AudioSession.configureAudio({
+      android: {
+        audioTypeOptions: AndroidAudioTypePresets.communication,
+        preferredOutputList:
+          type === 'video' ? ['speaker', 'earpiece'] : ['earpiece', 'speaker'],
+      },
+    });
+  }, []);
+
+  const closeMedia = useCallback(async (forceStopAudio = true) => {
     generation.current++;
     const old = media.current;
     media.current = undefined;
     if (alive.current) {
       setRoom(undefined);
       setConnection(ConnectionState.Disconnected);
+    }
+    if (!old && !forceStopAudio) {
+      await cleanup.current;
+      return;
     }
     // Serialize cleanup so a late disconnect cannot stop the next call's audio.
     cleanup.current = cleanup.current
@@ -146,8 +168,12 @@ export function CallProvider({
   );
 
   const connectMedia = useCallback(
-    async (next: Call) => {
-      await closeMedia();
+    async (
+      next: Call,
+      initialMedia?: MediaCredentials,
+      audioPreparation?: Promise<void>,
+    ) => {
+      await closeMedia(false);
       const attempt = generation.current;
       const valid = () =>
         alive.current &&
@@ -155,17 +181,16 @@ export function CallProvider({
         current.current?.id === next.id &&
         canJoin(current.current, user.id);
       if (!valid()) return;
-      // Release the voice-message audio devices while the server issues the room token.
-      const [credentials] = await Promise.allSettled([
-        api.authenticated<{ url: string; token: string }>(
-          `/calls/${next.id}/token`,
-          {},
-        ),
-        Sound.stopRecorder(),
-        Sound.stopPlayer(),
+      // Prepare the audio route while the server issues the room token (or reuse bundled token).
+      const [credentials, audio] = await Promise.allSettled([
+        initialMedia
+          ? Promise.resolve(initialMedia)
+          : api.authenticated<MediaCredentials>(`/calls/${next.id}/token`, {}),
+        audioPreparation ?? prepareAudio(next.type),
       ]);
       if (!valid()) return;
       if (credentials.status === 'rejected') throw credentials.reason;
+      if (audio.status === 'rejected') throw audio.reason;
       const activeRoom = new Room({
         adaptiveStream: { pixelDensity: 'screen' },
         dynacast: true,
@@ -184,16 +209,6 @@ export function CallProvider({
         }
       });
       try {
-        await AudioSession.configureAudio({
-          android: {
-            audioTypeOptions: AndroidAudioTypePresets.communication,
-            preferredOutputList:
-              next.type === 'video'
-                ? ['speaker', 'earpiece']
-                : ['earpiece', 'speaker'],
-          },
-        });
-        if (!valid()) return;
         await AudioSession.startAudioSession();
         if (!valid()) {
           await AudioSession.stopAudioSession();
@@ -207,45 +222,71 @@ export function CallProvider({
           await activeRoom.disconnect();
           return;
         }
-        await activeRoom.localParticipant.setMicrophoneEnabled(true);
+        setConnection(activeRoom.state);
+        if (activeRoom.state === ConnectionState.Connected) {
+          setRoom(activeRoom);
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const mediaTasks: Promise<unknown>[] = [
+            activeRoom.localParticipant.setMicrophoneEnabled(true),
+          ];
+          if (next.type === 'video') {
+            mediaTasks.push(activeRoom.localParticipant.setCameraEnabled(true));
+          }
+          await Promise.race([
+            Promise.all(mediaTasks),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                reject(
+                  new Error(
+                    'Không thể bật micro hoặc camera kịp thời. Hãy thử kết nối lại.',
+                  ),
+                );
+              }, 15000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
         if (!valid()) {
           await activeRoom.disconnect();
           return;
         }
-        if (next.type === 'video')
-          await activeRoom.localParticipant.setCameraEnabled(true);
-        if (!valid()) {
-          await activeRoom.disconnect();
-          return;
-        }
+        if (activeRoom.state !== ConnectionState.Connected)
+          throw new Error(
+            'Kết nối âm thanh/video đã bị ngắt. Hãy thử kết nối lại.',
+          );
         setRoom(activeRoom);
         setConnection(activeRoom.state);
       } catch (failure) {
-        if (generation.current === attempt) await closeMedia();
-        else await activeRoom.disconnect();
+        if (generation.current === attempt) void closeMedia();
         throw failure;
       }
     },
-    [closeMedia, user.id],
+    [closeMedia, prepareAudio, user.id],
   );
 
   const run = useCallback(
-    async (work: () => Promise<void>) => {
-      if (locked.current) return;
-      locked.current = true;
+    async (work: () => Promise<void>, interrupt = false) => {
+      if (operation.current && !interrupt) return;
+      const id = Symbol();
+      operation.current = id;
       setBusy(true);
       setError('');
       try {
         await work();
       } catch (failure) {
-        if (alive.current) {
+        if (alive.current && operation.current === id) {
           setError(failureMessage(failure));
           if (failure instanceof api.ApiError && failure.status === 401)
             onExpired();
         }
       } finally {
-        locked.current = false;
-        if (alive.current) setBusy(false);
+        if (operation.current === id) {
+          operation.current = undefined;
+          if (alive.current) setBusy(false);
+        }
       }
     },
     [onExpired],
@@ -254,13 +295,15 @@ export function CallProvider({
   const start: StartCall = useCallback(
     (conversation, type) => {
       if (current.current && isOpen(current.current)) return;
-      setTitle(
-        conversation.peer?.displayName ?? conversation.title ?? 'Cuộc gọi',
-      );
+      const knownTitle =
+        conversation.peer?.displayName ?? conversation.title ?? 'Cuộc gọi';
+      titleConversationRef.current = conversation.id;
+      setTitle(knownTitle);
       void run(async () => {
         await permissions(type);
         if (!alive.current || (current.current && isOpen(current.current)))
           return;
+        const audioPrep = prepareAudio(type);
         const result = await api.authenticated<CallResponse>(
           `/conversations/${conversation.id}/calls`,
           { type, clientRequestId: clientMessageId() },
@@ -271,14 +314,15 @@ export function CallProvider({
             isOpen(current.current) &&
             current.current.id !== result.call.id)
         ) {
+          void audioPrep.catch(() => {});
           await api.authenticated(`/calls/${result.call.id}/end`, {});
           return;
         }
         receive(result.call);
-        await connectMedia(result.call);
+        await connectMedia(result.call, result.media, audioPrep);
       });
     },
-    [connectMedia, receive, run],
+    [connectMedia, prepareAudio, receive, run],
   );
 
   const join = () =>
@@ -293,54 +337,57 @@ export function CallProvider({
         !isOpen(current.current)
       )
         return;
+      const audioPrep = prepareAudio(next.type);
       const result = isInvited(current.current, user.id)
         ? await api.authenticated<CallResponse>(`/calls/${next.id}/accept`, {})
         : await api.authenticated<CallResponse>(`/calls/${next.id}`);
       if (!alive.current) {
+        void audioPrep.catch(() => {});
         if (canJoin(result.call, user.id)) {
           await api.authenticated(`/calls/${next.id}/leave`, {});
         }
         return;
       }
       receive(result.call);
-      if (canJoin(result.call, user.id)) await connectMedia(result.call);
+      if (canJoin(result.call, user.id))
+        await connectMedia(result.call, result.media, audioPrep);
     });
 
-  const hangup = () =>
-    run(async () => {
-      const next = current.current;
-      if (!next) return;
-      // Release hardware immediately; retain server state if the request fails.
-      await closeMedia();
-      const result = await api.authenticated<CallResponse>(
-        `/calls/${next.id}/${hangupAction(next, user.id)}`,
-        {},
-      );
-      receive(result.call);
-      if (alive.current && current.current?.id === next.id) {
-        current.current = undefined;
-        setCall(undefined);
-      }
-    });
+  const hangup = async () => {
+    if (ending.current || (operation.current && !media.current)) return;
+    ending.current = true;
+    try {
+      await run(async () => {
+        const next = current.current;
+        if (!next) return;
+        // Release hardware immediately; retain server state if the request fails.
+        void closeMedia();
+        const result = await api.authenticated<CallResponse>(
+          `/calls/${next.id}/${hangupAction(next, user.id)}`,
+          {},
+        );
+        receive(result.call);
+        if (alive.current && current.current?.id === next.id) {
+          current.current = undefined;
+          setCall(undefined);
+        }
+      }, true);
+    } finally {
+      ending.current = false;
+    }
+  };
 
   useEffect(() => {
     alive.current = true;
     let disposed = false;
     let syncing = false;
-    const client = io(`${api.API_ORIGIN}/chat`, {
-      transports: ['websocket'],
-      autoConnect: false,
-      reconnection: false,
-    });
+    const socket = acquireChatSocket(onExpired);
     async function sync() {
       if (disposed || syncing || AppState.currentState !== 'active') return;
       syncing = true;
       try {
-        if (!client.connected) {
-          const token = await api.accessToken();
-          if (disposed) return;
-          client.auth = { accessToken: token };
-          client.connect();
+        if (!socket.isConnected()) {
+          void socket.connect();
         }
         const snapshot = current.current;
         if (snapshot && isOpen(snapshot)) {
@@ -369,14 +416,22 @@ export function CallProvider({
         syncing = false;
       }
     }
-    client.on('call:incoming', (event: CallResponse) => receive(event.call));
-    client.on('call:updated', (event: CallResponse) => receive(event.call));
-    client.on('connect', () => {
+    const offIncoming = socket.on('call:incoming', (event: CallResponse) =>
+      receive(event.call),
+    );
+    const offUpdated = socket.on('call:updated', (event: CallResponse) =>
+      receive(event.call),
+    );
+    const offConnect = socket.on('connect', () => {
       void sync();
     });
     const timer = setInterval(() => {
-      void sync();
-    }, 5000);
+      if (AppState.currentState !== 'active') return;
+      const hasOpenCall = !!current.current && isOpen(current.current);
+      if (!socket.isConnected() || hasOpenCall) {
+        void sync();
+      }
+    }, 8000);
     const listener = AppState.addEventListener('change', state => {
       if (state === 'active') void sync();
     });
@@ -386,19 +441,25 @@ export function CallProvider({
       alive.current = false;
       clearInterval(timer);
       listener.remove();
-      client.removeAllListeners();
-      client.disconnect();
+      offIncoming();
+      offUpdated();
+      offConnect();
+      socket.release();
       const next = current.current;
       if (next && canJoin(next, user.id)) {
         void api.authenticated(`/calls/${next.id}/leave`, {}).catch(() => {});
       }
-      void closeMedia();
+      void closeMedia(false);
     };
   }, [closeMedia, onExpired, receive, user.id]);
 
   const conversationId = call?.conversationId;
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      titleConversationRef.current = undefined;
+      return;
+    }
+    if (titleConversationRef.current === conversationId) return;
     let disposed = false;
     void Promise.all([
       api.authenticated<{ conversation: api.Conversation }>(
@@ -409,13 +470,15 @@ export function CallProvider({
       ),
     ])
       .then(([{ conversation }, members]) => {
-        if (!disposed)
+        if (!disposed) {
+          titleConversationRef.current = conversationId;
           setTitle(
             conversation.type === 'group'
               ? (conversation.title ?? 'Cuộc gọi nhóm')
               : (members.items.find(member => member.user.id !== user.id)?.user
                   .displayName ?? 'Cuộc gọi'),
           );
+        }
       })
       .catch(() => {});
     return () => {
@@ -453,6 +516,9 @@ export function CallProvider({
         title={title}
         incoming={incoming}
         busy={busy}
+        canHangupWhileBusy={
+          connection !== ConnectionState.Disconnected && !ending.current
+        }
         connection={connection}
         error={error}
         onJoin={() => {

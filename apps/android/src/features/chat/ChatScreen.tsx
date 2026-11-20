@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   AppState,
+  BackHandler,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -23,8 +24,8 @@ import Geolocation from '@react-native-community/geolocation';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Sound from 'react-native-nitro-sound';
-import { io } from 'socket.io-client';
 import * as api from '../../api';
+import { acquireChatSocket } from '../../realtime';
 import { Avatar, Centered, InlineNotice } from '../../components/Common';
 import { UiGlyph } from '../../components/Icons';
 import { allPages, type Peer } from '../../presence';
@@ -50,7 +51,9 @@ import {
   type VoiceTranscriptEntry,
 } from './VoiceTranscriptCard';
 import { CallSummaryCard, type CallSummaryEntry } from './CallSummaryCard';
+import { ChatComposer, type ChatComposerHandle } from './ChatComposer';
 import { useCalls } from '../calls/CallProvider';
+import { ChatHistoryCache, isFreshHistory } from './chat-history-cache';
 
 async function requestMicrophonePermission() {
   if (Platform.OS !== 'android') return true;
@@ -96,30 +99,60 @@ function currentPosition() {
 
 export function Chat({
   conversation,
+  history,
   jumpTarget,
   user,
   onBack,
   onExpired,
 }: {
   conversation: api.Conversation;
+  history: ChatHistoryCache;
   jumpTarget?: { conversationId: string; messageId: string; token: number };
   user: api.User;
   onBack: () => void;
   onExpired: () => void;
 }) {
   const calls = useCalls();
-  const [messages, setMessages] = useState<api.Message[]>([]);
-  const [body, setBody] = useState('');
-  const [older, setOlder] = useState<string | null>(null);
-  const olderRef = useRef<string | null>(null);
+  const [initial] = useState(() => {
+    const cached = history.get(conversation.id);
+    const cutoff = BigInt(conversation.membership.clearedAfterSequence ?? '0');
+    const fresh = isFreshHistory(cached, conversation);
+    return {
+      fresh,
+      messages: cached?.messages.filter(
+        message => BigInt(message.sequence) > cutoff,
+      ),
+      older: fresh ? (cached?.older ?? null) : null,
+      verified:
+        fresh && cached
+          ? {
+              verifiedAt: cached.verifiedAt,
+              highWatermark: cached.highWatermark,
+            }
+          : undefined,
+      cutoff,
+    };
+  });
+  const [messages, setMessages] = useState<api.Message[]>(
+    initial.messages ?? [],
+  );
+  const [older, setOlder] = useState(initial.older);
+  const olderRef = useRef(initial.older);
   const updateOlder = useCallback((next: string | null) => {
     olderRef.current = next;
     setOlder(next);
   }, []);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initial.messages);
   const [sending, setSending] = useState(false);
-  const [mediaPaths, setMediaPaths] = useState<Record<string, string>>({});
+  const [mediaPaths, setMediaPaths] = useState<Record<string, string>>(() => {
+    const cached: Record<string, string> = {};
+    for (const msg of initial.messages ?? []) {
+      const path = history.getMediaPath(msg.id);
+      if (path) cached[msg.id] = path;
+    }
+    return cached;
+  });
   const [mediaLoading, setMediaLoading] = useState<Record<string, boolean>>({});
   const [recording, setRecording] = useState(false);
   const [recordingMs, setRecordingMs] = useState(0);
@@ -179,27 +212,31 @@ export function Chat({
     conversation.nicknames ?? {},
   );
   const [pins, setPins] = useState<api.Message[]>([]);
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const [pendingRequest, setPendingRequest] = useState(
     conversation.messageRequest ?? null,
   );
   const [requestBusy, setRequestBusy] = useState(false);
-  const messagesRef = useRef<api.Message[]>([]);
+  const messagesRef = useRef<api.Message[]>(initial.messages ?? []);
+  const verifiedHistory = useRef(initial.verified);
+  const skipInitialSync = useRef(initial.fresh);
+  const clearedAfter = useRef(initial.cutoff);
   const messageList = useRef<FlatList<api.Message>>(null);
-  const composerRef = useRef<TextInputInstance>(null);
+  const composerRef = useRef<ChatComposerHandle>(null);
   const searchInputRef = useRef<TextInputInstance>(null);
   const focusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   const hasPositionedList = useRef(false);
   const nearBottomRef = useRef(true);
-  const socketRef = useRef<ReturnType<typeof io> | undefined>(undefined);
+  const socketRef = useRef<ReturnType<typeof acquireChatSocket> | undefined>(
+    undefined,
+  );
   const retryRealtimeRef = useRef<(() => void) | undefined>(undefined);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   const typingAt = useRef(0);
-  const mediaPathsRef = useRef<Record<string, string>>({});
+  const mediaPathsRef = useRef<Record<string, string>>(mediaPaths);
   const mountedRef = useRef(true);
   const voiceConversationRef = useRef(conversation.id);
   voiceConversationRef.current = conversation.id;
@@ -210,9 +247,17 @@ export function Chat({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (verifiedHistory.current) {
+        history.remember(conversation.id, {
+          ...verifiedHistory.current,
+          messages: messagesRef.current,
+          older: olderRef.current,
+          clearedAfter: clearedAfter.current,
+        });
+      }
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
-  }, []);
+  }, [conversation.id, history]);
 
   useEffect(() => {
     setVoiceTranscripts({});
@@ -222,18 +267,24 @@ export function Chat({
   }, [conversation.id]);
 
   const accept = useCallback((incoming: api.Message[]) => {
-    messagesRef.current = mergeMessages(messagesRef.current, incoming);
+    if (!mountedRef.current) return;
+    messagesRef.current = mergeMessages(
+      messagesRef.current,
+      incoming.filter(
+        message => BigInt(message.sequence) > clearedAfter.current,
+      ),
+    );
     setMessages(messagesRef.current);
   }, []);
   const applyClearedHistory = useCallback(
     (clearedAfterSequence: string) => {
       const cutoff = BigInt(clearedAfterSequence || '0');
-      for (const [id, path] of Object.entries(mediaPathsRef.current)) {
+      if (cutoff > clearedAfter.current) clearedAfter.current = cutoff;
+      history.invalidate(conversation.id);
+      for (const [id] of Object.entries(mediaPathsRef.current)) {
         const msg = messagesRef.current.find(item => item.id === id);
         if (!msg || BigInt(msg.sequence) <= cutoff) {
-          ReactNativeBlobUtil.fs
-            .unlink(path.replace(/^file:\/\//, ''))
-            .catch(() => undefined);
+          history.deleteMediaPath(id);
           delete mediaPathsRef.current[id];
         }
       }
@@ -255,7 +306,7 @@ export function Chat({
       setCallSummaries({});
       setReactions({});
     },
-    [updateOlder],
+    [conversation.id, history, updateOlder],
   );
   const fail = useCallback(
     (next: unknown) => {
@@ -266,32 +317,68 @@ export function Chat({
   );
   const sync = useCallback(async () => {
     try {
+      if (skipInitialSync.current) {
+        skipInitialSync.current = false;
+        return;
+      }
       const latest = messagesRef.current.at(-1)?.sequence;
-      if (!latest) {
-        const page = await api.authenticated<
-          api.Page<api.Message> & { highWatermark: string }
-        >(
-          `/conversations/${conversation.id}/messages?direction=backward&limit=50`,
+      if (!verifiedHistory.current || !latest) {
+        const before = new Map(
+          messagesRef.current.map(message => [message.id, message]),
         );
-        accept(page.items);
-        updateOlder(page.nextCursor);
+        const page = await history.loadRecent(
+          conversation.id,
+          clearedAfter.current,
+        );
+        if (!mountedRef.current) return;
+        // Replace the provisional history, retaining live updates during the request.
+        const returned = new Set(page.items.map(message => message.id));
+        const watermark = BigInt(page.highWatermark);
+        const live = messagesRef.current.filter(
+          message =>
+            before.get(message.id) !== message &&
+            (returned.has(message.id) || BigInt(message.sequence) > watermark),
+        );
+        messagesRef.current = [];
+        accept(mergeMessages(page.items, live));
+        verifiedHistory.current = {
+          verifiedAt: Date.now(),
+          highWatermark: page.highWatermark,
+        };
+        updateOlder(
+          page.nextCursor && BigInt(page.nextCursor) > clearedAfter.current
+            ? page.nextCursor
+            : null,
+        );
       } else {
         let cursor: string | null = latest;
         do {
           const page: api.Page<api.Message> = await api.authenticated(
             `/conversations/${conversation.id}/messages?direction=forward&limit=50&cursor=${cursor}`,
           );
+          if (!mountedRef.current) return;
           accept(page.items);
           cursor = page.nextCursor;
         } while (cursor);
       }
       setError('');
     } catch (next) {
+      if (!mountedRef.current) return;
+      if (
+        next instanceof api.ApiError &&
+        [401, 403, 404].includes(next.status)
+      ) {
+        verifiedHistory.current = undefined;
+        history.invalidate(conversation.id);
+        messagesRef.current = [];
+        setMessages([]);
+        updateOlder(null);
+      }
       fail(next);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  }, [accept, conversation.id, fail, updateOlder]);
+  }, [accept, conversation.id, fail, history, updateOlder]);
 
   const loadMembers = useCallback(async () => {
     try {
@@ -411,7 +498,7 @@ export function Chat({
   function updateTyping(value: boolean) {
     if (typingTimer.current) clearTimeout(typingTimer.current);
     if (
-      socketRef.current?.connected &&
+      socketRef.current?.isConnected() &&
       (!value || Date.now() - typingAt.current > 3000)
     ) {
       socketRef.current.emit(
@@ -427,32 +514,11 @@ export function Chat({
 
   useEffect(() => {
     let stopped = false;
-    let refreshingToken = false;
-    let connecting = false;
     let subscribed = false;
     let syncingThroughApi = false;
     let catchUpAfterSync = false;
-    const socket = io(`${api.API_ORIGIN}/chat`, {
-      transports: ['websocket'],
-      autoConnect: false,
-      reconnection: true,
-    });
+    const socket = acquireChatSocket(onExpired);
     socketRef.current = socket;
-    async function connect() {
-      if (stopped || connecting || refreshingToken || socket.active) return;
-      connecting = true;
-      try {
-        const token = await api.accessToken();
-        if (!stopped) {
-          socket.auth = { accessToken: token };
-          socket.connect();
-        }
-      } catch (next) {
-        if (!stopped) fail(next);
-      } finally {
-        connecting = false;
-      }
-    }
     async function syncThroughApi() {
       if (stopped || syncingThroughApi) return;
       syncingThroughApi = true;
@@ -466,92 +532,72 @@ export function Chat({
         }
       }
     }
+    function subscribe() {
+      if (stopped || !socket.isConnected()) return;
+      socket.emitWithTimeout(
+        10000,
+        'conversation:subscribe',
+        { conversationId: conversation.id },
+        (problem: Error | null, result?: { ok: boolean }) => {
+          if (stopped || !socket.isConnected()) return;
+          if (problem || !result?.ok) {
+            setConnected(false);
+            setRealtimeUnavailable(true);
+            return;
+          }
+          subscribed = true;
+          setConnected(true);
+          setRealtimeUnavailable(false);
+          if (syncingThroughApi) catchUpAfterSync = true;
+          else void syncThroughApi();
+        },
+      );
+    }
     function recover() {
       void syncThroughApi();
-      void connect();
+      if (socket.isConnected()) subscribe();
+      else void socket.connect();
     }
     retryRealtimeRef.current = recover;
     setConnected(false);
     setRealtimeUnavailable(false);
-    socket.on('connect', () => {
-      socket
-        .timeout(10000)
-        .emit(
-          'conversation:subscribe',
-          { conversationId: conversation.id },
-          (problem: Error | null, result?: { ok: boolean }) => {
-            if (stopped || !socket.connected) return;
-            if (problem || !result?.ok) {
-              setConnected(false);
-              setRealtimeUnavailable(true);
-              socket.disconnect();
-              return;
-            }
-            subscribed = true;
-            setConnected(true);
-            setRealtimeUnavailable(false);
-            if (syncingThroughApi) catchUpAfterSync = true;
-            else void syncThroughApi();
-          },
-        );
+    const offConnect = socket.on('connect', () => {
+      subscribe();
     });
-    socket.on('disconnect', () => {
+    const offDisconnect = socket.on('disconnect', () => {
       subscribed = false;
       setConnected(false);
       setRealtimeUnavailable(true);
     });
-    socket.on(
-      'connect_error',
-      async (problem: Error & { data?: { code?: string } }) => {
-        setConnected(false);
-        const code = problem.data?.code ?? problem.message;
-        const authenticationFailed = [
-          'AUTH_REQUIRED',
-          'INVALID_ACCESS_TOKEN',
-          'SESSION_EXPIRED',
-        ].includes(code);
-        if (!authenticationFailed) {
-          setRealtimeUnavailable(true);
-          return;
-        }
-        if (refreshingToken || stopped) return;
-        refreshingToken = true;
-        try {
-          await api.refresh();
-          const token = await api.accessToken();
-          if (!stopped) {
-            socket.auth = { accessToken: token };
-            socket.connect();
-          }
-        } catch (next) {
-          fail(next);
-        } finally {
-          refreshingToken = false;
-        }
-      },
-    );
-    socket.on('message:created', (message: api.Message) => {
+    const offConnectError = socket.on('connect_error', () => {
+      subscribed = false;
+      setConnected(false);
+      setRealtimeUnavailable(true);
+    });
+    const offCreated = socket.on('message:created', (message: api.Message) => {
       if (message.conversationId === conversation.id) accept([message]);
     });
-    for (const event of ['message:updated', 'message:deleted'])
-      socket.on(event, (message: api.Message) => {
-        if (message.conversationId === conversation.id) accept([message]);
-      });
-    socket.on(
+    const offUpdated = socket.on('message:updated', (message: api.Message) => {
+      if (message.conversationId === conversation.id) accept([message]);
+    });
+    const offDeleted = socket.on('message:deleted', (message: api.Message) => {
+      if (message.conversationId === conversation.id) accept([message]);
+    });
+    const offReactions = socket.on(
       'message:reactions',
       (event: { conversationId: string; messageId: string }) => {
         if (event.conversationId === conversation.id)
           void loadReactions(event.messageId);
       },
     );
-    socket.on(
+    const offCleared = socket.on(
       'conversation:history-cleared',
       (event: { conversationId: string; clearedAfterSequence: string }) => {
         if (event.conversationId === conversation.id)
           applyClearedHistory(event.clearedAfterSequence);
       },
     );
-    socket.on(
+    const offTyping = socket.on(
       'typing:update',
       (event: {
         conversationId: string;
@@ -585,7 +631,44 @@ export function Chat({
     }, 5000);
     void syncThroughApi();
     void loadMembers();
-    void connect();
+    if (socket.isConnected()) subscribe();
+    return () => {
+      stopped = true;
+      if (typingTimer.current) clearTimeout(typingTimer.current);
+      if (socket.isConnected())
+        socket.emit(
+          'typing:update',
+          { conversationId: conversation.id, typing: false },
+          () => undefined,
+        );
+      clearInterval(fallback);
+      retryRealtimeRef.current = undefined;
+      subscription.remove();
+      offConnect();
+      offDisconnect();
+      offConnectError();
+      offCreated();
+      offUpdated();
+      offDeleted();
+      offReactions();
+      offCleared();
+      offTyping();
+      socket.release();
+      socketRef.current = undefined;
+    };
+  }, [
+    accept,
+    applyClearedHistory,
+    conversation.id,
+    loadMembers,
+    onExpired,
+    sync,
+    user.id,
+  ]);
+
+  const hasTyping = Object.keys(typing).length > 0;
+  useEffect(() => {
+    if (!hasTyping) return;
     const typingExpiry = setInterval(() => {
       const now = Date.now();
       setTyping(previous =>
@@ -596,32 +679,8 @@ export function Chat({
           : previous,
       );
     }, 1000);
-    return () => {
-      stopped = true;
-      if (typingTimer.current) clearTimeout(typingTimer.current);
-      if (socket.connected)
-        socket.emit(
-          'typing:update',
-          { conversationId: conversation.id, typing: false },
-          () => undefined,
-        );
-      clearInterval(typingExpiry);
-      clearInterval(fallback);
-      retryRealtimeRef.current = undefined;
-      subscription.remove();
-      socket.removeAllListeners();
-      socket.disconnect();
-      socketRef.current = undefined;
-    };
-  }, [
-    accept,
-    applyClearedHistory,
-    conversation.id,
-    fail,
-    loadMembers,
-    sync,
-    user.id,
-  ]);
+    return () => clearInterval(typingExpiry);
+  }, [hasTyping]);
 
   useEffect(
     () => () => {
@@ -630,15 +689,12 @@ export function Chat({
       Sound.removeRecordBackListener();
       Sound.removePlayBackListener();
       Sound.removePlaybackEndListener();
-      for (const path of Object.values(mediaPathsRef.current))
-        ReactNativeBlobUtil.fs
-          .unlink(path.replace(/^file:\/\//, ''))
-          .catch(() => undefined);
     },
     [],
   );
 
   useEffect(() => {
+    if (!verifiedHistory.current) return;
     const newest = messages.at(-1);
     if (!newest || newest.senderId === user.id || newest.deletedAt) return;
     void api
@@ -648,14 +704,13 @@ export function Chat({
       .catch(fail);
   }, [conversation.id, fail, messages, user.id]);
 
-  async function send(quickText?: string) {
-    const text = (quickText ?? body).trim();
-    if (sending || !text) return;
+  async function send(rawText: string) {
+    const text = rawText.trim();
+    if (sending || !text) return false;
     setSending(true);
     setError('');
-    setEmojiOpen(false);
     try {
-      if (editing && !quickText) {
+      if (editing) {
         const result = await api.authenticated<{ message: api.Message }>(
           `/conversations/${conversation.id}/messages/${editing.id}`,
           { body: text, expectedEditedAt: editing.editedAt ?? null },
@@ -663,16 +718,15 @@ export function Chat({
         );
         accept([result.message]);
         setEditing(undefined);
-        setBody('');
         updateTyping(false);
-        return;
+        return true;
       }
       const original = replyTo
         ? (messagesRef.current.find(item => item.id === replyTo.id) ?? replyTo)
         : undefined;
       if (text.length > 10000) {
         setError('Tin nhắn tối đa 10.000 ký tự.');
-        return;
+        return false;
       }
       const result = await api.authenticated<{ message: api.Message }>(
         `/conversations/${conversation.id}/messages`,
@@ -684,12 +738,13 @@ export function Chat({
         },
       );
       accept([result.message]);
-      if (!quickText) setBody('');
       setReplyTo(undefined);
       if (pendingRequest?.direction === 'incoming') setPendingRequest(null);
       updateTyping(false);
+      return true;
     } catch (next) {
       fail(next);
+      return false;
     } finally {
       setSending(false);
     }
@@ -921,7 +976,19 @@ export function Chat({
   }
 
   async function downloadMedia(message: api.Message) {
-    if (mediaPathsRef.current[message.id] || mediaLoading[message.id]) return;
+    const cached =
+      mediaPathsRef.current[message.id] ?? history.getMediaPath(message.id);
+    if (cached) {
+      if (!mediaPathsRef.current[message.id]) {
+        mediaPathsRef.current = {
+          ...mediaPathsRef.current,
+          [message.id]: cached,
+        };
+        setMediaPaths(mediaPathsRef.current);
+      }
+      return;
+    }
+    if (mediaLoading[message.id]) return;
     setMediaLoading(previous => ({ ...previous, [message.id]: true }));
     try {
       const path = await api.downloadChatFile(
@@ -929,6 +996,7 @@ export function Chat({
         message.id,
         message.content?.fileName,
       );
+      history.setMediaPath(message.id, path);
       mediaPathsRef.current = { ...mediaPathsRef.current, [message.id]: path };
       setMediaPaths(mediaPathsRef.current);
     } catch (next) {
@@ -981,9 +1049,30 @@ export function Chat({
     setPlayingMessage(message.id);
   }
 
+  const memberMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; user: Peer; role: 'owner' | 'admin' | 'member' }
+    >();
+    for (const member of members) {
+      map.set(member.user.id, member);
+    }
+    return map;
+  }, [members]);
+
+  const pinIdSet = useMemo(() => new Set(pins.map(p => p.id)), [pins]);
+
+  const messageMap = useMemo(() => {
+    const map = new Map<string, api.Message>();
+    for (const msg of messages) {
+      map.set(msg.id, msg);
+    }
+    return map;
+  }, [messages]);
+
   function memberName(id: string) {
     if (id === user.id) return 'Bạn';
-    const found = members.find(member => member.user.id === id);
+    const found = memberMap.get(id);
     if (found && (nicknames[found.id] || nicknames[id])) {
       return nicknames[found.id] ?? nicknames[id]!;
     }
@@ -1085,8 +1174,27 @@ export function Chat({
   );
 
   const focusComposer = useCallback(() => {
-    scheduleFocus(composerRef);
-  }, [scheduleFocus]);
+    composerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (infoOpen) {
+        setInfoOpen(false);
+        return true;
+      }
+      if (searchOpen) {
+        setSearchOpen(false);
+        setSearchQuery('');
+        return true;
+      }
+      if (composerRef.current?.closeEmoji()) {
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [infoOpen, searchOpen]);
 
   useEffect(() => {
     return () => {
@@ -1322,7 +1430,12 @@ export function Chat({
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={
+        Platform.OS === 'ios' ||
+        (Platform.OS === 'android' && Number(Platform.Version) >= 35)
+          ? 'padding'
+          : undefined
+      }
       style={styles.page}
     >
       <View style={styles.chatHeader}>
@@ -1479,6 +1592,10 @@ export function Chat({
             ref={messageList}
             contentContainerStyle={styles.messageList}
             data={displayedMessages}
+            initialNumToRender={16}
+            maxToRenderPerBatch={12}
+            windowSize={9}
+            removeClippedSubviews={Platform.OS === 'android'}
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             keyExtractor={item => item.id}
@@ -1585,7 +1702,7 @@ export function Chat({
                 next.senderId === item.senderId &&
                 next.type !== 'call' &&
                 item.type !== 'call';
-              const isPinned = pins.some(p => p.id === item.id);
+              const isPinned = pinIdSet.has(item.id);
               const extractedBody = extractMessageReply(item).body;
               const gameInvite =
                 !item.deletedAt && (!item.type || item.type === 'text')
@@ -1595,7 +1712,7 @@ export function Chat({
                 ? GAME_CATALOG[gameInvite.gameType]
                 : undefined;
               const senderPeer =
-                members.find(m => m.user.id === item.senderId)?.user ??
+                memberMap.get(item.senderId)?.user ??
                 (conversation.peer?.id === item.senderId
                   ? conversation.peer
                   : {
@@ -1604,7 +1721,7 @@ export function Chat({
                     });
               const { reply } = extractMessageReply(item);
               const quotedTarget = reply?.messageId
-                ? messagesRef.current.find(m => m.id === reply.messageId)
+                ? messageMap.get(reply.messageId)
                 : undefined;
               const quotedDeleted =
                 reply?.type === 'deleted' || !!quotedTarget?.deletedAt;
@@ -1851,7 +1968,7 @@ export function Chat({
                         onUseReply={reply => {
                           setReplyTo(item);
                           setEditing(undefined);
-                          setBody(reply);
+                          composerRef.current?.setDraft(reply);
                           focusComposer();
                         }}
                         state={voiceTranscripts[item.id]}
@@ -1996,205 +2113,37 @@ export function Chat({
             </View>
           </View>
         )}
-      {(replyTo || editing) && (
-        <View style={styles.composerContext}>
-          <View style={styles.composerContextText}>
-            <Text style={styles.composerContextTitle}>
-              {editing
-                ? 'Chỉnh sửa tin nhắn'
-                : `Trả lời ${memberName(replyTo!.senderId)}`}
-            </Text>
-            <Text numberOfLines={1} style={styles.composerContextPreview}>
-              {messageLabel(editing ?? replyTo!)}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityLabel="Hủy thao tác"
-            onPress={() => {
-              setReplyTo(undefined);
-              setEditing(undefined);
-              setBody('');
-            }}
-            style={styles.contextClose}
-          >
-            <Text style={styles.contextCloseText}>×</Text>
-          </Pressable>
-        </View>
-      )}
-      <View style={styles.composerShell}>
-        {emojiOpen && !recording && (
-          <View style={styles.emojiPickerCard}>
-            {[
-              '😀',
-              '😂',
-              '🥰',
-              '😍',
-              '🤩',
-              '😊',
-              '🙏',
-              '👍',
-              '❤️',
-              '🔥',
-              '🎉',
-              '✨',
-              '😢',
-              '😮',
-              '🤔',
-              '👏',
-              '💯',
-              '👋',
-            ].map(emoji => (
-              <Pressable
-                key={emoji}
-                onPress={() => {
-                  setBody(prev =>
-                    prev.length + emoji.length <= 10000 ? prev + emoji : prev,
-                  );
-                  setEmojiOpen(false);
-                }}
-                style={({ pressed }) => [
-                  styles.emojiPickerCell,
-                  pressed && styles.attachButtonPressed,
-                ]}
-              >
-                <Text style={{ fontSize: 22 }}>{emoji}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-        {recording ? (
-          <View style={styles.recordingBar}>
-            <View style={styles.recordingPulse} />
-            <View style={styles.recordingTextBox}>
-              <Text style={styles.recordingTitle}>Đang ghi âm</Text>
-              <Text style={styles.recordingTime}>
-                {Math.floor(recordingMs / 60000)
-                  .toString()
-                  .padStart(2, '0')}
-                :
-                {Math.floor((recordingMs % 60000) / 1000)
-                  .toString()
-                  .padStart(2, '0')}
-              </Text>
-            </View>
-            <Pressable
-              accessibilityLabel="Hủy ghi âm"
-              onPress={() => void finishRecording(false)}
-              style={styles.recordingCancel}
-            >
-              <Text style={styles.recordingCancelText}>Hủy</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Dừng và gửi ghi âm"
-              onPress={() => void finishRecording(true)}
-              style={styles.recordingSend}
-            >
-              <Text style={styles.recordingSendText}>Gửi</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.composerRow}>
-            {!editing && !body.trim() && (
-              <View style={styles.composerMediaTools}>
-                <Pressable
-                  accessibilityLabel="Gửi ảnh, tệp, vị trí hoặc ghi âm"
-                  accessibilityRole="button"
-                  disabled={sending}
-                  onPress={showMediaMenu}
-                  style={({ pressed }) => [
-                    styles.attachButton,
-                    pressed && styles.attachButtonPressed,
-                  ]}
-                >
-                  <UiGlyph name="plus" color="#b75020" size={18} />
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Ghi âm tin nhắn thoại"
-                  accessibilityRole="button"
-                  disabled={sending}
-                  onPress={() => void startRecording().catch(fail)}
-                  style={({ pressed }) => [
-                    styles.attachButton,
-                    pressed && styles.attachButtonPressed,
-                  ]}
-                >
-                  <UiGlyph name="mic" color="#b75020" size={18} />
-                </Pressable>
-              </View>
-            )}
-            <View style={styles.composer}>
-              <TextInput
-                ref={composerRef}
-                accessibilityLabel="Nội dung tin nhắn"
-                editable={!sending}
-                maxLength={10000}
-                multiline
-                onChangeText={value => {
-                  setBody(value);
-                  setError('');
-                  updateTyping(!!value.trim());
-                }}
-                onBlur={() => updateTyping(false)}
-                placeholder={editing ? 'Sửa tin nhắn…' : 'Nhập tin nhắn…'}
-                placeholderTextColor="#897e73"
-                style={styles.composerInput}
-                textAlignVertical="center"
-                value={body}
-              />
-              <Pressable
-                accessibilityLabel="Chọn biểu tượng cảm xúc"
-                accessibilityRole="button"
-                disabled={sending}
-                onPress={() => setEmojiOpen(prev => !prev)}
-                style={({ pressed }) => [
-                  styles.composerEmojiBtn,
-                  (emojiOpen || pressed) && styles.attachButtonPressed,
-                ]}
-              >
-                <UiGlyph name="smile" color="#76553b" size={18} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel={
-                  body.trim() || editing ? 'Gửi tin nhắn' : 'Gửi lượt thích'
-                }
-                accessibilityRole="button"
-                accessibilityState={{
-                  busy: sending,
-                  disabled: sending || (!!editing && !body.trim()),
-                }}
-                disabled={sending || (!!editing && !body.trim())}
-                onPress={() => {
-                  nearBottomRef.current = true;
-                  if (!body.trim() && !editing) {
-                    void send('👍');
-                  } else {
-                    void send();
-                  }
-                }}
-                style={({ pressed }) => [
-                  styles.sendButton,
-                  pressed && styles.pressed,
-                  (sending || (!!editing && !body.trim())) &&
-                    styles.sendButtonDisabled,
-                ]}
-              >
-                {sending ? (
-                  <ActivityIndicator color="white" size="small" />
-                ) : body.trim() || editing ? (
-                  <UiGlyph name="send" color="#ffffff" size={15} />
-                ) : (
-                  <UiGlyph name="like" color="#ffffff" size={16} />
-                )}
-              </Pressable>
-            </View>
-          </View>
-        )}
-        {body.length > 9000 && (
-          <Text style={styles.characterCount}>
-            {body.length.toLocaleString('vi-VN')}/10.000
-          </Text>
-        )}
-      </View>
+      <ChatComposer
+        ref={composerRef}
+        sending={sending}
+        recording={recording}
+        recordingMs={recordingMs}
+        replyTo={replyTo}
+        editing={editing}
+        replyContextTitle={
+          editing
+            ? 'Chỉnh sửa tin nhắn'
+            : replyTo
+              ? `Trả lời ${memberName(replyTo.senderId)}`
+              : undefined
+        }
+        contextPreview={
+          editing || replyTo ? messageLabel(editing ?? replyTo!) : undefined
+        }
+        onCancelContext={() => {
+          setReplyTo(undefined);
+          setEditing(undefined);
+        }}
+        onSend={send}
+        onTypingChange={updateTyping}
+        onClearError={() => setError('')}
+        onOpenMediaMenu={showMediaMenu}
+        onStartRecording={() => void startRecording().catch(fail)}
+        onFinishRecording={sendRec => void finishRecording(sendRec)}
+        onBeforeSendScroll={() => {
+          nearBottomRef.current = true;
+        }}
+      />
 
       <Modal
         animationType="fade"
@@ -2289,7 +2238,7 @@ export function Chat({
                       onPress={() => {
                         setEditing(actionTarget);
                         setReplyTo(undefined);
-                        setBody(actionTarget.body ?? '');
+                        composerRef.current?.setDraft(actionTarget.body ?? '');
                         setActionTarget(undefined);
                         focusComposer();
                       }}

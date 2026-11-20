@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   Modal,
   Pressable,
   ScrollView,
@@ -63,14 +64,18 @@ function relativeNoticeTime(createdAt: string) {
 }
 
 export function Home({
+  active = true,
   user,
   onUser,
   onOpen,
+  onPreload,
   onExpired,
 }: {
+  active?: boolean;
   user: api.User;
   onUser: (user: api.User) => void;
   onOpen: (conversation: api.Conversation, messageId?: string) => void;
+  onPreload: (conversation: api.Conversation) => void;
   onExpired: () => void;
 }) {
   const [tab, setTab] = useState<MainTab>('chats');
@@ -117,10 +122,20 @@ export function Home({
   }, []);
 
   useEffect(() => {
+    if (!active || tab === 'chats') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setTab('chats');
+      return true;
+    });
+    return () => sub.remove();
+  }, [active, tab]);
+
+  useEffect(() => {
+    if (!active) return;
     void loadCountsAndNotices();
     const timer = setInterval(() => void loadCountsAndNotices(), 20000);
     return () => clearInterval(timer);
-  }, [loadCountsAndNotices, tab, user.id]);
+  }, [active, loadCountsAndNotices, tab, user.id]);
 
   async function openNotifications() {
     setNoticesOpen(true);
@@ -314,8 +329,10 @@ export function Home({
         <View style={styles.webHomeMainCard}>
           {tab === 'chats' && (
             <ConversationList
+              active={active}
               user={user}
               onOpen={onOpen}
+              onPreload={onPreload}
               onExpired={onExpired}
               onUnreadCount={setUnreadCount}
               presence={presence}

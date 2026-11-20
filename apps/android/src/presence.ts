@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
-import { io } from 'socket.io-client';
 import * as api from './api';
+import { acquireChatSocket } from './realtime';
 
 export type Peer = {
   id: string;
@@ -56,62 +56,28 @@ export function usePresence(userId: string, onExpired: () => void) {
   useEffect(() => {
     let stopped = false;
     let syncing = false;
-    let connecting = false;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const client = io(`${api.API_ORIGIN}/chat`, {
-      transports: ['websocket'],
-      autoConnect: false,
-      reconnection: false,
-    });
-    const scheduleReconnect = (delayMs: number, forceRefresh = false) => {
-      if (stopped || retryTimer) return;
-      retryTimer = setTimeout(() => {
-        retryTimer = undefined;
-        void connect(forceRefresh);
-      }, delayMs);
-    };
+    const socket = acquireChatSocket(onExpired);
     const sync = () => {
-      if (!client.connected || syncing) return;
+      if (!socket.isConnected() || syncing) return;
       syncing = true;
-      client
-        .timeout(5000)
-        .emit(
-          'presence:sync',
-          {},
-          (
-            problem: Error | null,
-            result?: { ok: boolean; data?: Record<string, Presence> },
-          ) => {
-            syncing = false;
-            if (!stopped && !problem && result?.ok)
-              setPresence(result.data ?? {});
-          },
-        );
+      socket.emitWithTimeout(
+        5000,
+        'presence:sync',
+        {},
+        (
+          problem: Error | null,
+          result?: { ok: boolean; data?: Record<string, Presence> },
+        ) => {
+          syncing = false;
+          if (!stopped && !problem && result?.ok)
+            setPresence(result.data ?? {});
+        },
+      );
     };
-    async function connect(forceRefresh = false) {
-      if (stopped || connecting || (client.connected && !forceRefresh)) return;
-      connecting = true;
-      try {
-        if (forceRefresh) await api.refresh();
-        const token = await api.accessToken();
-        if (stopped) return;
-        client.auth = { accessToken: token };
-        if (!client.connected) client.connect();
-      } catch (next) {
-        if (next instanceof api.ApiError && next.status === 401) onExpired();
-        else scheduleReconnect(3000, false);
-      } finally {
-        connecting = false;
-      }
-    }
-    client.on('connect', () => {
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = undefined;
-      }
+    const offConnect = socket.on('connect', () => {
       sync();
     });
-    client.on(
+    const offUpdate = socket.on(
       'presence:update',
       (event?: {
         userId?: string;
@@ -139,7 +105,7 @@ export function usePresence(userId: string, onExpired: () => void) {
         }));
       },
     );
-    client.on(
+    const offFriends = socket.on(
       'friends:updated',
       (event?: { peerId?: string; status?: 'accepted' | 'removed' }) => {
         if (stopped) return;
@@ -156,44 +122,29 @@ export function usePresence(userId: string, onExpired: () => void) {
         sync();
       },
     );
-    client.on('disconnect', (reason?: string) => {
+    const offDisconnect = socket.on('disconnect', () => {
       syncing = false;
-      setPresence({});
-      if (reason !== 'io client disconnect') scheduleReconnect(1500, false);
-    });
-    client.on('connect_error', (failure?: unknown) => {
-      syncing = false;
-      setPresence({});
-      const message =
-        failure instanceof Error ? failure.message.toUpperCase() : '';
-      const authFailed =
-        message.includes('AUTH') ||
-        message.includes('401') ||
-        message.includes('TOKEN') ||
-        message.includes('SESSION');
-      scheduleReconnect(1500, authFailed);
     });
     const subscription = AppState.addEventListener('change', state => {
       if (state !== 'active') return;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = undefined;
-      }
-      if (client.connected) sync();
-      else void connect();
+      if (socket.isConnected()) sync();
+      else void socket.connect();
     });
-    void connect();
+    if (socket.isConnected()) sync();
     const timer = setInterval(() => {
-      if (client.connected) sync();
-      else if (!retryTimer) void connect();
-    }, 15000);
+      if (AppState.currentState !== 'active') return;
+      if (socket.isConnected()) sync();
+      else void socket.connect();
+    }, 30000);
     return () => {
       stopped = true;
-      if (retryTimer) clearTimeout(retryTimer);
       clearInterval(timer);
       subscription.remove();
-      client.removeAllListeners();
-      client.disconnect();
+      offConnect();
+      offUpdate();
+      offFriends();
+      offDisconnect();
+      socket.release();
     };
   }, [onExpired, userId]);
   return presence;

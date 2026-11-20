@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Modal,
   Pressable,
@@ -11,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import * as api from '../../api';
+import { acquireChatSocket } from '../../realtime';
 import { Avatar, Centered, InlineNotice } from '../../components/Common';
 import { NavIcon, UiGlyph } from '../../components/Icons';
 import {
@@ -131,14 +133,18 @@ const DEFAULT_TRENDING_TRACKS: MusicCatalogTrack[] = [
 ];
 
 export function ConversationList({
+  active = true,
   user,
   onOpen,
+  onPreload,
   onExpired,
   onUnreadCount,
   presence,
 }: {
+  active?: boolean;
   user?: api.User;
   onOpen: (conversation: api.Conversation, messageId?: string) => void;
+  onPreload: (conversation: api.Conversation) => void;
   onExpired: () => void;
   onUnreadCount?: (count: number) => void;
   presence: Record<string, Presence>;
@@ -192,9 +198,9 @@ export function ConversationList({
   const [noteError, setNoteError] = useState('');
 
   const load = useCallback(
-    async (refresh = false) => {
-      if (refresh) setRefreshing(true);
-      else setLoading(true);
+    async (mode: boolean | 'silent' = false) => {
+      if (mode === true) setRefreshing(true);
+      else if (mode === false) setLoading(true);
       try {
         const [page, friendRows, reqPage, notesRes] = await Promise.all([
           api.authenticated<api.Page<api.Conversation>>(
@@ -255,9 +261,101 @@ export function ConversationList({
     [onExpired, onUnreadCount],
   );
 
+  const hasLoadedRef = React.useRef(false);
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      void load(false);
+      return;
+    }
+    if (active) {
+      void load('silent');
+    }
+  }, [active, load]);
+
+  useEffect(() => {
+    if (!active || !composing) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setComposing(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [active, composing]);
+
+  const activeRef = React.useRef(active);
+  activeRef.current = active;
+
+  useEffect(() => {
+    const socket = acquireChatSocket(onExpired);
+    const offCreated = socket.on('message:created', (message: api.Message) => {
+      let found = false;
+      setItems(prev => {
+        const idx = prev.findIndex(item => item.id === message.conversationId);
+        if (idx < 0) return prev;
+        found = true;
+        const target = prev[idx]!;
+        const isIncoming = message.senderId !== currentUser.id;
+        const updated: api.Conversation = {
+          ...target,
+          lastMessageSequence: message.sequence,
+          updatedAt: message.createdAt,
+          unreadCount:
+            isIncoming && activeRef.current
+              ? (target.unreadCount || 0) + 1
+              : target.unreadCount,
+          lastMessage: {
+            id: message.id,
+            senderId: message.senderId,
+            sequence: message.sequence,
+            type: message.type,
+            body: message.body,
+            content: message.content,
+            createdAt: message.createdAt,
+            deletedAt: message.deletedAt,
+          },
+        };
+        const next = [updated, ...prev.filter((_, i) => i !== idx)];
+        onUnreadCount?.(
+          next
+            .filter(
+              item =>
+                !(
+                  item.messageRequest?.direction === 'incoming' &&
+                  item.messageRequest.status === 'pending'
+                ),
+            )
+            .reduce((sum, item) => sum + (item.unreadCount || 0), 0),
+        );
+        return next;
+      });
+      if (!found) {
+        void load('silent');
+      }
+    });
+    const offCleared = socket.on('conversation:history-cleared', () => {
+      void load('silent');
+    });
+    const offFriends = socket.on('friends:updated', () => {
+      void load('silent');
+    });
+    return () => {
+      offCreated();
+      offCleared();
+      offFriends();
+      socket.release();
+    };
+  }, [currentUser.id, load, onExpired, onUnreadCount]);
+
+  useEffect(() => {
+    if (!active || !items.length) return;
+    for (const item of items.slice(0, 3)) onPreload(item);
+    const nextBatch = items.slice(3, 6);
+    if (!nextBatch.length) return;
+    const timer = setTimeout(() => {
+      for (const item of nextBatch) onPreload(item);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [active, items, onPreload]);
 
   async function loadMore() {
     if (!nextCursor || loadingMore) return;
@@ -952,7 +1050,7 @@ export function ConversationList({
 
   return (
     <View style={styles.threadCardInner}>
-      <View style={styles.sectionHeadingRow}>
+      <View style={[styles.sectionHeadingRow, styles.threadHeadingRow]}>
         <Text style={styles.sectionTitle}>Đoạn chat</Text>
         <Pressable
           accessibilityLabel="Tin nhắn mới hoặc tạo nhóm"
@@ -1009,7 +1107,10 @@ export function ConversationList({
                     !myNote && styles.noteBubblePlaceholder,
                   ]}
                 >
-                  <Text numberOfLines={2} style={styles.noteBubbleText}>
+                  <Text
+                    numberOfLines={myNote ? 2 : 1}
+                    style={styles.noteBubbleText}
+                  >
                     {myNote?.body ?? 'Ghi chú…'}
                   </Text>
                   {!!myNote?.musicTitle && (
@@ -1021,7 +1122,7 @@ export function ConversationList({
                 <View style={styles.noteBubblePointer} />
               </View>
               <View style={styles.presenceAvatar}>
-                <Avatar peer={currentUser} size={44} circular />
+                <Avatar peer={currentUser} size={38} circular />
                 <View style={styles.noteAddBadge}>
                   <UiGlyph name="plus" color="#ffffff" size={10} />
                 </View>
@@ -1063,7 +1164,7 @@ export function ConversationList({
                     <View style={styles.noteBubbleSpacer} />
                   )}
                   <View style={styles.presenceAvatar}>
-                    <Avatar peer={friend} size={44} circular />
+                    <Avatar peer={friend} size={38} circular />
                     {isOnline ? (
                       <View style={styles.presenceDot} />
                     ) : badge ? (
@@ -1118,19 +1219,6 @@ export function ConversationList({
               )}
             </Pressable>
           ))}
-        </View>
-
-        <View style={styles.threadToolsRow}>
-          <Pressable
-            disabled={loading || refreshing}
-            onPress={() => void load(true)}
-            style={({ pressed }) => [
-              styles.threadRetryBtn,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.threadRetryText}>Tải lại</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -1379,7 +1467,6 @@ export function ConversationList({
             const title = conversationName(item);
             const peerPresence = item.peer ? presence[item.peer.id] : undefined;
             const badge = item.peer ? presenceBadge(peerPresence) : '';
-            const hasPhoto = !!item.peer?.avatarUrl;
             return (
               <Pressable
                 accessibilityHint="Mở cuộc trò chuyện"
@@ -1389,9 +1476,11 @@ export function ConversationList({
                     : ''
                 }`}
                 accessibilityRole="button"
+                onPressIn={() => onPreload(item)}
                 onPress={() => onOpen(item)}
                 style={({ pressed }) => [
                   styles.conversation,
+                  styles.threadRow,
                   pressed && styles.conversationPressed,
                 ]}
               >
@@ -1402,8 +1491,7 @@ export function ConversationList({
                       displayName: title,
                       avatarUrl: item.peer?.avatarUrl,
                     }}
-                    size={46}
-                    circular={hasPhoto}
+                    size={42}
                   />
                   {peerPresence?.online ? (
                     <View style={styles.presenceDot} />
@@ -1418,8 +1506,14 @@ export function ConversationList({
                     </View>
                   ) : null}
                 </View>
-                <View style={styles.conversationBody}>
-                  <Text numberOfLines={2} style={styles.conversationName}>
+                <View style={[styles.conversationBody, styles.threadRowBody]}>
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.conversationName,
+                      !!item.unreadCount && styles.threadNameUnread,
+                    ]}
+                  >
                     {title}
                   </Text>
                   <Text
