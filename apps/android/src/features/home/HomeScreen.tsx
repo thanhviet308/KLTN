@@ -11,7 +11,7 @@ import {
 import * as api from '../../api';
 import { Avatar, Brand } from '../../components/Common';
 import { NavIcon, UiGlyph } from '../../components/Icons';
-import { usePresence, type Peer } from '../../presence';
+import { type Peer, type Presence } from '../../presence';
 import { styles } from '../../styles';
 import { AccountScreen } from './AccountScreen';
 import { ConversationList } from './ConversationList';
@@ -65,6 +65,7 @@ function relativeNoticeTime(createdAt: string) {
 
 export function Home({
   active = true,
+  presence,
   user,
   onUser,
   onOpen,
@@ -72,6 +73,7 @@ export function Home({
   onExpired,
 }: {
   active?: boolean;
+  presence: Record<string, Presence>;
   user: api.User;
   onUser: (user: api.User) => void;
   onOpen: (conversation: api.Conversation, messageId?: string) => void;
@@ -90,7 +92,6 @@ export function Home({
   const [noticeCount, setNoticeCount] = useState(0);
   const [noticeFilterUnread, setNoticeFilterUnread] = useState(false);
   const [noticesLoading, setNoticesLoading] = useState(false);
-  const presence = usePresence(user.id, onExpired);
 
   useEffect(() => {
     void api

@@ -165,8 +165,7 @@ function MediaControls({
               const videoTrack = pub?.videoTrack;
               if (videoTrack) {
                 const rawTrack = videoTrack.mediaStreamTrack as
-                  | { _switchCamera?: () => void }
-                  | undefined;
+                  { _switchCamera?: () => void } | undefined;
                 if (typeof rawTrack?._switchCamera === 'function') {
                   rawTrack._switchCamera();
                 } else {

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,7 +34,12 @@ import * as api from '../../api';
 import { acquireChatSocket } from '../../realtime';
 import { Avatar, Centered, InlineNotice } from '../../components/Common';
 import { UiGlyph } from '../../components/Icons';
-import { allPages, type Peer } from '../../presence';
+import {
+  allPages,
+  presenceLabel,
+  type Peer,
+  type Presence,
+} from '../../presence';
 import {
   clientMessageId,
   conversationName,
@@ -101,6 +112,7 @@ export function Chat({
   conversation,
   history,
   jumpTarget,
+  presence,
   user,
   onBack,
   onExpired,
@@ -108,6 +120,7 @@ export function Chat({
   conversation: api.Conversation;
   history: ChatHistoryCache;
   jumpTarget?: { conversationId: string; messageId: string; token: number };
+  presence?: Record<string, Presence>;
   user: api.User;
   onBack: () => void;
   onExpired: () => void;
@@ -226,8 +239,6 @@ export function Chat({
   const focusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const hasPositionedList = useRef(false);
-  const nearBottomRef = useRef(true);
   const socketRef = useRef<ReturnType<typeof acquireChatSocket> | undefined>(
     undefined,
   );
@@ -1098,8 +1109,6 @@ export function Chat({
       notFoundText = 'Không tìm thấy tin nhắn gốc.',
     ) => {
       setError('');
-      nearBottomRef.current = false;
-      hasPositionedList.current = true;
       setSearchOpen(false);
       setSearchQuery('');
       try {
@@ -1125,6 +1134,7 @@ export function Chat({
           setError(notFoundText);
           return;
         }
+        const invertedIndex = messagesRef.current.length - 1 - index;
         setHighlightedMessageId(messageId);
         if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
         highlightTimerRef.current = setTimeout(() => {
@@ -1136,7 +1146,7 @@ export function Chat({
           if (!mountedRef.current) return;
           try {
             messageList.current?.scrollToIndex({
-              index,
+              index: invertedIndex,
               animated: true,
               viewPosition: 0.5,
             });
@@ -1427,6 +1437,28 @@ export function Chat({
         searchedHits,
       )
     : messages;
+  const invertedMessages = useMemo(
+    () => [...displayedMessages].reverse(),
+    [displayedMessages],
+  );
+  const peerPresence =
+    conversation.type === 'direct' && conversation.peer?.id
+      ? presence?.[conversation.peer.id]
+      : undefined;
+  const peerOnline = Boolean(peerPresence?.online);
+  const showPresenceDot =
+    !realtimeUnavailable && conversation.type === 'direct' && !!peerPresence;
+  const headerStatusText = realtimeUnavailable
+    ? 'Đang đồng bộ qua API'
+    : conversation.type === 'group'
+      ? members.length > 0
+        ? `${members.length} thành viên`
+        : 'Nhóm trò chuyện'
+      : peerPresence
+        ? presenceLabel(peerPresence)
+        : !connected
+          ? 'Đang kết nối…'
+          : 'Nhấn để xem thông tin';
 
   return (
     <KeyboardAvoidingView
@@ -1468,18 +1500,19 @@ export function Chat({
             {title}
           </Text>
           <View style={styles.connectionRow}>
-            <View
-              style={[styles.statusDot, connected && styles.statusDotOnline]}
-            />
+            {showPresenceDot && (
+              <View
+                style={[styles.statusDot, peerOnline && styles.statusDotOnline]}
+              />
+            )}
             <Text
               numberOfLines={1}
-              style={[styles.connection, connected && styles.connectionOnline]}
+              style={[
+                styles.connection,
+                showPresenceDot && peerOnline && styles.connectionOnline,
+              ]}
             >
-              {connected
-                ? 'Đang hoạt động'
-                : realtimeUnavailable
-                  ? 'Đang đồng bộ qua API'
-                  : 'Đang kết nối…'}
+              {headerStatusText}
             </Text>
           </View>
         </Pressable>
@@ -1586,20 +1619,40 @@ export function Chat({
       )}
       {loading ? (
         <Centered label="Đang tải tin nhắn…" />
+      ) : displayedMessages.length === 0 ? (
+        <View style={{ flex: 1, backgroundColor: timelineBg }}>
+          <View style={styles.emptyChat}>
+            <View style={styles.emptySymbol}>
+              <Text style={styles.emptySymbolText}>
+                {normalizedSearch ? '⌕' : 'P'}
+              </Text>
+            </View>
+            <Text style={styles.emptyTitle}>
+              {normalizedSearch
+                ? 'Không tìm thấy tin nhắn'
+                : 'Bắt đầu trò chuyện'}
+            </Text>
+            <Text style={styles.empty}>
+              {normalizedSearch
+                ? 'Thử nhập từ khóa khác để tìm trong cuộc trò chuyện.'
+                : 'Gửi một lời chào để bắt đầu kết nối.'}
+            </Text>
+          </View>
+        </View>
       ) : (
         <View style={{ flex: 1, backgroundColor: timelineBg }}>
           <FlatList
             ref={messageList}
-            contentContainerStyle={styles.messageList}
-            data={displayedMessages}
+            inverted
+            contentContainerStyle={styles.messageListInverted}
+            data={invertedMessages}
             initialNumToRender={16}
             maxToRenderPerBatch={12}
             windowSize={9}
-            removeClippedSubviews={Platform.OS === 'android'}
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             keyExtractor={item => item.id}
-            ListHeaderComponent={
+            ListFooterComponent={
               older && !normalizedSearch ? (
                 <Pressable
                   disabled={loadingOlder}
@@ -1633,54 +1686,21 @@ export function Chat({
               }, 80);
             }}
             onScroll={event => {
-              const { contentOffset, contentSize, layoutMeasurement } =
-                event.nativeEvent;
-              const distanceFromBottom =
-                contentSize.height -
-                (contentOffset.y + layoutMeasurement.height);
-              const isNear = distanceFromBottom < 120;
-              nearBottomRef.current = isNear;
+              const isNear = event.nativeEvent.contentOffset.y < 120;
               if (showScrollDown === isNear) setShowScrollDown(!isNear);
             }}
             scrollEventThrottle={32}
-            onContentSizeChange={() => {
-              if (
-                !loadingOlder &&
-                !normalizedSearch &&
-                (!hasPositionedList.current || nearBottomRef.current)
-              ) {
-                messageList.current?.scrollToEnd({
-                  animated: hasPositionedList.current,
-                });
-              }
-              hasPositionedList.current = true;
-            }}
             showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View style={styles.emptyChat}>
-                <View style={styles.emptySymbol}>
-                  <Text style={styles.emptySymbolText}>
-                    {normalizedSearch ? '⌕' : 'P'}
-                  </Text>
-                </View>
-                <Text style={styles.emptyTitle}>
-                  {normalizedSearch
-                    ? 'Không tìm thấy tin nhắn'
-                    : 'Bắt đầu trò chuyện'}
-                </Text>
-                <Text style={styles.empty}>
-                  {normalizedSearch
-                    ? 'Thử nhập từ khóa khác để tìm trong cuộc trò chuyện.'
-                    : 'Gửi một lời chào để bắt đầu kết nối.'}
-                </Text>
-              </View>
-            }
             renderItem={({ item, index }) => {
               const mine = item.senderId === user.id;
-              const prev = index > 0 ? displayedMessages[index - 1] : undefined;
+              const chronoIndex = displayedMessages.length - 1 - index;
+              const prev =
+                chronoIndex > 0
+                  ? displayedMessages[chronoIndex - 1]
+                  : undefined;
               const next =
-                index < displayedMessages.length - 1
-                  ? displayedMessages[index + 1]
+                chronoIndex < displayedMessages.length - 1
+                  ? displayedMessages[chronoIndex + 1]
                   : undefined;
               const showTimeDivider =
                 !prev ||
@@ -2058,9 +2078,11 @@ export function Chat({
               accessibilityLabel="Cuộn xuống tin nhắn mới nhất"
               accessibilityRole="button"
               onPress={() => {
-                nearBottomRef.current = true;
                 setShowScrollDown(false);
-                messageList.current?.scrollToEnd({ animated: true });
+                messageList.current?.scrollToOffset({
+                  offset: 0,
+                  animated: true,
+                });
               }}
               style={styles.scrollDownFab}
             >
@@ -2141,7 +2163,8 @@ export function Chat({
         onStartRecording={() => void startRecording().catch(fail)}
         onFinishRecording={sendRec => void finishRecording(sendRec)}
         onBeforeSendScroll={() => {
-          nearBottomRef.current = true;
+          setShowScrollDown(false);
+          messageList.current?.scrollToOffset({ offset: 0, animated: true });
         }}
       />
 

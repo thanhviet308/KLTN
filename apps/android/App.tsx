@@ -13,6 +13,7 @@ import {
   isFreshHistory,
 } from './src/features/chat/chat-history-cache';
 import { Home } from './src/features/home/HomeScreen';
+import { usePresence } from './src/presence';
 import { styles } from './src/styles';
 import { CallProvider } from './src/features/calls/CallProvider';
 
@@ -114,39 +115,79 @@ function Root() {
       ) : !user ? (
         <Login onLogin={setUser} />
       ) : (
-        <CallProvider key={user.id} user={user} onExpired={expire}>
-          <View
-            style={[
-              styles.page,
-              conversation && history ? { display: 'none' } : undefined,
-            ]}
-          >
-            <Home
-              active={!conversation}
-              user={user}
-              onUser={acceptUser}
-              onOpen={openConversation}
-              onPreload={preloadHistory}
-              onExpired={expire}
-            />
-          </View>
-          {conversation && history && (
-            <Chat
-              key={conversation.id}
-              conversation={conversation}
-              history={history}
-              jumpTarget={jumpTarget}
-              user={user}
-              onBack={() => {
-                setConversation(undefined);
-                setJumpTarget(undefined);
-              }}
-              onExpired={expire}
-            />
-          )}
-        </CallProvider>
+        <SignedInShell
+          key={user.id}
+          conversation={conversation}
+          history={history}
+          jumpTarget={jumpTarget}
+          user={user}
+          onBack={() => {
+            setConversation(undefined);
+            setJumpTarget(undefined);
+          }}
+          onExpired={expire}
+          onOpen={openConversation}
+          onPreload={preloadHistory}
+          onUser={acceptUser}
+        />
       )}
     </View>
+  );
+}
+
+function SignedInShell({
+  conversation,
+  history,
+  jumpTarget,
+  user,
+  onBack,
+  onExpired,
+  onOpen,
+  onPreload,
+  onUser,
+}: {
+  conversation?: api.Conversation;
+  history?: ChatHistoryCache;
+  jumpTarget?: { conversationId: string; messageId: string; token: number };
+  user: api.User;
+  onBack: () => void;
+  onExpired: () => void;
+  onOpen: (conversation: api.Conversation, messageId?: string) => void;
+  onPreload: (conversation: api.Conversation) => void;
+  onUser: (user: api.User) => void;
+}) {
+  const presence = usePresence(user.id, onExpired);
+  return (
+    <CallProvider user={user} onExpired={onExpired}>
+      <View
+        style={[
+          styles.page,
+          conversation && history ? { display: 'none' } : undefined,
+        ]}
+      >
+        <Home
+          active={!conversation}
+          presence={presence}
+          user={user}
+          onUser={onUser}
+          onOpen={onOpen}
+          onPreload={onPreload}
+          onExpired={onExpired}
+        />
+      </View>
+      {conversation && history && (
+        <Chat
+          key={conversation.id}
+          conversation={conversation}
+          history={history}
+          jumpTarget={jumpTarget}
+          presence={presence}
+          user={user}
+          onBack={onBack}
+          onExpired={onExpired}
+        />
+      )}
+    </CallProvider>
   );
 }
 

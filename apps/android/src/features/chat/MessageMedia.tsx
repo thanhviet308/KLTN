@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import * as api from '../../api';
+import { UiGlyph } from '../../components/Icons';
 import { styles } from '../../styles';
 
 function localFileUri(path: string) {
@@ -63,6 +64,8 @@ export function MessageMedia({
   if (message.type === 'call') {
     const seconds = message.content?.durationSeconds ?? 0;
     const status = message.content?.callStatus;
+    const isVideo = message.content?.callType === 'video';
+    const isMissed = status === 'missed' || status === 'rejected';
     const label =
       status === 'missed'
         ? 'Cuộc gọi nhỡ'
@@ -77,8 +80,21 @@ export function MessageMedia({
       !!onSummarizeCall &&
       !callSummarized;
     return (
-      <View style={styles.voiceMediaWrap}>
-        <View style={[styles.mediaCard, mine && styles.mediaCardMine]}>
+      <View style={styles.callMediaWrap}>
+        <View style={styles.callMediaRow}>
+          <View
+            style={[
+              styles.callIconBadge,
+              mine && styles.callIconBadgeMine,
+              !mine && isMissed && styles.callIconBadgeMissed,
+            ]}
+          >
+            <UiGlyph
+              color={mine ? '#fff7ef' : isMissed ? '#b91c1c' : '#b75020'}
+              name={isVideo ? 'video' : 'phone'}
+              size={16}
+            />
+          </View>
           <View style={styles.mediaCardText}>
             <Text style={[styles.mediaTitle, mine && styles.messageTextMine]}>
               {label}
@@ -86,7 +102,7 @@ export function MessageMedia({
             <Text
               style={[styles.mediaCaption, mine && styles.mediaCaptionMine]}
             >
-              {message.content?.callType === 'video' ? 'Video' : 'Thoại'}
+              {isVideo ? 'Video' : 'Thoại'}
               {seconds > 0
                 ? ` · ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`
                 : ''}
@@ -99,15 +115,16 @@ export function MessageMedia({
             disabled={callSummarizing}
             onPress={onSummarizeCall}
             style={({ pressed }) => [
-              styles.voiceTranscribePill,
-              mine && styles.voiceTranscribePillMine,
+              styles.callSummaryButton,
+              mine && styles.callSummaryButtonMine,
               pressed && styles.pressed,
             ]}
           >
             <Text
+              numberOfLines={1}
               style={[
-                styles.voiceTranscribePillText,
-                mine && styles.voiceTranscribePillTextMine,
+                styles.callSummaryButtonText,
+                mine && styles.callSummaryButtonTextMine,
               ]}
             >
               {callSummarizing ? 'Đang tóm tắt…' : '✨ Tóm tắt AI'}
