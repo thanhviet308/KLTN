@@ -45,15 +45,15 @@ export class AccountsService {
         }[]
       >(
         `SELECT
-          COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE status = 'active')::int AS active,
-          COUNT(*) FILTER (WHERE status = 'blocked')::int AS blocked,
-          COUNT(*) FILTER (WHERE status = 'deleted')::int AS deleted,
-          COUNT(*) FILTER (WHERE role = 'admin')::int AS admins,
-          COUNT(*) FILTER (WHERE status = 'active' AND last_active_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::int AS "active24h",
-          COUNT(*) FILTER (WHERE status = 'active' AND last_active_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::int AS "active7d",
-          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - ($1::int - 1))::int AS "newPeriod",
-          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1))::int AS "newPreviousPeriod"
+          CAST(COUNT(*) AS INT) AS total,
+          CAST(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS INT) AS active,
+          CAST(SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS INT) AS blocked,
+          CAST(SUM(CASE WHEN status = 'deleted' THEN 1 ELSE 0 END) AS INT) AS deleted,
+          CAST(SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS INT) AS admins,
+          CAST(SUM(CASE WHEN status = 'active' AND last_active_at >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) THEN 1 ELSE 0 END) AS INT) AS "active24h",
+          CAST(SUM(CASE WHEN status = 'active' AND last_active_at >= DATEADD(day, -7, SYSDATETIMEOFFSET()) THEN 1 ELSE 0 END) AS INT) AS "active7d",
+          CAST(SUM(CASE WHEN created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET) THEN 1 ELSE 0 END) AS INT) AS "newPeriod",
+          CAST(SUM(CASE WHEN created_at >= CAST(DATEADD(day, -(@0 * 2 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET) AND created_at < CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET) THEN 1 ELSE 0 END) AS INT) AS "newPreviousPeriod"
         FROM users`,
         [days],
       ),
@@ -76,20 +76,20 @@ export class AccountsService {
         }[]
       >(
         `SELECT
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND created_at >= CURRENT_DATE) AS "messagesToday",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "messagesPeriod",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1)) AS "messagesPreviousPeriod",
-          (SELECT COUNT(*)::int FROM calls WHERE created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsPeriod",
-          (SELECT COUNT(*)::int FROM calls WHERE created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1)) AS "callsPreviousPeriod",
-          (SELECT COUNT(*)::int FROM game_sessions WHERE created_at >= CURRENT_DATE - ($1::int - 1)) AS "gamesPeriod",
-          (SELECT COUNT(*)::int FROM game_sessions WHERE created_at >= CURRENT_DATE - ($1::int * 2 - 1) AND created_at < CURRENT_DATE - ($1::int - 1)) AS "gamesPreviousPeriod",
-          (SELECT COUNT(*)::int FROM conversations WHERE type = 'group' AND deleted_at IS NULL) AS "groupsTotal",
-          (SELECT COUNT(*)::int FROM conversations WHERE type = 'direct' AND deleted_at IS NULL) AS "directConversationsTotal",
-          (SELECT COUNT(*)::int FROM reports WHERE status IN ('open', 'reviewing')) AS "pendingReports",
-          (SELECT COUNT(*)::int FROM messages WHERE spam_label = true AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "spamDetectedPeriod",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NOT NULL AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "recalledMessagesPeriod",
-          (SELECT COUNT(*)::int FROM attachments a LEFT JOIN messages m ON m.id = a.message_id WHERE a.status IN ('uploaded', 'attached') AND (a.message_id IS NULL OR m.deleted_at IS NULL)) AS "uploadFilesTotal",
-          (SELECT COALESCE(SUM(a.size), 0)::bigint::text FROM attachments a LEFT JOIN messages m ON m.id = a.message_id WHERE a.status IN ('uploaded', 'attached') AND (a.message_id IS NULL OR m.deleted_at IS NULL)) AS "uploadBytesTotal"`,
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND created_at >= CAST(CAST(SYSDATETIMEOFFSET() AS DATE) AS DATETIMEOFFSET)) AS "messagesToday",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "messagesPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND created_at >= CAST(DATEADD(day, -(@0 * 2 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET) AND created_at < CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "messagesPreviousPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM calls WHERE created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callsPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM calls WHERE created_at >= CAST(DATEADD(day, -(@0 * 2 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET) AND created_at < CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callsPreviousPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM game_sessions WHERE created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "gamesPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM game_sessions WHERE created_at >= CAST(DATEADD(day, -(@0 * 2 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET) AND created_at < CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "gamesPreviousPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM conversations WHERE type = 'group' AND deleted_at IS NULL) AS "groupsTotal",
+          (SELECT CAST(COUNT(*) AS INT) FROM conversations WHERE type = 'direct' AND deleted_at IS NULL) AS "directConversationsTotal",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE status IN ('open', 'reviewing')) AS "pendingReports",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE spam_label = 1 AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "spamDetectedPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NOT NULL AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "recalledMessagesPeriod",
+          (SELECT CAST(COUNT(*) AS INT) FROM attachments a LEFT JOIN messages m ON m.id = a.message_id WHERE a.status IN ('uploaded', 'attached') AND (a.message_id IS NULL OR m.deleted_at IS NULL)) AS "uploadFilesTotal",
+          (SELECT CAST(COALESCE(SUM(a.size), 0) AS NVARCHAR(30)) FROM attachments a LEFT JOIN messages m ON m.id = a.message_id WHERE a.status IN ('uploaded', 'attached') AND (a.message_id IS NULL OR m.deleted_at IS NULL)) AS "uploadBytesTotal"`,
         [days],
       ),
       this.db.query<
@@ -102,20 +102,21 @@ export class AccountsService {
         }[]
       >(
         `WITH days AS (
-          SELECT generate_series(
-            CURRENT_DATE - ($1::int - 1),
-            CURRENT_DATE,
-            '1 day'::interval
-          )::date AS day
+          SELECT CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATE) AS day
+          UNION ALL
+          SELECT DATEADD(day, 1, day)
+          FROM days
+          WHERE day < CAST(SYSDATETIMEOFFSET() AS DATE)
         )
         SELECT
-          to_char(d.day, 'YYYY-MM-DD') AS date,
-          COALESCE((SELECT COUNT(*)::int FROM users u WHERE u.created_at >= d.day AND u.created_at < d.day + 1), 0) AS "newUsers",
-          COALESCE((SELECT COUNT(*)::int FROM messages m WHERE m.deleted_at IS NULL AND m.created_at >= d.day AND m.created_at < d.day + 1), 0) AS messages,
-          COALESCE((SELECT COUNT(*)::int FROM calls c WHERE c.created_at >= d.day AND c.created_at < d.day + 1), 0) AS calls,
-          COALESCE((SELECT COUNT(*)::int FROM game_sessions g WHERE g.created_at >= d.day AND g.created_at < d.day + 1), 0) AS games
+          CONVERT(NVARCHAR(10), d.day, 23) AS date,
+          COALESCE((SELECT CAST(COUNT(*) AS INT) FROM users u WHERE u.created_at >= CAST(d.day AS DATETIMEOFFSET) AND u.created_at < CAST(DATEADD(day, 1, d.day) AS DATETIMEOFFSET)), 0) AS "newUsers",
+          COALESCE((SELECT CAST(COUNT(*) AS INT) FROM messages m WHERE m.deleted_at IS NULL AND m.created_at >= CAST(d.day AS DATETIMEOFFSET) AND m.created_at < CAST(DATEADD(day, 1, d.day) AS DATETIMEOFFSET)), 0) AS messages,
+          COALESCE((SELECT CAST(COUNT(*) AS INT) FROM calls c WHERE c.created_at >= CAST(d.day AS DATETIMEOFFSET) AND c.created_at < CAST(DATEADD(day, 1, d.day) AS DATETIMEOFFSET)), 0) AS calls,
+          COALESCE((SELECT CAST(COUNT(*) AS INT) FROM game_sessions g WHERE g.created_at >= CAST(d.day AS DATETIMEOFFSET) AND g.created_at < CAST(DATEADD(day, 1, d.day) AS DATETIMEOFFSET)), 0) AS games
         FROM days d
-        ORDER BY d.day ASC`,
+        ORDER BY d.day ASC
+        OPTION (MAXRECURSION 100)`,
         [days],
       ),
       this.db.query<
@@ -150,33 +151,33 @@ export class AccountsService {
         }[]
       >(
         `SELECT
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'text' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgText",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'image' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgImage",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'file' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgFile",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'voice' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgVoice",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'location' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgLocation",
-          (SELECT COUNT(*)::int FROM messages WHERE deleted_at IS NULL AND type = 'call' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "msgCall",
-          (SELECT COUNT(*)::int FROM calls WHERE type = 'audio' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsAudio",
-          (SELECT COUNT(*)::int FROM calls WHERE type = 'video' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsVideo",
-          (SELECT COUNT(*)::int FROM calls WHERE status = 'ended' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsCompleted",
-          (SELECT COUNT(*)::int FROM calls WHERE status IN ('missed', 'rejected', 'cancelled') AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callsMissedOrRejected",
-          (SELECT COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (ended_at - started_at)))), 0)::bigint::int FROM calls WHERE status = 'ended' AND started_at IS NOT NULL AND ended_at IS NOT NULL AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callDurationSeconds",
-          (SELECT COUNT(*)::int FROM calls WHERE summary_enabled = true AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "callAiSummaries",
-          (SELECT COUNT(*)::int FROM ai_jobs WHERE created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiTotal",
-          (SELECT COUNT(*)::int FROM ai_jobs WHERE status = 'completed' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiCompleted",
-          (SELECT COUNT(*)::int FROM ai_jobs WHERE kind = 'chat' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiChat",
-          (SELECT COUNT(*)::int FROM ai_jobs WHERE kind = 'summary' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiSummary",
-          (SELECT COUNT(*)::int FROM ai_jobs WHERE kind = 'reply_suggestions' AND created_at >= CURRENT_DATE - ($1::int - 1)) AS "aiReplySuggestions",
-          (SELECT COUNT(*)::int FROM reports) AS "reportsTotal",
-          (SELECT COUNT(*)::int FROM reports WHERE status = 'open') AS "reportsOpen",
-          (SELECT COUNT(*)::int FROM reports WHERE status = 'reviewing') AS "reportsReviewing",
-          (SELECT COUNT(*)::int FROM reports WHERE status = 'resolved') AS "reportsResolved",
-          (SELECT COUNT(*)::int FROM reports WHERE status = 'dismissed') AS "reportsDismissed",
-          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'user') AS "reportsUser",
-          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'message') AS "reportsMessage",
-          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'attachment') AS "reportsAttachment",
-          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'call') AS "reportsCall",
-          (SELECT COUNT(*)::int FROM reports WHERE target_type = 'conversation') AS "reportsConversation"`,
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND type = 'text' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "msgText",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND type = 'image' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "msgImage",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND type = 'file' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "msgFile",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND type = 'voice' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "msgVoice",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND type = 'location' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "msgLocation",
+          (SELECT CAST(COUNT(*) AS INT) FROM messages WHERE deleted_at IS NULL AND type = 'call' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "msgCall",
+          (SELECT CAST(COUNT(*) AS INT) FROM calls WHERE type = 'audio' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callsAudio",
+          (SELECT CAST(COUNT(*) AS INT) FROM calls WHERE type = 'video' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callsVideo",
+          (SELECT CAST(COUNT(*) AS INT) FROM calls WHERE status = 'ended' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callsCompleted",
+          (SELECT CAST(COUNT(*) AS INT) FROM calls WHERE status IN ('missed', 'rejected', 'cancelled') AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callsMissedOrRejected",
+          (SELECT CAST(COALESCE(SUM(DATEDIFF(SECOND, started_at, ended_at)), 0) AS INT) FROM calls WHERE status = 'ended' AND started_at IS NOT NULL AND ended_at IS NOT NULL AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callDurationSeconds",
+          (SELECT CAST(COUNT(*) AS INT) FROM calls WHERE summary_enabled = 1 AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "callAiSummaries",
+          (SELECT CAST(COUNT(*) AS INT) FROM ai_jobs WHERE created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "aiTotal",
+          (SELECT CAST(COUNT(*) AS INT) FROM ai_jobs WHERE status = 'completed' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "aiCompleted",
+          (SELECT CAST(COUNT(*) AS INT) FROM ai_jobs WHERE kind = 'chat' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "aiChat",
+          (SELECT CAST(COUNT(*) AS INT) FROM ai_jobs WHERE kind = 'summary' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "aiSummary",
+          (SELECT CAST(COUNT(*) AS INT) FROM ai_jobs WHERE kind = 'reply_suggestions' AND created_at >= CAST(DATEADD(day, -(@0 - 1), CAST(SYSDATETIMEOFFSET() AS DATE)) AS DATETIMEOFFSET)) AS "aiReplySuggestions",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports) AS "reportsTotal",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE status = 'open') AS "reportsOpen",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE status = 'reviewing') AS "reportsReviewing",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE status = 'resolved') AS "reportsResolved",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE status = 'dismissed') AS "reportsDismissed",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE target_type = 'user') AS "reportsUser",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE target_type = 'message') AS "reportsMessage",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE target_type = 'attachment') AS "reportsAttachment",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE target_type = 'call') AS "reportsCall",
+          (SELECT CAST(COUNT(*) AS INT) FROM reports WHERE target_type = 'conversation') AS "reportsConversation"`,
         [days],
       ),
     ]);
@@ -263,7 +264,7 @@ export class AccountsService {
       .take(input.limit + 1);
     if (input.query)
       query.andWhere(
-        '(user.displayName ILIKE :term OR user.email ILIKE :term OR CAST(user.id AS text) ILIKE :term)',
+        "(user.displayName LIKE :term ESCAPE '\\' OR user.email LIKE :term ESCAPE '\\' OR CAST(user.id AS NVARCHAR(36)) LIKE :term ESCAPE '\\')",
         { term: `%${input.query.replace(/[\\%_]/g, '\\$&')}%` },
       );
     if (input.status)
@@ -312,12 +313,11 @@ export class AccountsService {
             since: Date;
           }[]
         >(
-          `SELECT u.id, u.email, u.display_name AS "displayName", u.status, u.role, f.created_at AS since
+          `SELECT TOP (50) u.id, u.email, u.display_name AS "displayName", u.status, u.role, f.created_at AS since
            FROM friendships f
-           JOIN users u ON u.id = CASE WHEN f.requester_id = $1 THEN f.recipient_id ELSE f.requester_id END
-           WHERE (f.requester_id = $1 OR f.recipient_id = $1) AND f.status = 'accepted'
-           ORDER BY f.created_at DESC
-           LIMIT 50`,
+           JOIN users u ON u.id = CASE WHEN f.requester_id = @0 THEN f.recipient_id ELSE f.requester_id END
+           WHERE (f.requester_id = @0 OR f.recipient_id = @0) AND f.status = 'accepted'
+           ORDER BY f.created_at DESC`,
           [userId],
         ),
         this.db.query<
@@ -332,30 +332,29 @@ export class AccountsService {
             memberCount: number;
           }[]
         >(
-          `SELECT
+          `SELECT TOP (50)
              c.id,
              c.type,
              c.title,
-             c.last_message_sequence::text AS "lastMessageSequence",
+             CAST(c.last_message_sequence AS NVARCHAR(30)) AS "lastMessageSequence",
              c.created_at AS "createdAt",
              cm.role AS "memberRole",
              cmp.joined_at AS "joinedAt",
-             (SELECT COUNT(*)::int FROM conversation_member_periods p2 WHERE p2.conversation_id = c.id AND p2.left_at IS NULL) AS "memberCount"
+             (SELECT CAST(COUNT(*) AS INT) FROM conversation_member_periods p2 WHERE p2.conversation_id = c.id AND p2.left_at IS NULL) AS "memberCount"
            FROM conversation_member_periods cmp
            JOIN conversation_members cm ON cm.conversation_id = cmp.conversation_id AND cm.user_id = cmp.user_id
            JOIN conversations c ON c.id = cmp.conversation_id
-           WHERE cmp.user_id = $1 AND cmp.left_at IS NULL AND c.deleted_at IS NULL
-           ORDER BY c.updated_at DESC
-           LIMIT 50`,
+           WHERE cmp.user_id = @0 AND cmp.left_at IS NULL AND c.deleted_at IS NULL
+           ORDER BY c.updated_at DESC`,
           [userId],
         ),
         this.db.query<{ fileCount: number; totalBytes: string }[]>(
           `SELECT
-             COUNT(*)::int AS "fileCount",
-             COALESCE(SUM(a.size), 0)::bigint::text AS "totalBytes"
+             CAST(COUNT(*) AS INT) AS "fileCount",
+             CAST(COALESCE(SUM(a.size), 0) AS NVARCHAR(30)) AS "totalBytes"
            FROM attachments a
            LEFT JOIN messages m ON m.id = a.message_id
-           WHERE a.uploader_id = $1
+           WHERE a.uploader_id = @0
              AND a.status IN ('uploaded', 'attached')
              AND (a.message_id IS NULL OR m.deleted_at IS NULL)`,
           [userId],
@@ -371,21 +370,20 @@ export class AccountsService {
             createdAt: Date;
           }[]
         >(
-          `SELECT
+          `SELECT TOP (20)
              a.id,
              a.file_name AS "fileName",
              a.mime_type AS "mimeType",
-             a.size::text AS size,
+             CAST(a.size AS NVARCHAR(30)) AS size,
              a.status,
              a.message_id AS "messageId",
              a.created_at AS "createdAt"
            FROM attachments a
            LEFT JOIN messages m ON m.id = a.message_id
-           WHERE a.uploader_id = $1
+           WHERE a.uploader_id = @0
              AND a.status IN ('uploaded', 'attached')
              AND (a.message_id IS NULL OR m.deleted_at IS NULL)
-           ORDER BY a.created_at DESC
-           LIMIT 20`,
+           ORDER BY a.created_at DESC`,
           [userId],
         ),
       ]);
@@ -434,7 +432,10 @@ export class AccountsService {
           .getRepository(Session)
           .createQueryBuilder()
           .update()
-          .set({ revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)' })
+          .set({
+            revokedAt: () =>
+              'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
+          })
           .where({ userId, revokedAt: IsNull() })
           .execute();
       await manager.getRepository(User).update(userId, { status });
@@ -520,28 +521,34 @@ export class AccountsService {
           }[]
         >(
           `UPDATE messages
-           SET deleted_at = COALESCE(deleted_at, GREATEST(CURRENT_TIMESTAMP, COALESCE(edited_at, created_at) + INTERVAL '1 millisecond'))
-           WHERE id = $1
-           RETURNING
-             id,
-             conversation_id AS "conversationId",
-             sender_id AS "senderId",
-             client_message_id AS "clientMessageId",
-             sequence::text AS sequence,
-             type,
-             created_at AS "createdAt",
-             edited_at AS "editedAt",
-             deleted_at AS "deletedAt"`,
+           SET deleted_at = COALESCE(
+             deleted_at,
+             CASE WHEN SYSDATETIMEOFFSET() > DATEADD(millisecond, 1, COALESCE(edited_at, created_at))
+               THEN SYSDATETIMEOFFSET()
+               ELSE DATEADD(millisecond, 1, COALESCE(edited_at, created_at))
+             END
+           )
+           OUTPUT
+             INSERTED.id,
+             INSERTED.conversation_id AS "conversationId",
+             INSERTED.sender_id AS "senderId",
+             INSERTED.client_message_id AS "clientMessageId",
+             CAST(INSERTED.sequence AS NVARCHAR(30)) AS sequence,
+             INSERTED.type,
+             INSERTED.created_at AS "createdAt",
+             INSERTED.edited_at AS "editedAt",
+             INSERTED.deleted_at AS "deletedAt"
+           WHERE id = @0`,
           [targetId],
         );
         const msg = rows[0];
         if (!msg) throw new HttpException({ code: 'MESSAGE_NOT_FOUND' }, 404);
         deletedMessage = msg;
-        await manager.query('DELETE FROM message_pins WHERE message_id = $1', [
+        await manager.query('DELETE FROM message_pins WHERE message_id = @0', [
           targetId,
         ]);
         const attached = await manager.query<{ objectKey: string }[]>(
-          `SELECT object_key AS "objectKey" FROM attachments WHERE message_id = $1 AND status = 'attached'`,
+          `SELECT object_key AS "objectKey" FROM attachments WHERE message_id = @0 AND status = 'attached'`,
           [targetId],
         );
         for (const item of attached) objectKeysToRemove.push(item.objectKey);
@@ -570,9 +577,8 @@ export class AccountsService {
              object_key AS "objectKey",
              status,
              file_name AS "fileName"
-           FROM attachments
-           WHERE id = $1
-           FOR UPDATE`,
+           FROM attachments WITH (UPDLOCK, ROWLOCK)
+           WHERE id = @0`,
           [targetId],
         );
         const att = attRows[0];
@@ -593,28 +599,34 @@ export class AccountsService {
             }[]
           >(
             `UPDATE messages
-             SET deleted_at = COALESCE(deleted_at, GREATEST(CURRENT_TIMESTAMP, COALESCE(edited_at, created_at) + INTERVAL '1 millisecond'))
-             WHERE id = $1
-             RETURNING
-               id,
-               conversation_id AS "conversationId",
-               sender_id AS "senderId",
-               client_message_id AS "clientMessageId",
-               sequence::text AS sequence,
-               type,
-               created_at AS "createdAt",
-               edited_at AS "editedAt",
-               deleted_at AS "deletedAt"`,
+             SET deleted_at = COALESCE(
+               deleted_at,
+               CASE WHEN SYSDATETIMEOFFSET() > DATEADD(millisecond, 1, COALESCE(edited_at, created_at))
+                 THEN SYSDATETIMEOFFSET()
+                 ELSE DATEADD(millisecond, 1, COALESCE(edited_at, created_at))
+               END
+             )
+             OUTPUT
+               INSERTED.id,
+               INSERTED.conversation_id AS "conversationId",
+               INSERTED.sender_id AS "senderId",
+               INSERTED.client_message_id AS "clientMessageId",
+               CAST(INSERTED.sequence AS NVARCHAR(30)) AS sequence,
+               INSERTED.type,
+               INSERTED.created_at AS "createdAt",
+               INSERTED.edited_at AS "editedAt",
+               INSERTED.deleted_at AS "deletedAt"
+             WHERE id = @0`,
             [att.messageId],
           );
           deletedMessage = msgRows[0] ?? null;
           await manager.query(
-            'DELETE FROM message_pins WHERE message_id = $1',
+            'DELETE FROM message_pins WHERE message_id = @0',
             [att.messageId],
           );
         } else if (att.status === 'pending' || att.status === 'uploaded') {
           await manager.query(
-            `UPDATE attachments SET status = 'rejected' WHERE id = $1`,
+            `UPDATE attachments SET status = 'rejected' WHERE id = @0`,
             [targetId],
           );
         }
@@ -627,7 +639,7 @@ export class AccountsService {
         };
       }
       await manager.query(
-        'INSERT INTO audit_logs (actor_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5::jsonb)',
+        'INSERT INTO audit_logs (actor_id, action, target_type, target_id, metadata) VALUES (@0, @1, @2, @3, @4)',
         [
           actor.id,
           'content.deleted',
@@ -672,7 +684,7 @@ export class AccountsService {
     if (input.targetId)
       query.andWhere('log.targetId = :targetId', { targetId: input.targetId });
     if (input.action)
-      query.andWhere('log.action ILIKE :action', {
+      query.andWhere("log.action LIKE :action ESCAPE '\\'", {
         action: `%${input.action.replace(/[\\%_]/g, '\\$&')}%`,
       });
     if (input.from)
@@ -684,11 +696,11 @@ export class AccountsService {
       query.andWhere('log.createdAt <= :to', { to: toDate });
     }
     if (input.cursor) {
-      if (!(await repo.existsBy({ id: input.cursor })))
-        throw new HttpException({ code: 'INVALID_CURSOR' }, 400);
+      const cursorRow = await repo.findOneBy({ id: input.cursor });
+      if (!cursorRow) throw new HttpException({ code: 'INVALID_CURSOR' }, 400);
       query.andWhere(
-        '(log.createdAt, log.id) < ((SELECT created_at FROM audit_logs WHERE id = :cursor), :cursor)',
-        { cursor: input.cursor },
+        '(log.createdAt < :cursorCreatedAt OR (log.createdAt = :cursorCreatedAt AND log.id < :cursor))',
+        { cursorCreatedAt: cursorRow.createdAt, cursor: cursorRow.id },
       );
     }
     const rows = await query.getMany();
@@ -701,12 +713,14 @@ export class AccountsService {
           select: ['id', 'email', 'displayName'],
         })
       : [];
-    const actorMap = new Map(actors.map((u) => [u.id, u]));
+    const actorMap = new Map(actors.map((u) => [u.id.toLowerCase(), u]));
     return pageResult(
       rows.map((log) => ({
         id: log.id,
         actorId: log.actorId,
-        actor: log.actorId ? (actorMap.get(log.actorId) ?? null) : null,
+        actor: log.actorId
+          ? (actorMap.get(log.actorId.toLowerCase()) ?? null)
+          : null,
         action: log.action,
         targetType: log.targetType,
         targetId: log.targetId,
@@ -733,7 +747,7 @@ export class AccountsService {
       ],
     });
     if (!user) throw new HttpException({ code: 'USER_NOT_FOUND' }, 404);
-    const [sessions, friends, conversations, uploads, reports, auditLogs] =
+    const [sessions, friends, conversations, uploads, reports, rawAuditLogs] =
       await Promise.all([
         this.db.query<
           {
@@ -744,11 +758,10 @@ export class AccountsService {
             revokedAt: Date | null;
           }[]
         >(
-          `SELECT id, device_name AS "deviceName", created_at AS "createdAt", expires_at AS "expiresAt", revoked_at AS "revokedAt"
+          `SELECT TOP (50) id, device_name AS "deviceName", created_at AS "createdAt", expires_at AS "expiresAt", revoked_at AS "revokedAt"
            FROM sessions
-           WHERE user_id = $1
-           ORDER BY created_at DESC
-           LIMIT 50`,
+           WHERE user_id = @0
+           ORDER BY created_at DESC`,
           [userId],
         ),
         this.db.query<
@@ -760,11 +773,10 @@ export class AccountsService {
             createdAt: Date;
           }[]
         >(
-          `SELECT id, requester_id AS "requesterId", recipient_id AS "recipientId", status, created_at AS "createdAt"
+          `SELECT TOP (100) id, requester_id AS "requesterId", recipient_id AS "recipientId", status, created_at AS "createdAt"
            FROM friendships
-           WHERE requester_id = $1 OR recipient_id = $1
-           ORDER BY created_at DESC
-           LIMIT 100`,
+           WHERE requester_id = @0 OR recipient_id = @0
+           ORDER BY created_at DESC`,
           [userId],
         ),
         this.db.query<
@@ -777,7 +789,7 @@ export class AccountsService {
             leftAt: Date | null;
           }[]
         >(
-          `SELECT
+          `SELECT TOP (100)
              cmp.conversation_id AS "conversationId",
              c.type,
              c.title,
@@ -787,9 +799,8 @@ export class AccountsService {
            FROM conversation_member_periods cmp
            JOIN conversations c ON c.id = cmp.conversation_id
            LEFT JOIN conversation_members cm ON cm.conversation_id = cmp.conversation_id AND cm.user_id = cmp.user_id
-           WHERE cmp.user_id = $1
-           ORDER BY cmp.joined_at DESC
-           LIMIT 100`,
+           WHERE cmp.user_id = @0
+           ORDER BY cmp.joined_at DESC`,
           [userId],
         ),
         this.db.query<
@@ -803,18 +814,17 @@ export class AccountsService {
             createdAt: Date;
           }[]
         >(
-          `SELECT
+          `SELECT TOP (100)
              id,
              conversation_id AS "conversationId",
              file_name AS "fileName",
              mime_type AS "mimeType",
-             size::text AS size,
+             CAST(size AS NVARCHAR(30)) AS size,
              status,
              created_at AS "createdAt"
            FROM attachments
-           WHERE uploader_id = $1
-           ORDER BY created_at DESC
-           LIMIT 100`,
+           WHERE uploader_id = @0
+           ORDER BY created_at DESC`,
           [userId],
         ),
         this.db.query<
@@ -831,7 +841,7 @@ export class AccountsService {
             reviewedAt: Date | null;
           }[]
         >(
-          `SELECT
+          `SELECT TOP (100)
              id,
              reporter_id AS "reporterId",
              reported_user_id AS "reportedUserId",
@@ -843,9 +853,8 @@ export class AccountsService {
              created_at AS "createdAt",
              reviewed_at AS "reviewedAt"
            FROM reports
-           WHERE reporter_id = $1 OR reported_user_id = $1 OR (snapshot->>'senderId') = $1
-           ORDER BY created_at DESC
-           LIMIT 100`,
+           WHERE reporter_id = @0 OR reported_user_id = @0 OR (ISJSON(snapshot) = 1 AND JSON_VALUE(snapshot, '$.senderId') = CAST(@0 AS NVARCHAR(36)))
+           ORDER BY created_at DESC`,
           [userId],
         ),
         this.db.query<
@@ -855,11 +864,11 @@ export class AccountsService {
             action: string;
             targetType: string | null;
             targetId: string | null;
-            metadata: Record<string, unknown>;
+            metadata: string | Record<string, unknown>;
             createdAt: Date;
           }[]
         >(
-          `SELECT
+          `SELECT TOP (200)
              id,
              actor_id AS "actorId",
              action,
@@ -868,12 +877,24 @@ export class AccountsService {
              metadata,
              created_at AS "createdAt"
            FROM audit_logs
-           WHERE actor_id = $1 OR (target_type = 'user' AND target_id = $1)
-           ORDER BY created_at DESC
-           LIMIT 200`,
+           WHERE actor_id = @0 OR (target_type = 'user' AND target_id = @0)
+           ORDER BY created_at DESC`,
           [userId],
         ),
       ]);
+    const auditLogs = rawAuditLogs.map((item) => {
+      let metadata: Record<string, unknown> = {};
+      if (typeof item.metadata === 'string') {
+        try {
+          metadata = JSON.parse(item.metadata) as Record<string, unknown>;
+        } catch {
+          metadata = {};
+        }
+      } else if (item.metadata && typeof item.metadata === 'object') {
+        metadata = item.metadata;
+      }
+      return { ...item, metadata };
+    });
     await this.db.getRepository(AuditLog).insert({
       actorId: actor.id,
       action: 'compliance.user_export',
@@ -907,15 +928,12 @@ export class AccountsService {
       const objectKeysToRemove: string[] = [];
       if (input.scope === 'attachments' || input.scope === 'both') {
         const unattached = await manager.query<{ objectKey: string }[]>(
-          `WITH expired AS (
-             UPDATE attachments
-             SET status = 'expired'
-             WHERE status IN ('pending', 'uploaded')
-               AND message_id IS NULL
-               AND created_at < CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')
-             RETURNING object_key AS "objectKey"
-           )
-           SELECT "objectKey" FROM expired`,
+          `UPDATE attachments
+           SET status = 'expired'
+           OUTPUT INSERTED.object_key AS "objectKey"
+           WHERE status IN ('pending', 'uploaded')
+             AND message_id IS NULL
+             AND created_at < DATEADD(day, -@0, SYSDATETIMEOFFSET())`,
           [input.days],
         );
         for (const row of unattached) objectKeysToRemove.push(row.objectKey);
@@ -923,21 +941,18 @@ export class AccountsService {
       }
       if (input.scope === 'messages' || input.scope === 'both') {
         const deletedRows = await manager.query<{ id: string; type: string }[]>(
-          `WITH updated AS (
-             UPDATE messages
-             SET deleted_at = GREATEST(CURRENT_TIMESTAMP, created_at)
-             WHERE deleted_at IS NULL
-               AND created_at < CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')
-             RETURNING id, type
-           )
-           SELECT id, type FROM updated`,
+          `UPDATE messages
+           SET deleted_at = CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END
+           OUTPUT INSERTED.id, INSERTED.type
+           WHERE deleted_at IS NULL
+             AND created_at < DATEADD(day, -@0, SYSDATETIMEOFFSET())`,
           [input.days],
         );
         deletedMessages = deletedRows.length;
         if (deletedRows.length) {
           await manager.query(
-            `DELETE FROM message_pins WHERE message_id = ANY($1::uuid[])`,
-            [deletedRows.map((r) => r.id)],
+            `DELETE FROM message_pins WHERE message_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@0))`,
+            [JSON.stringify(deletedRows.map((r) => r.id))],
           );
         }
         if (input.scope === 'both' && deletedRows.length) {
@@ -948,8 +963,8 @@ export class AccountsService {
             const attached = await manager.query<{ objectKey: string }[]>(
               `SELECT object_key AS "objectKey"
                FROM attachments
-               WHERE status = 'attached' AND message_id = ANY($1::uuid[])`,
-              [mediaIds],
+               WHERE status = 'attached' AND message_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@0))`,
+              [JSON.stringify(mediaIds)],
             );
             for (const row of attached) objectKeysToRemove.push(row.objectKey);
             expiredAttachments += attached.length;
@@ -962,25 +977,13 @@ export class AccountsService {
             objectKey: string;
           }[]
         >(
-          `WITH target AS (
-             SELECT m.id AS message_id, a.object_key AS "objectKey"
-             FROM messages m
-             JOIN attachments a ON a.message_id = m.id
-             WHERE a.status = 'attached'
-               AND m.deleted_at IS NULL
-               AND m.type IN ('image', 'file', 'voice')
-               AND a.created_at < CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')
-           ),
-           updated AS (
-             UPDATE messages m
-             SET deleted_at = GREATEST(CURRENT_TIMESTAMP, m.created_at)
-             FROM target t
-             WHERE m.id = t.message_id AND m.deleted_at IS NULL
-             RETURNING m.id
-           )
-           SELECT DISTINCT t.message_id AS "messageId", t."objectKey"
-           FROM target t
-           JOIN updated u ON u.id = t.message_id`,
+          `SELECT m.id AS "messageId", a.object_key AS "objectKey"
+           FROM messages m
+           JOIN attachments a ON a.message_id = m.id
+           WHERE a.status = 'attached'
+             AND m.deleted_at IS NULL
+             AND m.type IN ('image', 'file', 'voice')
+             AND a.created_at < DATEADD(day, -@0, SYSDATETIMEOFFSET())`,
           [input.days],
         );
         const deletedMediaMessageIds = [
@@ -988,9 +991,16 @@ export class AccountsService {
         ];
         deletedMessages = deletedMediaMessageIds.length;
         if (deletedMediaMessageIds.length) {
+          const idsJson = JSON.stringify(deletedMediaMessageIds);
           await manager.query(
-            `DELETE FROM message_pins WHERE message_id = ANY($1::uuid[])`,
-            [deletedMediaMessageIds],
+            `UPDATE messages
+             SET deleted_at = CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END
+             WHERE deleted_at IS NULL AND id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@0))`,
+            [idsJson],
+          );
+          await manager.query(
+            `DELETE FROM message_pins WHERE message_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@0))`,
+            [idsJson],
           );
         }
         for (const row of mediaRows) objectKeysToRemove.push(row.objectKey);
@@ -1038,7 +1048,7 @@ export class AccountsService {
         deviceName: s.deviceName,
         createdAt: s.createdAt,
         expiresAt: s.expiresAt,
-        current: s.id === currentId,
+        current: s.id.toLowerCase() === currentId.toLowerCase(),
       })),
     };
   }
@@ -1049,7 +1059,10 @@ export class AccountsService {
     await repo
       .createQueryBuilder()
       .update()
-      .set({ revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)' })
+      .set({
+        revokedAt: () =>
+          'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
+      })
       .where({ id, userId, revokedAt: IsNull() })
       .execute();
     this.events.accessChanged(userId);

@@ -89,15 +89,7 @@ function fixture() {
   };
   const manager = {
     getRepository: (entity) => {
-      if (entity === Notification) {
-        const builder = {
-          insert: () => builder,
-          values: () => builder,
-          orIgnore: () => builder,
-          execute: async () => ({}),
-        };
-        return { createQueryBuilder: () => builder };
-      }
+      if (entity === Notification) return { insert: async () => ({}) };
       let selected = [];
       const builder = {
         leftJoinAndSelect: () => builder,

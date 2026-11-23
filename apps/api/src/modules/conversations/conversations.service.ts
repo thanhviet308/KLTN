@@ -141,7 +141,7 @@ export class ConversationsService {
   private async materializeLegacyRequestsForUser(actorId: string) {
     const legacyRows: { requesterId: string; recipientId: string }[] =
       await this.db.query(
-        `SELECT mr.requester_id AS "requesterId", mr.recipient_id AS "recipientId"
+        `SELECT TOP (20) mr.requester_id AS "requesterId", mr.recipient_id AS "recipientId"
          FROM message_requests mr
          JOIN users req_user ON req_user.id = mr.requester_id AND req_user.status = 'active'
          JOIN users rec_user ON rec_user.id = mr.recipient_id AND rec_user.status = 'active'
@@ -149,10 +149,9 @@ export class ConversationsService {
            ON c.direct_user_low_id = mr.pair_low_id
           AND c.direct_user_high_id = mr.pair_high_id
           AND c.deleted_at IS NULL
-         WHERE (mr.requester_id = $1 OR mr.recipient_id = $1)
+         WHERE (mr.requester_id = @0 OR mr.recipient_id = @0)
            AND mr.status IN ('pending', 'accepted')
-           AND (c.id IS NULL OR c.last_message_sequence = 0)
-         LIMIT 20`,
+           AND (c.id IS NULL OR c.last_message_sequence = 0)`,
         [actorId],
       );
     for (const row of legacyRows) {
@@ -171,16 +170,17 @@ export class ConversationsService {
     role: ConversationMember['role'],
   ) {
     const members = manager.getRepository(ConversationMember);
-    await members
-      .createQueryBuilder()
-      .insert()
-      .values({ conversationId: conversation.id, userId, role })
-      .orIgnore()
-      .execute();
-    const member = await members.findOneByOrFail({
+    let member = await members.findOneBy({
       conversationId: conversation.id,
       userId,
     });
+    if (!member) {
+      await members.insert({ conversationId: conversation.id, userId, role });
+      member = await members.findOneByOrFail({
+        conversationId: conversation.id,
+        userId,
+      });
+    }
     const periods = manager.getRepository(ConversationMemberPeriod);
     const current = await periods.findOneBy({
       conversationId: conversation.id,
@@ -264,9 +264,12 @@ export class ConversationsService {
     recipientId: string,
     materializeLegacy = true,
   ) {
-    const [low, high] = [actorId, recipientId].sort();
+    const [low, high] = [
+      actorId.toLowerCase(),
+      recipientId.toLowerCase(),
+    ].sort();
     await manager.query(
-      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
       [`conversation:direct:${low}:${high}`],
     );
     await this.activeUsers(manager, [actorId, recipientId]);
@@ -373,7 +376,7 @@ export class ConversationsService {
       .digest('hex');
     return this.db.transaction(async (manager) => {
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [
           `conversation:group:${actorId}:${input.clientRequestId!.toLowerCase()}`,
         ],
@@ -468,36 +471,42 @@ export class ConversationsService {
       .addOrderBy('member.conversationId', 'DESC')
       .take(input.limit + 1);
     if (input.cursor) {
-      await this.get(actorId, input.cursor);
+      const cursorResult = await this.get(actorId, input.cursor);
       query.andWhere(
-        '(conversation.updatedAt, member.conversationId) < ((SELECT updated_at FROM conversations WHERE id = :cursor), :cursor)',
-        { cursor: input.cursor },
+        '(conversation.updatedAt < :cursorUpdatedAt OR (conversation.updatedAt = :cursorUpdatedAt AND member.conversationId < :cursor))',
+        {
+          cursorUpdatedAt: cursorResult.conversation.updatedAt,
+          cursor: input.cursor,
+        },
       );
     }
     const members = await query.getMany();
+    const convIdsJson = JSON.stringify(
+      members.map((member) => member.conversationId),
+    );
     const unreadRows: { conversationId: string; count: number }[] =
       members.length
         ? await this.db.query(
             `
-        SELECT m.conversation_id AS "conversationId", count(*)::int AS count
+        SELECT m.conversation_id AS "conversationId", CAST(COUNT(*) AS INT) AS count
         FROM messages m
-        JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
-        WHERE m.conversation_id = ANY($1::uuid[]) AND m.sender_id <> $2
+        JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = @1
+        WHERE m.conversation_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@0)) AND m.sender_id <> @1
           AND EXISTS (SELECT 1 FROM users u WHERE u.id=m.sender_id AND u.status='active') AND m.deleted_at IS NULL AND m.sequence > COALESCE(cm.last_read_sequence, 0)
           AND m.sequence > cm.cleared_after_sequence
           AND EXISTS (
             SELECT 1 FROM conversation_member_periods p
-            WHERE p.conversation_id = m.conversation_id AND p.user_id = $2
+            WHERE p.conversation_id = m.conversation_id AND p.user_id = @1
               AND m.sequence > p.joined_after_sequence
               AND (p.left_after_sequence IS NULL OR m.sequence <= p.left_after_sequence)
           )
         GROUP BY m.conversation_id
       `,
-            [members.map((member) => member.conversationId), actorId],
+            [convIdsJson, actorId],
           )
         : [];
     const unreadById = new Map(
-      unreadRows.map((row) => [row.conversationId, row.count]),
+      unreadRows.map((row) => [row.conversationId.toLowerCase(), row.count]),
     );
     const previews: {
       conversationId: string;
@@ -514,38 +523,46 @@ export class ConversationsService {
       ? await this.db.query(
           `
       SELECT latest.*, sender.display_name AS "senderName"
-      FROM unnest($1::uuid[]) AS requested(conversation_id)
-      CROSS JOIN LATERAL (
-        SELECT m.conversation_id AS "conversationId", m.id,
-          m.sender_id AS "senderId", m.sequence::text AS sequence, m.type, m.content,
+      FROM (SELECT CAST([value] AS UNIQUEIDENTIFIER) AS conversation_id FROM OPENJSON(@0)) AS requested
+      CROSS APPLY (
+        SELECT TOP (1) m.conversation_id AS "conversationId", m.id,
+          m.sender_id AS "senderId", CAST(m.sequence AS NVARCHAR(30)) AS sequence, m.type, m.content,
           CASE WHEN m.deleted_at IS NULL THEN COALESCE(m.edited_body, m.body)
             ELSE NULL END AS body,
           m.created_at AS "createdAt", m.deleted_at AS "deletedAt"
         FROM messages m
-        JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
+        JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = @1
         WHERE m.conversation_id = requested.conversation_id AND EXISTS (SELECT 1 FROM users u WHERE u.id=m.sender_id AND u.status='active')
           AND m.sequence > cm.cleared_after_sequence
           AND EXISTS (
             SELECT 1 FROM conversation_member_periods p
-            WHERE p.conversation_id = m.conversation_id AND p.user_id = $2
+            WHERE p.conversation_id = m.conversation_id AND p.user_id = @1
               AND m.sequence > p.joined_after_sequence
               AND (p.left_after_sequence IS NULL OR m.sequence <= p.left_after_sequence)
           )
-        ORDER BY m.sequence DESC LIMIT 1
+        ORDER BY m.sequence DESC
       ) latest
       JOIN users sender ON sender.id = latest."senderId"
     `,
-          [members.map((member) => member.conversationId), actorId],
+          [convIdsJson, actorId],
         )
       : [];
     const previewById = new Map(
       previews.map(({ conversationId, ...preview }) => {
         const body = decryptMessageText(preview.body);
+        let rawContent = preview.content;
+        if (typeof rawContent === 'string') {
+          try {
+            rawContent = JSON.parse(rawContent) as Message['content'];
+          } catch {
+            rawContent = null;
+          }
+        }
         const content = preview.deletedAt
           ? null
-          : decryptMessageContent(preview.content);
+          : decryptMessageContent(rawContent);
         return [
-          conversationId,
+          conversationId.toLowerCase(),
           { ...preview, content, body: body?.slice(0, 200) ?? null },
         ];
       }),
@@ -555,7 +572,8 @@ export class ConversationsService {
         members.flatMap(({ conversation }) =>
           conversation.type === 'direct'
             ? [
-                conversation.directUserLowId === actorId
+                conversation.directUserLowId?.toLowerCase() ===
+                actorId.toLowerCase()
                   ? conversation.directUserHighId!
                   : conversation.directUserLowId!,
               ]
@@ -563,6 +581,7 @@ export class ConversationsService {
         ),
       ),
     ];
+    const peerIdsJson = JSON.stringify(peerIds);
     const [peers, friendRows, requestRows] = peerIds.length
       ? await Promise.all([
           this.db
@@ -572,12 +591,12 @@ export class ConversationsService {
             .where('user.id IN (:...peerIds)', { peerIds })
             .getMany(),
           this.db.query<{ peerId: string }[]>(
-            `SELECT CASE WHEN requester_id = $1 THEN recipient_id ELSE requester_id END AS "peerId"
+            `SELECT CASE WHEN requester_id = @0 THEN recipient_id ELSE requester_id END AS "peerId"
              FROM friendships
              WHERE status = 'accepted'
-               AND ((requester_id = $1 AND recipient_id = ANY($2::uuid[]))
-                 OR (recipient_id = $1 AND requester_id = ANY($2::uuid[])))`,
-            [actorId, peerIds],
+               AND ((requester_id = @0 AND recipient_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1)))
+                 OR (recipient_id = @0 AND requester_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1))))`,
+            [actorId, peerIdsJson],
           ),
           this.db.query<
             {
@@ -589,19 +608,22 @@ export class ConversationsService {
           >(
             `SELECT id, requester_id AS "requesterId", recipient_id AS "recipientId", status
              FROM message_requests
-             WHERE (requester_id = $1 AND recipient_id = ANY($2::uuid[]))
-                OR (recipient_id = $1 AND requester_id = ANY($2::uuid[]))`,
-            [actorId, peerIds],
+             WHERE (requester_id = @0 AND recipient_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1)))
+                OR (recipient_id = @0 AND requester_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1)))`,
+            [actorId, peerIdsJson],
           ),
         ])
       : [[], [], []];
     const peerById = new Map(
-      peers.map((peer) => [peer.id, publicUserView(peer)]),
+      peers.map((peer) => [peer.id.toLowerCase(), publicUserView(peer)]),
     );
-    const friendSet = new Set(friendRows.map((r) => r.peerId));
+    const friendSet = new Set(friendRows.map((r) => r.peerId.toLowerCase()));
     const requestByPeerId = new Map(
       requestRows.map((r) => [
-        r.requesterId === actorId ? r.recipientId : r.requesterId,
+        (r.requesterId.toLowerCase() === actorId.toLowerCase()
+          ? r.recipientId
+          : r.requesterId
+        ).toLowerCase(),
         r,
       ]),
     );
@@ -609,9 +631,11 @@ export class ConversationsService {
       members.map((member) => {
         const peerId =
           member.conversation.type === 'direct'
-            ? member.conversation.directUserLowId === actorId
-              ? member.conversation.directUserHighId!
-              : member.conversation.directUserLowId!
+            ? (member.conversation.directUserLowId?.toLowerCase() ===
+              actorId.toLowerCase()
+                ? member.conversation.directUserHighId!
+                : member.conversation.directUserLowId!
+              ).toLowerCase()
             : null;
         let messageRequest: {
           id: string | null;
@@ -623,7 +647,10 @@ export class ConversationsService {
           if (req?.status === 'pending') {
             messageRequest = {
               id: req.id,
-              direction: req.recipientId === actorId ? 'incoming' : 'outgoing',
+              direction:
+                req.recipientId.toLowerCase() === actorId.toLowerCase()
+                  ? 'incoming'
+                  : 'outgoing',
               status: 'pending',
             };
           } else if (req?.status !== 'accepted') {
@@ -634,10 +661,11 @@ export class ConversationsService {
             };
           }
         }
+        const convKey = member.conversationId.toLowerCase();
         return {
           ...this.view(member.conversation, member),
-          lastMessage: previewById.get(member.conversationId) ?? null,
-          unreadCount: unreadById.get(member.conversationId) ?? 0,
+          lastMessage: previewById.get(convKey) ?? null,
+          unreadCount: unreadById.get(convKey) ?? 0,
           peer: peerId ? (peerById.get(peerId) ?? null) : null,
           messageRequest,
         };
@@ -834,7 +862,8 @@ export class ConversationsService {
           'Transfer ownership before leaving the group',
         );
       await manager.getRepository(ConversationMemberPeriod).update(period.id, {
-        leftAt: () => 'GREATEST(CURRENT_TIMESTAMP, joined_at)',
+        leftAt: () =>
+          'CASE WHEN SYSDATETIMEOFFSET() > joined_at THEN SYSDATETIMEOFFSET() ELSE joined_at END',
         leftAfterSequence: conversation.lastMessageSequence,
       });
     });

@@ -36,6 +36,13 @@ function fixture() {
   builder.getMany = async () => [{ id: 'new' }, { id: 'old' }];
   const repository = {
     createQueryBuilder: () => builder,
+    findOne: async ({ where }) =>
+      seen.values?.find(
+        (n) =>
+          n.userId === where.userId &&
+          n.deduplicationKey === where.deduplicationKey,
+      ),
+    insert: async (value) => (seen.values ??= []).push(value),
     countBy: async (criteria) => {
       seen.count = criteria;
       return 3;
@@ -104,8 +111,14 @@ test('event notifications use the supplied transaction and a deduplication key',
     payload: { title: 'Invitation' },
     deduplicationKey: 'request:123',
   });
-  assert.equal(seen.orIgnore, true);
-  assert.equal(seen.executed, true);
+  await writeNotification(
+    db,
+    'recipient',
+    'friend_request',
+    { title: 'Invitation' },
+    'request:123',
+  );
+  assert.equal(seen.values.length, 1);
 });
 test('notification lists hydrate actor profiles for historical and current events', async () => {
   const rows = [

@@ -89,7 +89,7 @@ test('admin queue includes evidence, pending count and stable pagination', async
       getRepository: () => ({
         createQueryBuilder: () => builder,
         countBy: async () => 2,
-        existsBy: async () => true,
+        findOneBy: async ({ id }) => ({ id, createdAt: new Date() }),
       }),
     },
     {},
@@ -185,18 +185,16 @@ function fixture() {
             createdAt: new Date(),
           }),
         };
-      if (entity === Notification) {
-        const builder = {
-          insert: () => builder,
-          values: (value) => {
-            state.notifications.push(value);
-            return builder;
-          },
-          orIgnore: () => builder,
-          execute: async () => {},
+      if (entity === Notification)
+        return {
+          findOne: async ({ where }) =>
+            state.notifications.find(
+              (n) =>
+                n.userId === where.userId &&
+                n.deduplicationKey === where.deduplicationKey,
+            ),
+          insert: async (value) => state.notifications.push(value),
         };
-        return { createQueryBuilder: () => builder };
-      }
       throw new Error('Unexpected repository');
     },
   };
@@ -517,7 +515,7 @@ test('accounts admin methods enforce admin role, self-protection and compliance 
   const manager = {
     query: async (sql, params) => {
       queries.push({ sql, params });
-      if (sql.includes('UPDATE messages') && sql.includes('RETURNING')) {
+      if (sql.includes('UPDATE messages') && sql.includes('OUTPUT')) {
         return [
           {
             id: '10000000-0000-4000-8000-000000000099',

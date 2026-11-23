@@ -17,36 +17,36 @@ x-api: &api
     PORT: '3000'
     WEB_ORIGIN: http://localhost:5173
     JWT_ACCESS_SECRET: ${STAGING_JWT_SECRET:?Generate a separate staging JWT secret}
-    DATABASE_URL: postgresql://pingpong_staging:${STAGING_DB_PASSWORD:?Generate a staging password}@staging-db:5432/pingpong_staging
-    DATABASE_DIRECT_URL: postgresql://pingpong_staging:${STAGING_DB_PASSWORD:?Generate a staging password}@staging-db:5432/pingpong_staging
+    DATABASE_URL: mssql://sa:${STAGING_DB_PASSWORD:?Generate a staging password}@staging-db:1433/pingpong_staging?encrypt=true&trustServerCertificate=true
+    DATABASE_DIRECT_URL: mssql://sa:${STAGING_DB_PASSWORD:?Generate a staging password}@staging-db:1433/pingpong_staging?encrypt=true&trustServerCertificate=true
     CHAT_FILES_DIR: /app/storage/chat
   logging:
     driver: json-file
     options: { max-size: 5m, max-file: '2' }
 services:
   staging-db:
-    image: ${STAGING_POSTGRES_IMAGE:?Set to the existing PostgreSQL 17 image ID}
+    image: ${STAGING_SQLSERVER_IMAGE:?Set to the local SQL Server 2022 image ID}
     pull_policy: never
-    mem_limit: 256m
-    cpus: 0.25
+    mem_limit: 3g
+    cpus: 1
     shm_size: 64m
     networks: [staging]
     environment:
-      POSTGRES_USER: pingpong_staging
-      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?Generate a staging password}
-      POSTGRES_DB: pingpong_staging
+      ACCEPT_EULA: Y
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${STAGING_DB_PASSWORD:?Generate a staging password}
       TZ: UTC
-      PGTZ: UTC
-    volumes: [staging_postgres:/var/lib/postgresql/data]
+    volumes: [staging_sqlserver:/var/opt/mssql]
     healthcheck:
       test:
         [
           CMD-SHELL,
-          'pg_isready -h 127.0.0.1 -U pingpong_staging -d pingpong_staging',
+          'SQLCMDPASSWORD="$${MSSQL_SA_PASSWORD}" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q "SELECT 1"',
         ]
       interval: 5s
       timeout: 3s
-      retries: 12
+      start_period: 45s
+      retries: 18
     restart: 'no'
   staging-migrate:
     <<: *api
@@ -82,5 +82,5 @@ networks:
     internal: true
   staging-http:
 volumes:
-  staging_postgres:
+  staging_sqlserver:
   staging_chat:

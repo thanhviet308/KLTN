@@ -19,7 +19,7 @@ import { User } from './user.entity';
   'message_requests_status_valid',
   "status IN ('pending', 'accepted', 'rejected', 'cancelled')",
 )
-@Check('message_requests_body_present', 'length(body) > 0')
+@Check('message_requests_body_present', 'LEN(body) > 0')
 @Index('message_requests_pair_idx', ['pairLowId', 'pairHighId'], {
   unique: true,
 })
@@ -27,35 +27,38 @@ import { User } from './user.entity';
 @Index('message_requests_requester_status_idx', ['requesterId', 'status'])
 export class MessageRequest {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'requester_id', type: 'uuid' }) requesterId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'requester_id', type: 'uniqueidentifier' })
+  requesterId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'requester_id' })
   requester!: Relation<User>;
-  @Column({ name: 'recipient_id', type: 'uuid' }) recipientId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'recipient_id', type: 'uniqueidentifier' })
+  recipientId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'recipient_id' })
   recipient!: Relation<User>;
   @Column({
     name: 'pair_low_id',
-    type: 'uuid',
-    asExpression: 'LEAST(requester_id, recipient_id)',
-    generatedType: 'STORED',
+    type: 'uniqueidentifier',
   })
   pairLowId!: string;
   @Column({
     name: 'pair_high_id',
-    type: 'uuid',
-    asExpression: 'GREATEST(requester_id, recipient_id)',
-    generatedType: 'STORED',
+    type: 'uniqueidentifier',
   })
   pairHighId!: string;
-  @Column({ type: 'text', transformer: messageTextTransformer }) body!: string;
-  @Column({ type: 'varchar', length: 16, default: 'pending' }) status!:
+  @Column({
+    type: 'nvarchar',
+    length: 'MAX',
+    transformer: messageTextTransformer,
+  })
+  body!: string;
+  @Column({ type: 'nvarchar', length: 16, default: 'pending' }) status!:
     'pending' | 'accepted' | 'rejected' | 'cancelled';
-  @Column({ name: 'responded_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'responded_at', type: 'datetimeoffset', nullable: true })
   respondedAt!: Date | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

@@ -684,16 +684,6 @@ export class GamesService implements OnModuleInit {
   }
 
   private async ensureConstraint() {
-    if (this.constraintEnsured) return;
-    await this.db.query(
-      'ALTER TABLE "game_sessions" ALTER COLUMN "game_type" TYPE varchar(24)',
-    );
-    await this.db.query(
-      'ALTER TABLE "game_sessions" DROP CONSTRAINT IF EXISTS "game_sessions_type_valid"',
-    );
-    await this.db.query(
-      `ALTER TABLE "game_sessions" ADD CONSTRAINT "game_sessions_type_valid" CHECK (game_type IN ('caro','tic_tac_toe','connect_four','chess','xiangqi','othello','checkers','co_ganh','memory_match','treasure_hunt','rps_showdown','pirate_roulette','sudoku_duel','group_bomb_pass','group_truth_dare','group_lucky_wheel','group_spy_hunt','group_heist_vault','group_quiz_arena'))`,
-    );
     this.constraintEnsured = true;
   }
 
@@ -836,7 +826,7 @@ export class GamesService implements OnModuleInit {
     await this.ensureConstraint().catch(() => {});
     const game = await this.db.transaction(async (manager) => {
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`game:${conversationId}`],
       );
       const conversation = await manager
@@ -903,14 +893,11 @@ export class GamesService implements OnModuleInit {
       });
 
       const seqRows: { last_message_sequence: string }[] = await manager.query(
-        `WITH updated AS (
-           UPDATE conversations
-           SET last_message_sequence = last_message_sequence + 1,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1
-           RETURNING last_message_sequence
-         )
-         SELECT last_message_sequence FROM updated`,
+        `UPDATE conversations
+         SET last_message_sequence = last_message_sequence + 1,
+             updated_at = SYSDATETIMEOFFSET()
+         OUTPUT CAST(INSERTED.last_message_sequence AS NVARCHAR(30)) AS last_message_sequence
+         WHERE id = @0`,
         [conversationId],
       );
       const sequence = seqRows[0]?.last_message_sequence;

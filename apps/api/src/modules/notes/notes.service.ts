@@ -267,7 +267,7 @@ export class NotesService {
       .createQueryBuilder('note')
       .innerJoinAndSelect('note.user', 'user')
       .where('note.user_id IN (:...ids)', { ids: [...ids] })
-      .andWhere('note.expires_at > now()')
+      .andWhere('note.expires_at > SYSDATETIMEOFFSET()')
       .andWhere("user.status = 'active'")
       .orderBy('note.updated_at', 'DESC')
       .getMany();

@@ -23,29 +23,29 @@ import { Message } from './message.entity';
 @Check('members_cleared_sequence', 'cleared_after_sequence >= 0')
 @Index('members_user_idx', ['userId', 'conversationId'])
 export class ConversationMember {
-  @PrimaryColumn({ name: 'conversation_id', type: 'uuid' })
+  @PrimaryColumn({ name: 'conversation_id', type: 'uniqueidentifier' })
   conversationId!: string;
-  @PrimaryColumn({ name: 'user_id', type: 'uuid' }) userId!: string;
-  @ManyToOne(() => Conversation, { nullable: false, onDelete: 'RESTRICT' })
+  @PrimaryColumn({ name: 'user_id', type: 'uniqueidentifier' }) userId!: string;
+  @ManyToOne(() => Conversation, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'conversation_id' })
   conversation!: Relation<Conversation>;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'user_id' })
   user!: Relation<User>;
-  @Column({ type: 'varchar', length: 16, default: 'member' }) role!:
+  @Column({ type: 'nvarchar', length: 16, default: 'member' }) role!:
     'owner' | 'admin' | 'member';
   @Column({ name: 'last_read_sequence', type: 'bigint', nullable: true })
   lastReadSequence!: string | null;
   @Column({ name: 'cleared_after_sequence', type: 'bigint', default: '0' })
   clearedAfterSequence!: string;
-  @ManyToOne(() => Message, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Message, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'last_read_sequence', referencedColumnName: 'sequence' },
   ])
   lastReadMessage!: Relation<Message> | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

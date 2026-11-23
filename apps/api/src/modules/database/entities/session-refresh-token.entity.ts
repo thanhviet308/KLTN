@@ -12,7 +12,10 @@ import type { Relation } from 'typeorm';
 import { Session } from './session.entity';
 
 @Entity('session_refresh_tokens')
-@Check('refresh_tokens_hash_valid', "token_hash ~ '^[0-9a-f]{64}$'")
+@Check(
+  'refresh_tokens_hash_valid',
+  "LEN(token_hash) = 64 AND token_hash COLLATE Latin1_General_100_BIN2 NOT LIKE '%[^0-9a-f]%'",
+)
 @Check('refresh_tokens_expiry', 'expires_at > created_at')
 @Check(
   'refresh_tokens_consumption',
@@ -25,21 +28,21 @@ import { Session } from './session.entity';
 })
 export class SessionRefreshToken {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'session_id', type: 'uuid' }) sessionId!: string;
+  @Column({ name: 'session_id', type: 'uniqueidentifier' }) sessionId!: string;
   @ManyToOne(() => Session, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'session_id' })
   session!: Relation<Session>;
   @Column({
     name: 'token_hash',
-    type: 'varchar',
+    type: 'nvarchar',
     length: 64,
     unique: true,
     select: false,
   })
   tokenHash!: string;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @Column({ name: 'expires_at', type: 'timestamptz' }) expiresAt!: Date;
-  @Column({ name: 'consumed_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'expires_at', type: 'datetimeoffset' }) expiresAt!: Date;
+  @Column({ name: 'consumed_at', type: 'datetimeoffset', nullable: true })
   consumedAt!: Date | null;
 }

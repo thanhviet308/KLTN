@@ -12,7 +12,7 @@ function fixture(type = 'direct', denied = false) {
   const manager = {
     query: async (sql, args) => {
       queries.push({ sql, args });
-      if (sql.includes('count(*)')) return [{ total: 0 }];
+      if (sql.toLowerCase().includes('count(*)')) return [{ total: 0 }];
       return [];
     },
   };
@@ -53,11 +53,10 @@ for (const type of ['direct', 'group']) {
         await service.pin(actor, 'conversation', 'message', false),
         { success: true },
       );
-      assert.deepEqual(queries.find((q) => q.sql.startsWith('INSERT')).args, [
-        'message',
-        'conversation',
-        actor,
-      ]);
+      assert.deepEqual(
+        queries.find((q) => q.sql.includes('INSERT INTO message_pins')).args,
+        ['message', 'conversation', actor],
+      );
       assert.deepEqual(
         await service.pin(actor, 'conversation', 'message', true),
         { success: true },

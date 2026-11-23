@@ -37,7 +37,6 @@ git merge --ff-only "$expected_commit"
 
 printf 'VPS checkout updated to %s\n' "$expected_commit"
 [[ -f deploy/vps/.env ]] || { echo 'Code updated, but deployment stopped: create deploy/vps/.env using .env.example' >&2; exit 1; }
-[[ -f deploy/vps/postgres.env ]] || { echo 'Code updated, but deployment stopped: create deploy/vps/postgres.env using postgres.env.example and configure matching database URLs in .env' >&2; exit 1; }
 
 compose=(docker compose --profile blue-green -f deploy/vps/compose.yml)
 health_url=${DEPLOY_HEALTH_URL:-https://pingpongapi.id.vn/api/v1/health/ready}
@@ -85,8 +84,11 @@ esac
 active_container=$("${compose[@]}" ps --all -q "$active")
 [[ -n "$active_container" ]] || { echo 'Start the initial Blue API before enabling blue-green deploy' >&2; exit 1; }
 active_revision=$(read_local_revision "$active_port" 'Active API readiness')
-db_container=$("${compose[@]}" ps -q db)
-[[ -n "$db_container" && "$(docker inspect --format '{{.State.Health.Status}}' "$db_container")" == healthy ]] || { echo 'Existing database must be healthy' >&2; exit 1; }
+# Blue and Green must share the same database during a rolling release.
+docker exec "$active_container" node -e "process.exit(new URL(process.env.DATABASE_URL).protocol === 'mssql:' ? 0 : 1)" || {
+  echo 'Active API still uses another database engine. Complete the SQL Server cutover in a maintenance window before a rolling deploy.' >&2
+  exit 1
+}
 # Avoid starting a build with no memory headroom on the small VPS.
 available_kb=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
 [[ "$available_kb" -ge 524288 ]] || { echo 'Less than 512 MiB RAM available; deployment stopped' >&2; exit 1; }
@@ -155,7 +157,7 @@ for script in api-runtime-dependencies.cjs sharp-runtime-smoke.cjs; do
 done
 # Only migrations explicitly reviewed as backwards-compatible may run while
 # Blue is serving traffic. Future pending migrations fail closed until added.
-reviewed_migrations=(CallMessages1791763200000 PasswordReset1793577600000 MessageEncryption1793664000000 MessageRequests1793750400000 SpamDetection1793836800000 CaroGames1793923200000 MoreChatGames1794009600000 ExpandArcadeGames1794096000000 UserNotes1794182400000 WorkspaceFeatures1794268800000 ConversationCustomization1794355200000 ClearChatHistory1794441600000 CallSummary1794873600000 CallSummaryRecorder1794960000000 CallSummaryOnDemand1795046400000 MediaMetadataEncryption1795132800000)
+reviewed_migrations=(SqlServerFoundation1790985600000)
 migration_args=()
 for migration in "${reviewed_migrations[@]}"; do
   migration_args+=("--allow=$migration")

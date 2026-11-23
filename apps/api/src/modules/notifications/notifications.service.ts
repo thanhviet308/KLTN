@@ -41,9 +41,9 @@ export class NotificationsService {
       const cursor = await repository.findOneBy({ id: input.cursor, userId });
       if (!cursor) throw new HttpException({ code: 'INVALID_CURSOR' }, 400);
       query.andWhere(
-        '(notification.createdAt, notification.id) < ((SELECT created_at FROM notifications WHERE id = :id AND user_id = :userId), :id)',
+        '(notification.createdAt < :cursorCreatedAt OR (notification.createdAt = :cursorCreatedAt AND notification.id < :id))',
         {
-          userId,
+          cursorCreatedAt: cursor.createdAt,
           id: cursor.id,
         },
       );
@@ -84,7 +84,10 @@ export class NotificationsService {
     await repository
       .createQueryBuilder()
       .update()
-      .set({ readAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)' })
+      .set({
+        readAt: () =>
+          'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
+      })
       .where({ userId, readAt: IsNull(), ...(id ? { id } : {}) })
       .execute();
     return { success: true };

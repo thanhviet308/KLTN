@@ -80,12 +80,17 @@ export class MessagesService {
     actorId: string,
     messageId: string,
   ) {
-    const items: { emoji: string; count: number; reacted: boolean }[] =
+    const rows: { emoji: string; count: number; reacted: number | boolean }[] =
       await manager.query(
-        `SELECT emoji, count(*)::int AS count, bool_or(user_id = $2) AS reacted
-       FROM message_reactions WHERE message_id = $1 GROUP BY emoji ORDER BY emoji`,
+        `SELECT emoji, CAST(COUNT(*) AS INT) AS count, MAX(CASE WHEN user_id = @1 THEN 1 ELSE 0 END) AS reacted
+       FROM message_reactions WHERE message_id = @0 GROUP BY emoji ORDER BY emoji`,
         [messageId, actorId],
       );
+    const items = rows.map((r) => ({
+      emoji: r.emoji,
+      count: Number(r.count),
+      reacted: Boolean(r.reacted),
+    }));
     return { messageId, items };
   }
 
@@ -115,14 +120,17 @@ export class MessagesService {
       await this.findVisible(manager, actorId, conversationId, messageId);
       if (emoji === null) {
         await manager.query(
-          'DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2',
+          'DELETE FROM message_reactions WHERE message_id = @0 AND user_id = @1',
           [messageId, actorId],
         );
       } else {
         await manager.query(
-          `INSERT INTO message_reactions (conversation_id, message_id, user_id, emoji)
-          VALUES ($1, $2, $3, $4) ON CONFLICT (message_id, user_id)
-          DO UPDATE SET emoji = EXCLUDED.emoji, updated_at = now()`,
+          `MERGE INTO message_reactions WITH (HOLDLOCK) AS target
+           USING (SELECT @0 AS conversation_id, @1 AS message_id, @2 AS user_id, @3 AS emoji) AS source
+           ON target.message_id = source.message_id AND target.user_id = source.user_id
+           WHEN MATCHED THEN UPDATE SET emoji = source.emoji, updated_at = SYSDATETIMEOFFSET()
+           WHEN NOT MATCHED THEN INSERT (conversation_id, message_id, user_id, emoji, updated_at)
+             VALUES (source.conversation_id, source.message_id, source.user_id, source.emoji, SYSDATETIMEOFFSET());`,
           [conversationId, messageId, actorId, emoji],
         );
       }
@@ -312,12 +320,12 @@ export class MessagesService {
       }
       // Key scope is sender across conversations, matching messages_client_id.
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`message:${actorId}:${input.clientMessageId}`],
       );
       if (media)
         await manager.query(
-          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
           [`media-quota:${actorId}`],
         );
       const { conversation } = await this.conversations.requireAccess(
@@ -332,8 +340,8 @@ export class MessagesService {
           fail(400, 'MENTIONS_GROUP_ONLY', 'Mentions require a group text');
         const targets: { id: string }[] = await manager.query(
           `SELECT u.id FROM users u JOIN conversation_member_periods p ON p.user_id=u.id
-          WHERE p.conversation_id=$1 AND p.left_at IS NULL AND u.status='active' AND u.id=ANY($2::uuid[])`,
-          [conversationId, input.mentions],
+          WHERE p.conversation_id=@0 AND p.left_at IS NULL AND u.status='active' AND u.id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1))`,
+          [conversationId, JSON.stringify(input.mentions)],
         );
         if (targets.length !== input.mentions.length)
           fail(400, 'MENTION_UNAVAILABLE', 'Mentioned member unavailable');
@@ -432,10 +440,16 @@ export class MessagesService {
                   : '[Tệp đính kèm]')
           ).slice(0, 2000);
           if (!existingReq) {
+            const [low, high] = [
+              actorId.toLowerCase(),
+              peerId.toLowerCase(),
+            ].sort() as [string, string];
             await reqRepo.save(
               reqRepo.create({
                 requesterId: actorId,
                 recipientId: peerId,
+                pairLowId: low,
+                pairHighId: high,
                 body: previewText,
                 status: 'pending',
                 respondedAt: null,
@@ -443,7 +457,9 @@ export class MessagesService {
             );
             requestSync = { peerId, kind: 'request_updated' };
           } else if (existingReq.status === 'pending') {
-            if (existingReq.recipientId === actorId) {
+            if (
+              existingReq.recipientId.toLowerCase() === actorId.toLowerCase()
+            ) {
               existingReq.status = 'accepted';
               existingReq.respondedAt = new Date();
               await reqRepo.save(existingReq);
@@ -453,8 +469,14 @@ export class MessagesService {
               await reqRepo.save(existingReq);
             }
           } else if (existingReq.status !== 'accepted') {
+            const [low, high] = [
+              actorId.toLowerCase(),
+              peerId.toLowerCase(),
+            ].sort() as [string, string];
             existingReq.requesterId = actorId;
             existingReq.recipientId = peerId;
+            existingReq.pairLowId = low;
+            existingReq.pairHighId = high;
             existingReq.body = previewText;
             existingReq.status = 'pending';
             existingReq.respondedAt = null;
@@ -465,7 +487,7 @@ export class MessagesService {
       }
       if (media) {
         const totals: { bytes: string }[] = await manager.query(
-          "SELECT COALESCE(sum(size), 0)::text AS bytes FROM attachments WHERE uploader_id = $1 AND status = 'attached'",
+          "SELECT CAST(COALESCE(SUM(size), 0) AS NVARCHAR(30)) AS bytes FROM attachments WHERE uploader_id = @0 AND status = 'attached'",
           [actorId],
         );
         if (
@@ -523,8 +545,8 @@ export class MessagesService {
           mimeType: media.mimeType,
           size: String(media.size),
           status: 'attached',
-          uploadExpiresAt: () => "CURRENT_TIMESTAMP + INTERVAL '1 hour'",
-          completedAt: () => 'CURRENT_TIMESTAMP',
+          uploadExpiresAt: () => 'DATEADD(hour, 1, SYSDATETIMEOFFSET())',
+          completedAt: () => 'SYSDATETIMEOFFSET()',
         });
       for (const userId of input.mentions ?? []) {
         if (userId !== actorId)
@@ -699,6 +721,10 @@ export class MessagesService {
         ),
       );
       await manager.getRepository(Message).save(message);
+      await manager.query(
+        'DELETE FROM message_search_index WHERE message_id = @0',
+        [message.id],
+      );
       return { message: this.view(message), changed: true };
     });
     if (result.changed)
@@ -760,11 +786,7 @@ export class MessagesService {
     input: MessageHistoryDto,
   ) {
     if (input.cursor !== undefined && BigInt(input.cursor) > MAX_SEQUENCE)
-      fail(
-        400,
-        'INVALID_MESSAGE_CURSOR',
-        'Cursor exceeds PostgreSQL bigint range',
-      );
+      fail(400, 'INVALID_MESSAGE_CURSOR', 'Cursor exceeds bigint range');
     return this.db.transaction(async (manager) => {
       const { conversation } = await this.conversations.requireAccess(
         manager,
@@ -844,7 +866,10 @@ export class MessagesService {
         await receipts
           .createQueryBuilder()
           .update()
-          .set({ readAt: () => 'GREATEST(CURRENT_TIMESTAMP, delivered_at)' })
+          .set({
+            readAt: () =>
+              'CASE WHEN SYSDATETIMEOFFSET() > delivered_at THEN SYSDATETIMEOFFSET() ELSE delivered_at END',
+          })
           .where({ messageId: message.id, userId: actorId })
           .execute();
         receipt = await receipts.findOneByOrFail({

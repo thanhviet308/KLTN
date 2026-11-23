@@ -18,10 +18,10 @@ async function migrate(): Promise<void> {
   let locked = false;
   try {
     await runner.connect();
-    const rows: { acquired: boolean }[] = await runner.query(
-      'SELECT pg_try_advisory_lock(1800163, 1) AS acquired',
+    const rows: { acquired: number }[] = await runner.query(
+      "DECLARE @res INT; EXEC @res = sp_getapplock @Resource = 'typeorm_migrations_lock', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @res AS acquired;",
     );
-    locked = rows[0]?.acquired === true;
+    locked = (rows[0]?.acquired ?? -1) >= 0;
     if (!locked) {
       console.error(
         'Another TypeORM migration process is running; retry after it finishes',
@@ -29,18 +29,10 @@ async function migrate(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    // Run migrations and the lock on the same PostgreSQL connection.
     const executor = new MigrationExecutor(dataSource, runner);
     executor.transaction = 'all';
     if (process.argv.includes('--check')) {
-      await runner.startTransaction();
-      await runner.query('SET TRANSACTION READ ONLY');
-      let pending;
-      try {
-        pending = await executor.getPendingMigrations();
-      } finally {
-        await runner.rollbackTransaction();
-      }
+      const pending = await executor.getPendingMigrations();
       console.log(`Pending TypeORM migrations: ${pending.length}`);
       if (pending.length) {
         console.error(
@@ -75,7 +67,11 @@ async function migrate(): Promise<void> {
     );
   } finally {
     try {
-      if (locked) await runner.query('SELECT pg_advisory_unlock(1800163, 1)');
+      if (locked) {
+        await runner.query(
+          "EXEC sp_releaseapplock @Resource = 'typeorm_migrations_lock', @LockOwner = 'Session'",
+        );
+      }
     } finally {
       try {
         await runner.release();

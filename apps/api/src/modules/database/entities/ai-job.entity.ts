@@ -1,3 +1,4 @@
+import { jsonColumn } from '../json-column';
 import {
   Check,
   Column,
@@ -18,7 +19,7 @@ import { Message } from './message.entity';
 @Entity('ai_jobs')
 @Check(
   'ai_jobs_error_code_valid',
-  "error_code IS NULL OR error_code ~ '^[A-Z0-9_]{1,64}$'",
+  "error_code IS NULL OR LEN(error_code) BETWEEN 1 AND 64 AND error_code COLLATE Latin1_General_100_BIN2 NOT LIKE '%[^A-Z0-9_]%'",
 )
 @Unique('ai_jobs_client_request', ['userId', 'clientRequestId'])
 @Check('ai_jobs_kind_valid', "kind IN ('chat', 'summary', 'reply_suggestions')")
@@ -32,12 +33,9 @@ import { Message } from './message.entity';
 )
 @Check(
   'ai_jobs_input_valid',
-  "jsonb_typeof(input) = 'object' AND octet_length(input::text) <= 65536",
+  'ISJSON(input, OBJECT) = 1 AND DATALENGTH(input) <= 65536',
 )
-@Check(
-  'ai_jobs_output_size',
-  'output IS NULL OR octet_length(output) <= 1048576',
-)
+@Check('ai_jobs_output_size', 'output IS NULL OR DATALENGTH(output) <= 1048576')
 @Check(
   'ai_jobs_state_valid',
   "(status = 'queued' AND started_at IS NULL AND finished_at IS NULL AND output IS NULL AND error_code IS NULL) OR (status = 'running' AND started_at IS NOT NULL AND finished_at IS NULL AND output IS NULL AND error_code IS NULL) OR (status = 'completed' AND started_at IS NOT NULL AND finished_at IS NOT NULL AND output IS NOT NULL AND error_code IS NULL) OR (status = 'failed' AND finished_at IS NOT NULL AND output IS NULL AND error_code IS NOT NULL) OR (status = 'cancelled' AND finished_at IS NOT NULL AND output IS NULL)",
@@ -51,23 +49,24 @@ import { Message } from './message.entity';
 @Index('ai_jobs_conversation_idx', ['conversationId'])
 export class AiJob {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'user_id', type: 'uuid' }) userId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'user_id', type: 'uniqueidentifier' }) userId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'user_id' })
   user!: Relation<User>;
-  @Column({ name: 'client_request_id', type: 'uuid' }) clientRequestId!: string;
-  @Column({ name: 'conversation_id', type: 'uuid', nullable: true })
+  @Column({ name: 'client_request_id', type: 'uniqueidentifier' })
+  clientRequestId!: string;
+  @Column({ name: 'conversation_id', type: 'uniqueidentifier', nullable: true })
   conversationId!: string | null;
-  @ManyToOne(() => Conversation, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Conversation, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'conversation_id' })
   conversation!: Relation<Conversation> | null;
-  @Column({ type: 'varchar', length: 32 }) kind!:
+  @Column({ type: 'nvarchar', length: 32 }) kind!:
     'chat' | 'summary' | 'reply_suggestions';
-  @Column({ type: 'varchar', length: 16, default: 'queued' }) status!:
+  @Column({ type: 'nvarchar', length: 16, default: 'queued' }) status!:
     'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   @Column({ name: 'input_start_sequence', type: 'bigint', nullable: true })
   inputStartSequence!: string | null;
-  @ManyToOne(() => Message, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Message, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'input_start_sequence', referencedColumnName: 'sequence' },
@@ -75,24 +74,30 @@ export class AiJob {
   inputStartMessage!: Relation<Message> | null;
   @Column({ name: 'input_end_sequence', type: 'bigint', nullable: true })
   inputEndSequence!: string | null;
-  @ManyToOne(() => Message, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Message, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'input_end_sequence', referencedColumnName: 'sequence' },
   ])
   inputEndMessage!: Relation<Message> | null;
-  @Column({ type: 'jsonb', default: {}, select: false })
+  @Column({
+    type: 'nvarchar',
+    length: 'MAX',
+    transformer: jsonColumn,
+    default: () => "'{}'",
+    select: false,
+  })
   input!: Record<string, unknown>;
-  @Column({ type: 'text', nullable: true, select: false }) output!:
-    string | null;
-  @Column({ name: 'error_code', type: 'varchar', length: 64, nullable: true })
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true, select: false })
+  output!: string | null;
+  @Column({ name: 'error_code', type: 'nvarchar', length: 64, nullable: true })
   errorCode!: string | null;
-  @Column({ name: 'started_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'started_at', type: 'datetimeoffset', nullable: true })
   startedAt!: Date | null;
-  @Column({ name: 'finished_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'finished_at', type: 'datetimeoffset', nullable: true })
   finishedAt!: Date | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

@@ -28,19 +28,21 @@ import { ConversationMember } from './conversation-member.entity';
 })
 export class ConversationMemberPeriod {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;
-  @Column({ name: 'user_id', type: 'uuid' }) userId!: string;
+  @Column({ name: 'conversation_id', type: 'uniqueidentifier' })
+  conversationId!: string;
+  @Column({ name: 'user_id', type: 'uniqueidentifier' }) userId!: string;
   @ManyToOne(() => ConversationMember, {
     nullable: false,
-    onDelete: 'RESTRICT',
+    onDelete: 'NO ACTION',
   })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'user_id', referencedColumnName: 'userId' },
   ])
   member!: Relation<ConversationMember>;
-  @CreateDateColumn({ name: 'joined_at', type: 'timestamptz' }) joinedAt!: Date;
-  @Column({ name: 'left_at', type: 'timestamptz', nullable: true })
+  @CreateDateColumn({ name: 'joined_at', type: 'datetimeoffset' })
+  joinedAt!: Date;
+  @Column({ name: 'left_at', type: 'datetimeoffset', nullable: true })
   leftAt!: Date | null;
   @Column({ name: 'joined_after_sequence', type: 'bigint', default: '0' })
   joinedAfterSequence!: string;

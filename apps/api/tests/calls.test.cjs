@@ -13,7 +13,7 @@ const { validateEnvironment } = require('../dist/config/environment');
 
 const baseEnvironment = {
   NODE_ENV: 'test',
-  DATABASE_URL: 'postgresql://app:secret@localhost:5432/chat',
+  DATABASE_URL: 'mssql://app:secret@localhost:1433/chat',
   JWT_ACCESS_SECRET: 'a'.repeat(64),
 };
 

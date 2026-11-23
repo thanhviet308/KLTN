@@ -4,7 +4,7 @@
 
 `api` là Blue ở localhost:3000; `api-green` là Green ở localhost:3001.
 Tên màu là slot cố định; slot active đổi luân phiên theo upstream Nginx.
-PostgreSQL và volume chat_files được dùng chung, giữ nguyên tên project/volume.
+SQL Server và volume chat_files được dùng chung, giữ nguyên tên project/volume.
 Hai slot API giới hạn 512 MiB mỗi slot; database giữ giới hạn cũ 1 GiB.
 
 Push main → Actions checks → SSH → VPS build Dockerfile x86-64-v1 bằng cache →
@@ -85,7 +85,7 @@ lỗi syntax/reload thì khôi phục file cũ.
 Nếu VPS đang chạy Green (upstream:3001), giữ nguyên file upstream hiện tại.
 Nếu cài mới hoàn toàn, khởi tạo database/migration/Blue theo README trước; lần
 bootstrap đầu tiên chưa phải Blue-Green. Không đổi tên project `pingpong-backend`
-hoặc PostgreSQL/chat volumes. Không chạy `down -v` hay prune.
+hoặc SQL Server/chat volumes. Không chạy `down -v` hay prune.
 
 ## Migration và rollback schema
 
@@ -149,11 +149,11 @@ refresh token, upload/download ảnh/voice/location, reconnect WebSocket, xác n
 DB và chat volumes giữ nguyên. Tests mock trong `tests/deploy-failure.sh` kiểm tra
 thứ tự lệnh và các nhánh rollback; chúng không chứng minh tốc độ/RAM trên VPS thật.
 
-Kiểm thử local trên Windows sau khi build image candidate và pull PostgreSQL 17:
+Kiểm thử local trên Windows sau khi build image candidate và pull SQL Server 2022:
 
 ```powershell
 docker build --platform linux/amd64 --target runtime -f apps/api/Dockerfile.x86-64-v1 -t pingpong-api:blue-green-validation .
-docker pull postgres:17-bookworm
+docker pull mcr.microsoft.com/mssql/server:2022-latest
 ./deploy/vps/tests/staging-blue-green.ps1 -OldImage YOUR_PREVIOUS_WORKING_IMAGE
 ```
 

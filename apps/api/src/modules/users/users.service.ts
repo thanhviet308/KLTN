@@ -66,13 +66,16 @@ export class UsersService {
       if (data) {
         const version = randomUUID();
         await manager.query(
-          `INSERT INTO user_avatars(user_id, version, data) VALUES($1,$2,$3)
-          ON CONFLICT(user_id) DO UPDATE SET version=EXCLUDED.version, data=EXCLUDED.data`,
+          `MERGE INTO user_avatars WITH (HOLDLOCK) AS target
+           USING (SELECT @0 AS user_id, @1 AS version, @2 AS data) AS source
+           ON target.user_id = source.user_id
+           WHEN MATCHED THEN UPDATE SET version = source.version, data = source.data
+           WHEN NOT MATCHED THEN INSERT (user_id, version, data) VALUES (source.user_id, source.version, source.data);`,
           [userId, version, data],
         );
         user.avatarKey = `/users/avatars/${version}`;
       } else {
-        await manager.query('DELETE FROM user_avatars WHERE user_id=$1', [
+        await manager.query('DELETE FROM user_avatars WHERE user_id = @0', [
           userId,
         ]);
         user.avatarKey = null;
@@ -84,7 +87,7 @@ export class UsersService {
   async avatar(version: string) {
     const rows: { data: Buffer }[] = await this.users.manager.query(
       `SELECT a.data FROM user_avatars a
-      JOIN users u ON u.id=a.user_id WHERE a.version=$1 AND u.status='active'`,
+      JOIN users u ON u.id = a.user_id WHERE a.version = @0 AND u.status = 'active'`,
       [version],
     );
     if (!rows[0]) throw new NotFoundException();
@@ -99,6 +102,12 @@ export class UsersService {
     manager?: EntityManager,
   ): Promise<User> {
     const repository = manager ? manager.getRepository(User) : this.users;
+    if (await repository.exists({ where: { email: input.email } })) {
+      throw new ConflictException({
+        code: 'EMAIL_ALREADY_REGISTERED',
+        message: 'Email is already registered',
+      });
+    }
     try {
       return await repository.save({
         email: input.email,
@@ -111,14 +120,14 @@ export class UsersService {
       if (error instanceof QueryFailedError) {
         const driver = error.driverError as {
           code?: string;
+          number?: number;
           constraint?: string;
         };
-        const emailConflict = this.users.metadata.uniques.some(
-          (unique) =>
-            unique.name === driver.constraint &&
-            unique.columns.some((column) => column.propertyName === 'email'),
-        );
-        if (driver.code === '23505' && emailConflict) {
+        if (
+          driver.code === '23505' ||
+          driver.number === 2627 ||
+          driver.number === 2601
+        ) {
           throw new ConflictException({
             code: 'EMAIL_ALREADY_REGISTERED',
             message: 'Email is already registered',
@@ -183,7 +192,7 @@ export class UsersService {
       .select(['user.id', 'user.displayName', 'user.avatarKey'])
       .where("user.status = 'active'")
       .andWhere('user.id <> :currentUserId', { currentUserId })
-      .andWhere("user.displayName ILIKE :name ESCAPE '\\'", {
+      .andWhere("user.displayName LIKE :name ESCAPE '\\'", {
         name: `%${text}%`,
       })
       .orderBy('user.id', 'ASC')

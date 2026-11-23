@@ -1,3 +1,4 @@
+import { jsonColumn } from '../json-column';
 import {
   Check,
   Column,
@@ -19,16 +20,16 @@ import { Attachment } from './attachment.entity';
 @Entity('reports')
 @Check(
   'reports_target_valid',
-  "num_nonnulls(reported_user_id, reported_conversation_id, reported_message_id, reported_call_id, reported_attachment_id) = 1 AND ((target_type = 'user' AND reported_user_id IS NOT NULL) OR (target_type = 'conversation' AND reported_conversation_id IS NOT NULL) OR (target_type = 'message' AND reported_message_id IS NOT NULL) OR (target_type = 'call' AND reported_call_id IS NOT NULL) OR (target_type = 'attachment' AND reported_attachment_id IS NOT NULL))",
+  "(CASE WHEN reported_user_id IS NULL THEN 0 ELSE 1 END + CASE WHEN reported_conversation_id IS NULL THEN 0 ELSE 1 END + CASE WHEN reported_message_id IS NULL THEN 0 ELSE 1 END + CASE WHEN reported_call_id IS NULL THEN 0 ELSE 1 END + CASE WHEN reported_attachment_id IS NULL THEN 0 ELSE 1 END) = 1 AND ((target_type = 'user' AND reported_user_id IS NOT NULL) OR (target_type = 'conversation' AND reported_conversation_id IS NOT NULL) OR (target_type = 'message' AND reported_message_id IS NOT NULL) OR (target_type = 'call' AND reported_call_id IS NOT NULL) OR (target_type = 'attachment' AND reported_attachment_id IS NOT NULL))",
 )
 @Check(
   'reports_status_valid',
   "status IN ('open', 'reviewing', 'resolved', 'dismissed')",
 )
-@Check('reports_reason_present', 'length(btrim(reason)) > 0')
+@Check('reports_reason_present', 'LEN(trim(reason)) > 0')
 @Check(
   'reports_snapshot_valid',
-  "jsonb_typeof(snapshot) = 'object' AND octet_length(snapshot::text) <= 65536",
+  'ISJSON(snapshot, OBJECT) = 1 AND DATALENGTH(snapshot) <= 65536',
 )
 @Check(
   'reports_reviewer_separate',
@@ -36,7 +37,7 @@ import { Attachment } from './attachment.entity';
 )
 @Check(
   'reports_review_state',
-  "(status = 'open' AND reviewer_id IS NULL AND reviewed_at IS NULL AND resolution IS NULL) OR (status = 'reviewing' AND reviewer_id IS NOT NULL AND reviewed_at IS NULL AND resolution IS NULL) OR (status IN ('resolved', 'dismissed') AND reviewer_id IS NOT NULL AND reviewed_at IS NOT NULL AND resolution IS NOT NULL AND length(btrim(resolution)) > 0)",
+  "(status = 'open' AND reviewer_id IS NULL AND reviewed_at IS NULL AND resolution IS NULL) OR (status = 'reviewing' AND reviewer_id IS NOT NULL AND reviewed_at IS NULL AND resolution IS NULL) OR (status IN ('resolved', 'dismissed') AND reviewer_id IS NOT NULL AND reviewed_at IS NOT NULL AND resolution IS NOT NULL AND LEN(trim(resolution)) > 0)",
 )
 @Check(
   'reports_review_time',
@@ -56,61 +57,85 @@ import { Attachment } from './attachment.entity';
 @Index('reports_attachment_target_idx', ['reportedAttachmentId'])
 export class Report {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'reporter_id', type: 'uuid' }) reporterId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'reporter_id', type: 'uniqueidentifier' })
+  reporterId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'reporter_id' })
   reporter!: Relation<User>;
-  @Column({ name: 'target_type', type: 'varchar', length: 16 }) targetType!:
+  @Column({ name: 'target_type', type: 'nvarchar', length: 16 }) targetType!:
     'user' | 'conversation' | 'message' | 'call' | 'attachment';
-  @Column({ name: 'reported_user_id', type: 'uuid', nullable: true })
+  @Column({
+    name: 'reported_user_id',
+    type: 'uniqueidentifier',
+    nullable: true,
+  })
   reportedUserId!: string | null;
-  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => User, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'reported_user_id' })
   reportedUser!: Relation<User> | null;
-  @Column({ name: 'reported_conversation_id', type: 'uuid', nullable: true })
+  @Column({
+    name: 'reported_conversation_id',
+    type: 'uniqueidentifier',
+    nullable: true,
+  })
   reportedConversationId!: string | null;
-  @ManyToOne(() => Conversation, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Conversation, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'reported_conversation_id' })
   reportedConversation!: Relation<Conversation> | null;
-  @Column({ name: 'reported_message_id', type: 'uuid', nullable: true })
+  @Column({
+    name: 'reported_message_id',
+    type: 'uniqueidentifier',
+    nullable: true,
+  })
   reportedMessageId!: string | null;
-  @ManyToOne(() => Message, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Message, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'reported_message_id' })
   reportedMessage!: Relation<Message> | null;
-  @Column({ name: 'reported_call_id', type: 'uuid', nullable: true })
+  @Column({
+    name: 'reported_call_id',
+    type: 'uniqueidentifier',
+    nullable: true,
+  })
   reportedCallId!: string | null;
-  @ManyToOne(() => Call, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Call, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'reported_call_id' })
   reportedCall!: Relation<Call> | null;
-  @Column({ name: 'reported_attachment_id', type: 'uuid', nullable: true })
+  @Column({
+    name: 'reported_attachment_id',
+    type: 'uniqueidentifier',
+    nullable: true,
+  })
   reportedAttachmentId!: string | null;
-  @ManyToOne(() => Attachment, { nullable: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Attachment, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'reported_attachment_id' })
   reportedAttachment!: Relation<Attachment> | null;
   @Column({
     name: 'target_id',
-    type: 'uuid',
-    asExpression:
-      'COALESCE(reported_user_id, reported_conversation_id, reported_message_id, reported_call_id, reported_attachment_id)',
-    generatedType: 'STORED',
+    type: 'uniqueidentifier',
   })
   targetId!: string;
-  @Column({ type: 'varchar', length: 2000 }) reason!: string;
-  @Column({ type: 'varchar', length: 16, default: 'open' }) status!:
+  @Column({ type: 'nvarchar', length: 2000 }) reason!: string;
+  @Column({ type: 'nvarchar', length: 16, default: 'open' }) status!:
     'open' | 'reviewing' | 'resolved' | 'dismissed';
-  @Column({ name: 'reviewer_id', type: 'uuid', nullable: true }) reviewerId!:
-    string | null;
-  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
+  @Column({ name: 'reviewer_id', type: 'uniqueidentifier', nullable: true })
+  reviewerId!: string | null;
+  @ManyToOne(() => User, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'reviewer_id' })
   reviewer!: Relation<User> | null;
-  @Column({ type: 'jsonb', default: {}, select: false })
+  @Column({
+    type: 'nvarchar',
+    length: 'MAX',
+    transformer: jsonColumn,
+    default: () => "'{}'",
+    select: false,
+  })
   snapshot!: Record<string, unknown>;
-  @Column({ type: 'varchar', length: 2000, nullable: true }) resolution!:
+  @Column({ type: 'nvarchar', length: 2000, nullable: true }) resolution!:
     string | null;
-  @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'reviewed_at', type: 'datetimeoffset', nullable: true })
   reviewedAt!: Date | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

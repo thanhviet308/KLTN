@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$OldImage,
     [string]$NewImage = 'pingpong-api:blue-green-validation'
 )
-# Local-only integration: fresh PostgreSQL, separate ports/volumes and secrets.
+# Local-only integration: fresh SQL Server, separate ports/volumes and secrets.
 $ErrorActionPreference = 'Stop'
 function Run-Docker {
     param([string[]]$Arguments)
@@ -12,7 +12,7 @@ function Run-Docker {
 Set-Location (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 $env:SHARP_TEST_IMAGE = Run-Docker @('image', 'inspect', '--format', '{{.Id}}', $NewImage)
 $env:STAGING_BLUE_IMAGE = Run-Docker @('image', 'inspect', '--format', '{{.Id}}', $OldImage)
-$env:STAGING_POSTGRES_IMAGE = Run-Docker @('image', 'inspect', '--format', '{{.Id}}', 'postgres:17-bookworm')
+$env:STAGING_SQLSERVER_IMAGE = Run-Docker @('image', 'inspect', '--format', '{{.Id}}', 'mcr.microsoft.com/mssql/server:2022-latest')
 $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 foreach ($setting in @(@('STAGING_DB_PASSWORD', 24), @('STAGING_JWT_SECRET', 32))) {
     $bytes = New-Object byte[] $setting[1]
@@ -20,6 +20,7 @@ foreach ($setting in @(@('STAGING_DB_PASSWORD', 24), @('STAGING_JWT_SECRET', 32)
     Set-Item -Path ('Env:' + $setting[0]) -Value ([BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant())
 }
 $rng.Dispose()
+$env:STAGING_DB_PASSWORD = 'Aa1' + $env:STAGING_DB_PASSWORD
 $overlay = New-TemporaryFile
 $sourceCompose = (Join-Path $PWD 'deploy/vps/compose.sharp-staging.yml').Replace('\', '/')
 $text = @'
@@ -38,16 +39,20 @@ services:
 [IO.File]::WriteAllText($overlay.FullName, $text.Replace('COMPOSE_FILE', $sourceCompose), (New-Object Text.UTF8Encoding($false)))
 $project = 'pingpong-bg-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $compose = @('compose', '-p', $project, '-f', 'deploy/vps/compose.sharp-staging.yml', '-f', $overlay.FullName)
-$query = "SELECT (SELECT count(*) FROM information_schema.tables WHERE table_schema='public'), (SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension);"
+$env:SQLCMDPASSWORD = $env:STAGING_DB_PASSWORD
+$sqlcmd = @('exec', '-T', '-e', 'SQLCMDPASSWORD', 'staging-db', '/opt/mssql-tools18/bin/sqlcmd', '-U', 'sa', '-C', '-S', 'localhost', '-b')
+$countTables = @('-d', 'pingpong_staging', '-h', '-1', '-W', '-Q', 'SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables')
+
 try {
     Run-Docker ($compose + @('config', '--quiet'))
     Run-Docker ($compose + @('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'staging-db'))
-    $before = Run-Docker ($compose + @('exec', '-T', 'staging-db', 'psql', '-U', 'pingpong_staging', '-d', 'pingpong_staging', '-At', '-c', $query))
+    Run-Docker ($compose + $sqlcmd + @('-Q', 'CREATE DATABASE pingpong_staging'))
+    $before = Run-Docker ($compose + $sqlcmd + $countTables)
     & docker @compose run --rm -T --no-deps staging-migrate node apps/api/dist/modules/database/migrate.js --check
     if ($LASTEXITCODE -ne 1) { throw 'Pending migration check must reject the fresh schema' }
-    $after = Run-Docker ($compose + @('exec', '-T', 'staging-db', 'psql', '-U', 'pingpong_staging', '-d', 'pingpong_staging', '-At', '-c', $query))
-    if ($before -ne $after) { throw 'Check-only changed tables/extensions' }
-    Write-Host "Read-only check preserved tables/extensions: $after"
+    $after = Run-Docker ($compose + $sqlcmd + $countTables)
+    if (($before -join "").Trim() -ne ($after -join "").Trim()) { throw 'Check-only changed table count' }
+    Write-Host "Read-only check preserved table count: $after"
     Run-Docker ($compose + @('run', '--rm', '-T', '--no-deps', 'staging-migrate'))
     Run-Docker ($compose + @('run', '--rm', '-T', '--no-deps', 'staging-migrate', 'node', 'apps/api/dist/modules/database/migrate.js', '--check'))
     Run-Docker ($compose + @('up', '-d', '--no-deps', '--no-build', '--wait', '--wait-timeout', '120', 'staging-api', 'staging-green'))

@@ -132,7 +132,7 @@ export class ReportsService {
     return this.db.transaction(async (manager) => {
       // Serialize per reporter: repeated submissions and the quota are atomic.
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`reports:${actorId}`],
       );
       const snapshot = await this.snapshot(manager, actorId, input);
@@ -165,6 +165,7 @@ export class ReportsService {
         repository.create({
           reporterId: actorId,
           targetType: input.targetType,
+          targetId: input.targetId,
           [fields[input.targetType]]: input.targetId,
           reason: input.reason,
           snapshot,
@@ -185,11 +186,11 @@ export class ReportsService {
       .addOrderBy('report.id', 'DESC')
       .take(input.limit + 1);
     if (input.cursor) {
-      if (!(await repository.existsBy({ id: input.cursor })))
-        fail(400, 'INVALID_CURSOR');
+      const cursorRow = await repository.findOneBy({ id: input.cursor });
+      if (!cursorRow) fail(400, 'INVALID_CURSOR');
       query.where(
-        '(report.createdAt, report.id) < ((SELECT created_at FROM reports WHERE id = :cursor), :cursor)',
-        { cursor: input.cursor },
+        '(report.createdAt < :cursorCreatedAt OR (report.createdAt = :cursorCreatedAt AND report.id < :cursor))',
+        { cursorCreatedAt: cursorRow.createdAt, cursor: cursorRow.id },
       );
     }
     if (input.status) {
@@ -255,7 +256,7 @@ export class ReportsService {
           : new Date(Math.max(Date.now(), row.createdAt.getTime()));
       await repository.save(row);
       await manager.query(
-        'INSERT INTO audit_logs (actor_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5::jsonb)',
+        'INSERT INTO audit_logs (actor_id, action, target_type, target_id, metadata) VALUES (@0, @1, @2, @3, @4)',
         [
           user.id,
           `report.${input.status}`,

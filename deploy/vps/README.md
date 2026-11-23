@@ -1,117 +1,17 @@
-# Backend và PostgreSQL trên cùng VPS
+# Backend và SQL Server trên VPS
 
-Compose chạy PostgreSQL 17, migration và NestJS. API kết nối bằng hostname `db`
-trong mạng Docker. PostgreSQL không publish cổng 5432; API chỉ publish
-`127.0.0.1:3000` để Nginx trên VPS chuyển tiếp HTTPS và WebSocket.
-Mỗi slot API giới hạn 512 MiB, database giữ 1 GiB. Cần RAM cho hệ điều hành,
-Nginx và build image; phải đo tài nguyên trước khi bật hai slot cùng lúc.
+Compose chạy API và migration. SQL Server 2022 chạy trong container riêng trên VPS. Sao chép `deploy/vps/.env.example` sang `deploy/vps/.env` rồi cấu hình tài khoản SQL Server và các secret ứng dụng. Từ container API, kết nối đến `host.docker.internal:14330/pingpong`. DATABASE_URL và DATABASE_DIRECT_URL phải trỏ cùng database.
 
-Deploy hiện dùng [Blue-Green](blue-green.md): giữ Blue phục vụ trong lúc Green
-build/khởi động, health check rồi đổi upstream Nginx, giữ bản cũ để rollback.
-Cần cài helper Nginx một lần theo hướng dẫn trước khi chạy workflow mới. Các lệnh
-thiết lập `up api` dưới đây chỉ dùng bootstrap ban đầu, không dùng để cập nhật slot
-khi Blue-Green đã hoạt động.
+## Chuyển dữ liệu hiện có
 
-## Thiết lập mới
+Tạo schema trong một database SQL Server trống bằng migration foundation trước khi nhập dữ liệu. Giữ khóa mã hóa tin nhắn hiện tại. Trong cửa sổ bảo trì, dừng các luồng ghi, chuyển phần dữ liệu cuối và đối chiếu số bản ghi, khóa và quan hệ trước khi chuyển API. Bản sao chỉ chứa bảng và dữ liệu thiếu các ràng buộc cần cho ứng dụng.
 
-Chạy từ thư mục gốc repository trên VPS, cần Docker Engine và Compose >= 2.30:
-
-```bash
-cp deploy/vps/.env.example deploy/vps/.env
-cp deploy/vps/postgres.env.example deploy/vps/postgres.env
-chmod 600 deploy/vps/.env deploy/vps/postgres.env
-openssl rand -hex 32
-```
-
-Tạo ba secret riêng: mật khẩu admin database, mật khẩu ứng dụng và JWT.
-Điền `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` trong `postgres.env`; mật khẩu ứng dụng
-phải khớp cả `DATABASE_URL` và `DATABASE_DIRECT_URL` trong `.env`.
-
-Sinh khóa mã hóa tin nhắn và thêm vào `.env` trước khi chạy migration:
-
-```bash
-printf 'MESSAGE_ENCRYPTION_KEYS=1:%s\n' "$(openssl rand -hex 32)"
-```
-
-Không lưu khóa này trong PostgreSQL hoặc Git. Sau khi migration và API mới đã
-được chuyển traffic thành công, mã hóa dữ liệu cũ bằng
-`docker compose run --rm api npm run messages:encrypt-existing --workspace=@chat/api`.
-Giữ nguyên các khóa version cũ khi thêm version mới để lịch sử vẫn giải mã được.
-Điền `JWT_ACCESS_SECRET`, SMTP và `WEB_ORIGIN` là URL frontend HTTPS thực tế.
-Để Android kết nối Socket.IO, đặt `REALTIME_NATIVE_ORIGIN=https://pingpongapi.id.vn`
-trong `deploy/vps/.env` trên VPS, kể cả khi cập nhật một bản cài có sẵn.
-Giá trị phải khớp chính xác Origin HTTPS của API, không có dấu `/` cuối.
-Compose cấp cùng file này cho cả `api` và `api-green`.
-Không commit hai file secret. PostgreSQL cấp ứng dụng quyền sở hữu database để chạy
-migration, nhưng tài khoản ứng dụng không có quyền superuser hoặc tạo role/database.
-
-```bash
-docker compose -f deploy/vps/compose.yml config --quiet
-docker compose -f deploy/vps/compose.yml up -d --build api
-docker compose -f deploy/vps/compose.yml ps -a
-curl --fail http://127.0.0.1:3000/api/v1/health/ready
-```
-
-Compose đợi database healthy, chạy migration thành công rồi mới chạy API.
-Nếu migration lỗi, đọc `docker compose -f deploy/vps/compose.yml logs migrate`.
-Nginx dùng cấu hình `nginx.conf` hiện có, thay domain và cấu hình chứng chỉ HTTPS.
-
-Volume `postgres_data` giữ dữ liệu khi recreate container. Init script chỉ chạy
-khi volume trống: sửa mật khẩu trong file env không tự đổi mật khẩu database đã có.
-Không dùng `docker compose down -v` với dữ liệu cần giữ. Không đổi major version
-PostgreSQL trực tiếp trên volume cũ; phải có kế hoạch nâng cấp và backup.
-
-## Chuyển dữ liệu từ database cloud
-
-Compose tạo database mới; không tự chuyển dữ liệu cloud. Giữ database nguồn đến khi
-đã xác minh dữ liệu và bản backup. Dùng `pg_dump` có major version không thấp hơn
-database nguồn; kiểm tra khả năng restore vào PostgreSQL 17 nếu nguồn mới hơn.
-
-1. Dừng API đang ghi vào nguồn và giữ chế độ bảo trì trong suốt chuyển đổi.
-2. Dump database nguồn dạng custom (`pg_dump -Fc`), dùng kết nối trực tiếp.
-3. Tạo database đích và restore trước khi chạy migration/API.
-
-```bash
-docker compose -f deploy/vps/compose.yml up -d --wait db
-# source.dump là bản dump đã tải an toàn về VPS.
-docker compose -f deploy/vps/compose.yml exec -T db sh -c \
-  'pg_restore --exit-on-error --no-owner --no-acl -U "$APP_DB_USER" -d "$POSTGRES_DB"' < source.dump
-docker compose -f deploy/vps/compose.yml build api
-docker compose -f deploy/vps/compose.yml run --rm -T migrate
-docker compose -f deploy/vps/compose.yml up -d --no-deps api
-```
-
-Restore chỉ vào database đích trống. Extension/role riêng của nhà cung cấp cloud có
-thể cần xử lý trước khi restore; khi lỗi, không chạy API trên dữ liệu restore dở.
-Kiểm tra số lượng tài khoản, bạn bè, hội thoại, tin nhắn và luồng đăng nhập/gửi tin
-trước khi kết thúc bảo trì. Nếu quay về nguồn sau khi đã ghi vào đích, phải đối soát
-các thay đổi mới để tránh mất dữ liệu.
-
-## Backup và vận hành
-
-```bash
-mkdir -p deploy/vps/backups
-chmod 700 deploy/vps/backups
-umask 077
-docker compose -f deploy/vps/compose.yml exec -T db sh -c \
-  'pg_dump -Fc --no-owner --no-acl -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-  > "deploy/vps/backups/pingpong-$(date -u +%Y%m%dT%H%M%SZ).dump"
-```
-
-Chỉ công nhận backup khi lệnh dump thành công. Sao chép backup ra ngoài VPS,
-thiết lập lịch và retention, định kỳ restore thử vào database riêng.
-Theo dõi dung lượng ổ đĩa, RAM, CPU và log; restart policy không thay thế backup.
-Một VPS lỗi sẽ ảnh hưởng cả API và database. SSL database không bật trong cấu hình
-này: kết nối chỉ đi trong mạng Docker cùng host, không dùng URL này qua Internet.
-
-`deploy.sh <commit-sha>` build slot inactive, kiểm tra không có migration pending,
-chạy candidate và chuyển Nginx khi healthy. Nó không recreate database hoặc tự
-áp dụng migration. Migration mới phải review/apply riêng theo [Blue-Green](blue-green.md).
+Sau khi chuyển hệ quản trị, cả hai slot blue-green phải dùng cùng database. Script deploy kiểm tra migration và readiness trước khi chuyển Nginx. Nếu đã có ghi mới vào SQL Server, cần đối soát dữ liệu trước khi quay về phiên bản ghi PostgreSQL.
 
 ## Tệp trong đoạn chat
 
 API lưu ảnh/tệp/bản ghi âm vào volume `chat_files` tại `/app/storage/chat`;
-PostgreSQL lưu metadata và quyền truy cập. Volume được khởi tạo với quyền của user
+SQL Server lưu metadata và quyền truy cập. Volume được khởi tạo với quyền của user
 `node` từ Docker image. Không dùng `docker compose down -v` khi muốn giữ dữ liệu.
 Nginx phải áp dụng cấu hình mới `client_max_body_size 10m` để nhận tệp tối đa 10 MB.
 JSON API vẫn giới hạn 1 MB; upload dùng body nhị phân và có giới hạn riêng.
@@ -147,7 +47,7 @@ hoặc chuyển Docker archive trong workflow production. Job deploy giới hạ
 để có thời gian build source lần đầu; đây không phải cam kết build sẽ xong trong 60 phút.
 
 Giữ Docker layer cache để các lần sau tái sử dụng libvips/Sharp source đã build.
-Meson và node-gyp dùng một job; VPS 1 vCPU/2GB RAM vẫn cần RAM cho PostgreSQL,
+Meson và node-gyp dùng một job; VPS 1 vCPU/2GB RAM vẫn cần RAM cho SQL Server,
 Redis và OS, có thể chậm hoặc OOM nếu thiếu headroom. Không tự dừng database hoặc
 đổi swap/volumes để build. Dockerfile có kiểm tra dependency/Sharp trong runtime;
 deploy script kiểm tra lại trên CPU VPS trước migration/thay API. Build hoặc smoke
@@ -193,7 +93,7 @@ Smoke Sharp kiểm tra JPEG/PNG/WebP; dependency check resolve từ `dist/main.j
 gồm package được npm cài trong `apps/api/node_modules`. Dockerfile phải giữ cả
 root và workspace node_modules trong runtime để NestJS khởi động đúng.
 
-Kiểm thử migration và API startup với PostgreSQL staging độc lập dùng
+Kiểm thử migration và API startup với SQL Server staging độc lập dùng
 `compose.sharp-staging.yml` và workflow thủ công `test-sharp-v1.yml`.
 Không dùng env hoặc volume production cho staging. `api-runtime-health.cjs`
 chỉ chạy khi NODE_ENV=test và database là staging-db/pingpong_staging.

@@ -1,3 +1,4 @@
+import { jsonColumn } from '../json-column';
 import {
   Check,
   Column,
@@ -56,32 +57,39 @@ export type ArcadeGameType =
 })
 export class GameSession {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;
-  @ManyToOne(() => Conversation, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'conversation_id', type: 'uniqueidentifier' })
+  conversationId!: string;
+  @ManyToOne(() => Conversation, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'conversation_id' })
   conversation!: Relation<Conversation>;
-  @Column({ name: 'game_type', type: 'varchar', length: 24, default: 'caro' })
+  @Column({ name: 'game_type', type: 'nvarchar', length: 24, default: 'caro' })
   gameType!: ArcadeGameType;
-  @Column({ name: 'x_user_id', type: 'uuid' }) xUserId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'x_user_id', type: 'uniqueidentifier' }) xUserId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'x_user_id' })
   xUser!: Relation<User>;
-  @Column({ name: 'o_user_id', type: 'uuid' }) oUserId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'o_user_id', type: 'uniqueidentifier' }) oUserId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'o_user_id' })
   oUser!: Relation<User>;
-  @Column({ type: 'varchar', length: 16, default: 'invited' })
+  @Column({ type: 'nvarchar', length: 16, default: 'invited' })
   status!: 'invited' | 'active' | 'won' | 'draw' | 'declined' | 'forfeited';
-  @Column({ type: 'varchar', length: 1, default: 'X' }) turn!: 'X' | 'O';
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" }) board!: number[];
-  @Column({ name: 'winner_id', type: 'uuid', nullable: true })
+  @Column({ type: 'nvarchar', length: 1, default: 'X' }) turn!: 'X' | 'O';
+  @Column({
+    type: 'nvarchar',
+    length: 'MAX',
+    transformer: jsonColumn,
+    default: () => "'[]'",
+  })
+  board!: number[];
+  @Column({ name: 'winner_id', type: 'uniqueidentifier', nullable: true })
   winnerId!: string | null;
   @Column({ name: 'move_count', type: 'integer', default: 0 })
   moveCount!: number;
-  @Column({ name: 'finished_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'finished_at', type: 'datetimeoffset', nullable: true })
   finishedAt!: Date | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

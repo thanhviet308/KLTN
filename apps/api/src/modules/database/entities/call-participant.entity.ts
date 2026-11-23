@@ -29,10 +29,11 @@ import { ConversationMember } from './conversation-member.entity';
 @Index('call_participants_user_history_idx', ['userId', 'invitedAt'])
 @Index('call_participants_member_idx', ['conversationId', 'userId'])
 export class CallParticipant {
-  @PrimaryColumn({ name: 'call_id', type: 'uuid' }) callId!: string;
-  @PrimaryColumn({ name: 'user_id', type: 'uuid' }) userId!: string;
-  @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;
-  @ManyToOne(() => Call, { nullable: false, onDelete: 'RESTRICT' })
+  @PrimaryColumn({ name: 'call_id', type: 'uniqueidentifier' }) callId!: string;
+  @PrimaryColumn({ name: 'user_id', type: 'uniqueidentifier' }) userId!: string;
+  @Column({ name: 'conversation_id', type: 'uniqueidentifier' })
+  conversationId!: string;
+  @ManyToOne(() => Call, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'call_id', referencedColumnName: 'id' },
@@ -40,14 +41,14 @@ export class CallParticipant {
   call!: Relation<Call>;
   @ManyToOne(() => ConversationMember, {
     nullable: false,
-    onDelete: 'RESTRICT',
+    onDelete: 'NO ACTION',
   })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'user_id', referencedColumnName: 'userId' },
   ])
   member!: Relation<ConversationMember>;
-  @Column({ type: 'varchar', length: 16, default: 'invited' }) status!:
+  @Column({ type: 'nvarchar', length: 16, default: 'invited' }) status!:
     | 'invited'
     | 'accepted'
     | 'joined'
@@ -55,12 +56,12 @@ export class CallParticipant {
     | 'rejected'
     | 'missed'
     | 'cancelled';
-  @CreateDateColumn({ name: 'invited_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'invited_at', type: 'datetimeoffset' })
   invitedAt!: Date;
-  @Column({ name: 'joined_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'joined_at', type: 'datetimeoffset', nullable: true })
   joinedAt!: Date | null;
-  @Column({ name: 'left_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'left_at', type: 'datetimeoffset', nullable: true })
   leftAt!: Date | null;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

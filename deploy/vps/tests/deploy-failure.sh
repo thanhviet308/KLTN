@@ -7,7 +7,7 @@ trap 'rm -rf -- "$fixture"' EXIT
 mkdir -p "$fixture/bin" "$fixture/checkout/.git" "$fixture/checkout/deploy/vps"
 cp "$root/deploy/vps/deploy.sh" "$fixture/checkout/deploy/vps/deploy.sh"
 cp "$root/deploy/vps/rollback.sh" "$fixture/checkout/deploy/vps/rollback.sh"
-touch "$fixture/checkout/deploy/vps/.env" "$fixture/checkout/deploy/vps/postgres.env"
+touch "$fixture/checkout/deploy/vps/.env"
 export expected_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export old_sha=cccccccccccccccccccccccccccccccccccccccc
 export command_log="$fixture/commands.log" port_file="$fixture/port" initial_port_file="$fixture/initial-port" stopped_file="$fixture/stopped"
@@ -25,13 +25,12 @@ printf 'docker %s\n' "$*" >> "$command_log"
 case "$*" in
   *'ps --all -q api') echo blue-container ;;
   *'ps --all -q api-green') echo green-container ;;
-  *'ps -q db') echo db-container ;;
-  'inspect --format {{.State.Health.Status}} db-container') echo healthy ;;
+  'exec blue-container node -e '*) [[ "$failure_mode" != old-engine ]] || exit 1 ;;
   'image inspect --format {{.Id}} '*) printf 'sha256:%064d\n' 0 ;;
   *'build api'|*'build api-green') [[ "$failure_mode" != build ]] || exit 17 ;;
   'run --rm '*api-runtime-dependencies.cjs) [[ "$failure_mode" != dependency ]] || exit 19 ;;
   'run --rm '*sharp-runtime-smoke.cjs*) [[ "$failure_mode" != sharp ]] || exit 20 ;;
-  *'migrate node apps/api/dist/modules/database/migrate.js --allow=CallMessages1791763200000 --allow=PasswordReset1793577600000 --allow=MessageEncryption1793664000000 --allow=MessageRequests1793750400000 --allow=SpamDetection1793836800000 --allow=CaroGames1793923200000 --allow=MoreChatGames1794009600000 --allow=ExpandArcadeGames1794096000000 --allow=UserNotes1794182400000 --allow=WorkspaceFeatures1794268800000 --allow=ConversationCustomization1794355200000 --allow=ClearChatHistory1794441600000 --allow=CallSummary1794873600000 --allow=CallSummaryRecorder1794960000000 --allow=CallSummaryOnDemand1795046400000 --allow=MediaMetadataEncryption1795132800000') [[ "$failure_mode" != migration-apply ]] || exit 18 ;;
+  *'migrate node apps/api/dist/modules/database/migrate.js --allow=SqlServerFoundation1790985600000') [[ "$failure_mode" != migration-apply ]] || exit 18 ;;
   *'migrate node apps/api/dist/modules/database/migrate.js --check') [[ "$failure_mode" != migration-check ]] || exit 27 ;;
   *'up -d --no-deps --no-build --wait --wait-timeout 120 '* ) [[ "$failure_mode" != startup ]] || exit 21 ;;
   *'stop api'|*'stop api-green') touch "$stopped_file" ;;
@@ -92,7 +91,7 @@ echo 1048576
 STUB
 chmod +x "$fixture/bin/"*
 export PATH="$fixture/bin:$PATH"
-for failure_mode in build dependency sharp migration-apply migration-check startup candidate switch proxy wrong-revision post-stop rollback-fail none reverse reload-delay; do
+for failure_mode in old-engine build dependency sharp migration-apply migration-check startup candidate switch proxy wrong-revision post-stop rollback-fail none reverse reload-delay; do
   export failure_mode
   : > "$command_log"
   rm -f -- "$stopped_file" "$stopped_file.headers"
@@ -104,7 +103,7 @@ for failure_mode in build dependency sharp migration-apply migration-check start
   status=$?
   set -e
   case "$failure_mode" in
-    build) expected=17 ;; dependency) expected=19 ;; sharp) expected=20 ;;
+    old-engine) expected=1 ;; build) expected=17 ;; dependency) expected=19 ;; sharp) expected=20 ;;
     migration-apply) expected=18 ;; migration-check) expected=27 ;;
     startup) expected=21 ;; candidate) expected=22 ;; switch) expected=24 ;;
     proxy|rollback-fail) expected=23 ;; wrong-revision) expected=1 ;; post-stop) expected=25 ;; *) expected=0 ;;
@@ -112,8 +111,8 @@ for failure_mode in build dependency sharp migration-apply migration-check start
   [[ "$status" == "$expected" ]] || { cat "$fixture/output"; exit 1; }
   grep -q '^flock -w 900 9$' "$command_log"
   ! grep -Eq 'docker .* (up .*db|down|rm|volume)' "$command_log"
-  if [[ "$failure_mode" != build && "$failure_mode" != dependency && "$failure_mode" != sharp ]]; then
-    grep -q 'migrate node apps/api/dist/modules/database/migrate.js --allow=CallMessages1791763200000' "$command_log"
+  if [[ "$failure_mode" != old-engine && "$failure_mode" != build && "$failure_mode" != dependency && "$failure_mode" != sharp ]]; then
+    grep -q 'migrate node apps/api/dist/modules/database/migrate.js --allow=SqlServerFoundation1790985600000' "$command_log"
   fi
   if [[ "$failure_mode" == none || "$failure_mode" == reload-delay ]]; then
     test "$(cat "$port_file")" = 3001

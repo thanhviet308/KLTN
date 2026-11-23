@@ -67,13 +67,16 @@ export class MessageRequestsService {
     if (actorId === input.recipientId)
       fail(400, 'SELF_MESSAGE_REQUEST', 'Cannot message yourself');
     const outcome = await this.db.transaction(async (manager) => {
-      const [low, high] = [actorId, input.recipientId].sort();
+      const [low, high] = [
+        actorId.toLowerCase(),
+        input.recipientId.toLowerCase(),
+      ].sort() as [string, string];
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`conversation:direct:${low}:${high}`],
       );
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`message-request:${low}:${high}`],
       );
       const users = await manager
@@ -98,10 +101,12 @@ export class MessageRequestsService {
       });
       if (existing) {
         existing.requester = users.find(
-          (user) => user.id === existing.requesterId,
+          (user) =>
+            user.id.toLowerCase() === existing.requesterId.toLowerCase(),
         )!;
         existing.recipient = users.find(
-          (user) => user.id === existing.recipientId,
+          (user) =>
+            user.id.toLowerCase() === existing.recipientId.toLowerCase(),
         )!;
       }
 
@@ -115,14 +120,20 @@ export class MessageRequestsService {
         ) {
           row.requesterId = actorId;
           row.recipientId = input.recipientId;
-          row.requester = users.find((user) => user.id === actorId)!;
-          row.recipient = users.find((user) => user.id === input.recipientId)!;
+          row.pairLowId = low;
+          row.pairHighId = high;
+          row.requester = users.find(
+            (user) => user.id.toLowerCase() === actorId.toLowerCase(),
+          )!;
+          row.recipient = users.find(
+            (user) => user.id.toLowerCase() === input.recipientId.toLowerCase(),
+          )!;
           row.body = input.body;
           row.status = 'pending';
           row.respondedAt = null;
           savedRequest = await repository.save(row);
         } else if (existing.status === 'pending') {
-          if (existing.recipientId === actorId) {
+          if (existing.recipientId.toLowerCase() === actorId.toLowerCase()) {
             existing.status = 'accepted';
             existing.respondedAt = new Date();
             syncKind = 'accepted';
@@ -219,40 +230,45 @@ export class MessageRequestsService {
       .addOrderBy('request.id', 'DESC')
       .take(input.limit + 1);
     if (input.cursor) {
-      if (
-        !(await this.db
-          .getRepository(MessageRequest)
-          .existsBy({ id: input.cursor }))
-      )
-        fail(400, 'INVALID_CURSOR', 'Cursor is invalid');
+      const cursorRow = await this.db
+        .getRepository(MessageRequest)
+        .findOneBy({ id: input.cursor });
+      if (!cursorRow) fail(400, 'INVALID_CURSOR', 'Cursor is invalid');
       query.andWhere(
-        '(request.updatedAt, request.id) < ((SELECT updated_at FROM message_requests WHERE id = :cursor), :cursor)',
-        { cursor: input.cursor },
+        '(request.updatedAt < :cursorUpdatedAt OR (request.updatedAt = :cursorUpdatedAt AND request.id < :cursor))',
+        { cursorUpdatedAt: cursorRow.updatedAt, cursor: cursorRow.id },
       );
     }
     const rows = await query.getMany();
 
     const peerIds = rows.map((row) =>
-      row.requesterId === actorId ? row.recipientId : row.requesterId,
+      row.requesterId.toLowerCase() === actorId.toLowerCase()
+        ? row.recipientId
+        : row.requesterId,
     );
     const convRows = peerIds.length
       ? await this.db.query<{ id: string; peerId: string }[]>(
           `SELECT id,
-                  CASE WHEN direct_user_low_id = $1 THEN direct_user_high_id ELSE direct_user_low_id END AS "peerId"
+                  CASE WHEN direct_user_low_id = @0 THEN direct_user_high_id ELSE direct_user_low_id END AS "peerId"
            FROM conversations
            WHERE type = 'direct'
              AND deleted_at IS NULL
-             AND ((direct_user_low_id = $1 AND direct_user_high_id = ANY($2::uuid[]))
-               OR (direct_user_high_id = $1 AND direct_user_low_id = ANY($2::uuid[])))`,
-          [actorId, peerIds],
+             AND ((direct_user_low_id = @0 AND direct_user_high_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1)))
+               OR (direct_user_high_id = @0 AND direct_user_low_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1))))`,
+          [actorId, JSON.stringify(peerIds)],
         )
       : [];
-    const convMap = new Map(convRows.map((c) => [c.peerId, c.id]));
+    const convMap = new Map(
+      convRows.map((c) => [c.peerId.toLowerCase(), c.id]),
+    );
 
     return pageResult(
       rows.map((row) => {
-        const peerId =
-          row.requesterId === actorId ? row.recipientId : row.requesterId;
+        const peerId = (
+          row.requesterId.toLowerCase() === actorId.toLowerCase()
+            ? row.recipientId
+            : row.requesterId
+        ).toLowerCase();
         return this.view(row, actorId, convMap.get(peerId) ?? null);
       }),
       input.limit,
@@ -267,15 +283,24 @@ export class MessageRequestsService {
     const outcome = await this.db.transaction(async (manager) => {
       const repository = manager.getRepository(MessageRequest);
       const found = await repository.findOneBy({ id });
-      if (!found || ![found.requesterId, found.recipientId].includes(actorId))
+      if (
+        !found ||
+        ![
+          found.requesterId.toLowerCase(),
+          found.recipientId.toLowerCase(),
+        ].includes(actorId.toLowerCase())
+      )
         fail(404, 'MESSAGE_REQUEST_NOT_FOUND', 'Request not found');
-      const [low, high] = [found.requesterId, found.recipientId].sort();
+      const [low, high] = [
+        found.requesterId.toLowerCase(),
+        found.recipientId.toLowerCase(),
+      ].sort();
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`conversation:direct:${low}:${high}`],
       );
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`message-request:${low}:${high}`],
       );
       const users = await manager

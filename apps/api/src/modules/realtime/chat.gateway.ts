@@ -231,15 +231,16 @@ export class ChatGateway
       peerSockets.set(conn.userId, list);
     }
     if (!peerSockets.size) return;
+    const peerKeysJson = JSON.stringify([...peerSockets.keys()]);
     const rows: { friend_id: string }[] | undefined = await this.db.query(
       `SELECT recipient_id AS friend_id
        FROM friendships
-       WHERE requester_id = $1 AND status = 'accepted' AND recipient_id = ANY($2::uuid[])
+       WHERE requester_id = @0 AND status = 'accepted' AND recipient_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1))
        UNION ALL
        SELECT requester_id AS friend_id
        FROM friendships
-       WHERE recipient_id = $1 AND status = 'accepted' AND requester_id = ANY($2::uuid[])`,
-      [userId, [...peerSockets.keys()]],
+       WHERE recipient_id = @0 AND status = 'accepted' AND requester_id IN (SELECT CAST([value] AS UNIQUEIDENTIFIER) FROM OPENJSON(@1))`,
+      [userId, peerKeysJson],
     );
     if (this.closing || this.isUserOnline(userId) !== online) return;
     const payload =
@@ -247,7 +248,9 @@ export class ChatGateway
         ? { userId, online, lastActiveAt }
         : { userId, online };
     for (const row of rows ?? []) {
-      const socketIds = peerSockets.get(row.friend_id);
+      const socketIds =
+        peerSockets.get(row.friend_id) ??
+        peerSockets.get(row.friend_id.toLowerCase());
       if (!socketIds) continue;
       for (const socketId of socketIds) {
         const target = this.server.sockets.get(socketId);
@@ -295,7 +298,7 @@ export class ChatGateway
 
   private async touchActivity(userId: string, at = new Date()) {
     await this.db.query(
-      'UPDATE users SET last_active_at = GREATEST(last_active_at, $2::timestamptz) WHERE id = $1',
+      'UPDATE users SET last_active_at = CASE WHEN last_active_at IS NULL OR @1 > last_active_at THEN @1 ELSE last_active_at END WHERE id = @0',
       [userId, at],
     );
   }

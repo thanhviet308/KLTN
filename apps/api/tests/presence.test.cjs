@@ -16,7 +16,7 @@ test('WebSocket namespace accepts configured origins and still enforces authenti
   const webOrigin = 'https://www.pingpong.id.vn';
   const env = validateEnvironment({
     NODE_ENV: 'test',
-    DATABASE_URL: 'postgresql://app:secret@localhost:5432/chat',
+    DATABASE_URL: 'mssql://app:secret@localhost:1433/chat',
     JWT_ACCESS_SECRET: 'a'.repeat(64),
     WEB_ORIGIN: webOrigin,
     REALTIME_NATIVE_ORIGIN: nativeOrigin,
@@ -80,7 +80,7 @@ test('WebSocket namespace accepts configured origins and still enforces authenti
 test('realtime native origin configuration requires an exact HTTPS origin', () => {
   const env = {
     NODE_ENV: 'test',
-    DATABASE_URL: 'postgresql://app:secret@localhost:5432/chat',
+    DATABASE_URL: 'mssql://app:secret@localhost:1433/chat',
     JWT_ACCESS_SECRET: 'a'.repeat(64),
   };
   assert.equal(validateEnvironment(env).REALTIME_NATIVE_ORIGIN, undefined);

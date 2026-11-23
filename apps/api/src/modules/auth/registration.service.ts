@@ -50,10 +50,12 @@ export class RegistrationService {
     const expiresAt = new Date(now.getTime() + 10 * 60000);
     await this.db.transaction(async (manager) => {
       const repository = manager.getRepository(RegistrationVerification);
-      await repository
-        .createQueryBuilder()
-        .insert()
-        .values({
+      const existing = await repository.findOne({
+        where: { email },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!existing) {
+        await repository.insert({
           email,
           challengeId,
           codeHash: this.codeHash(challengeId, code),
@@ -62,13 +64,14 @@ export class RegistrationService {
           windowStartedAt: now,
           sentAt: now,
           expiresAt,
-        })
-        .orIgnore()
-        .execute();
-      const current = await repository.findOneOrFail({
-        where: { email },
-        lock: { mode: 'pessimistic_write' },
-      });
+        });
+      }
+      const current =
+        existing ??
+        (await repository.findOneOrFail({
+          where: { email },
+          lock: { mode: 'pessimistic_write' },
+        }));
       if (current.challengeId === challengeId) return;
       const elapsed = now.getTime() - current.sentAt.getTime();
       if (elapsed < 60000)

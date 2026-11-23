@@ -9,11 +9,13 @@ export async function writeNotification(
   payload: Record<string, string>,
   deduplicationKey: string | null = null,
 ) {
-  await manager
-    .getRepository(Notification)
-    .createQueryBuilder()
-    .insert()
-    .values({ userId, type, payload, deduplicationKey })
-    .orIgnore()
-    .execute();
+  const repository = manager.getRepository(Notification);
+  if (deduplicationKey) {
+    const exists = await repository.findOne({
+      where: { userId, deduplicationKey },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (exists) return;
+  }
+  await repository.insert({ userId, type, payload, deduplicationKey });
 }

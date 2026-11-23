@@ -1,3 +1,4 @@
+import { jsonColumn } from '../json-column';
 import {
   Check,
   Column,
@@ -32,7 +33,7 @@ import {
 @Check('messages_edited_body_valid', "edited_body IS NULL OR type = 'text'")
 @Check(
   'messages_edited_body_state',
-  '(edited_at IS NULL) = (edited_body IS NULL)',
+  '(edited_at IS NULL AND edited_body IS NULL) OR (edited_at IS NOT NULL AND edited_body IS NOT NULL)',
 )
 @Unique('messages_client_id', ['senderId', 'clientMessageId'])
 @Unique('messages_conversation_sequence', ['conversationId', 'sequence'])
@@ -41,28 +42,31 @@ import {
 @Index('messages_sender_idx', ['senderId'])
 export class Message {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;
-  @ManyToOne(() => Conversation, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'conversation_id', type: 'uniqueidentifier' })
+  conversationId!: string;
+  @ManyToOne(() => Conversation, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'conversation_id' })
   conversation!: Relation<Conversation>;
-  @Column({ name: 'sender_id', type: 'uuid' }) senderId!: string;
+  @Column({ name: 'sender_id', type: 'uniqueidentifier' }) senderId!: string;
   @ManyToOne(() => ConversationMember, {
     nullable: false,
-    onDelete: 'RESTRICT',
+    onDelete: 'NO ACTION',
   })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'sender_id', referencedColumnName: 'userId' },
   ])
   senderMember!: Relation<ConversationMember>;
-  @Column({ name: 'client_message_id', type: 'uuid' }) clientMessageId!: string;
+  @Column({ name: 'client_message_id', type: 'uniqueidentifier' })
+  clientMessageId!: string;
   @Column({ type: 'bigint' }) sequence!: string;
-  @Column({ type: 'varchar', length: 16, default: 'text' }) type!:
+  @Column({ type: 'nvarchar', length: 16, default: 'text' }) type!:
     'text' | 'image' | 'file' | 'voice' | 'location' | 'call';
   @Column({
-    type: 'jsonb',
+    type: 'nvarchar',
+    length: 'MAX',
     nullable: true,
-    transformer: messageContentTransformer,
+    transformer: [messageContentTransformer, jsonColumn],
   })
   content!: {
     mentions?: string[];
@@ -87,25 +91,31 @@ export class Message {
       excerpt: string;
     };
   } | null;
-  @Column({ type: 'text', nullable: true, transformer: messageTextTransformer })
+  @Column({
+    type: 'nvarchar',
+    length: 'MAX',
+    nullable: true,
+    transformer: messageTextTransformer,
+  })
   body!: string | null;
   @Column({
     name: 'edited_body',
-    type: 'text',
+    type: 'nvarchar',
+    length: 'MAX',
     nullable: true,
     transformer: messageTextTransformer,
   })
   editedBody!: string | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @Column({ name: 'edited_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'edited_at', type: 'datetimeoffset', nullable: true })
   editedAt!: Date | null;
-  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'deleted_at', type: 'datetimeoffset', nullable: true })
   deletedAt!: Date | null;
-  @Column({ name: 'spam_label', type: 'boolean', nullable: true })
+  @Column({ name: 'spam_label', type: 'bit', nullable: true })
   spamLabel!: boolean | null;
   @Column({ name: 'spam_score', type: 'real', nullable: true })
   spamScore!: number | null;
-  @Column({ name: 'spam_model', type: 'varchar', length: 100, nullable: true })
+  @Column({ name: 'spam_model', type: 'nvarchar', length: 100, nullable: true })
   spamModel!: string | null;
 }

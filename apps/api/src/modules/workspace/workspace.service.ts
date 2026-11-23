@@ -18,17 +18,53 @@ import type {
 import type { PageDto } from '../../common/page.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
 
-type Poll = {
+type RawPoll = {
   id: string;
   conversation_id: string;
   creator_id: string;
   question: string;
-  options: string[];
+  options: string | string[];
   multiple: boolean;
   closed_at: Date | null;
   boundary_sequence: string;
   created_at: Date;
 };
+
+type Poll = Omit<RawPoll, 'options'> & { options: string[] };
+
+function parseStringArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.map(String);
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function parseNumberArray(val: unknown): number[] {
+  if (Array.isArray(val)) return val.map(Number);
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.map(Number);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizePoll(raw: RawPoll): Poll {
+  return {
+    ...raw,
+    options: parseStringArray(raw.options),
+  };
+}
+
 function fail(code: string, status = 404): never {
   throw new HttpException({ code, message: code }, status);
 }
@@ -61,15 +97,23 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
     this.indexing = true;
     try {
       await this.db.transaction(async (manager) => {
-        const rows: { id: string; body: string }[] =
-          await manager.query(`SELECT m.id, COALESCE(m.edited_body,m.body) AS body FROM messages m
-          WHERE m.type = 'text' AND m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM message_search_index i WHERE i.message_id=m.id)
-          ORDER BY m.id LIMIT 100 FOR UPDATE OF m SKIP LOCKED`);
-        for (const row of rows)
-          await manager.query(
-            'INSERT INTO message_search_index(message_id,tokens) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-            [row.id, searchTokens(decryptMessageText(row.body))],
+        const rows: { id: string; body: string }[] = await manager.query(
+          `SELECT TOP (100) m.id, COALESCE(m.edited_body, m.body) AS body
+           FROM messages m WITH (UPDLOCK, ROWLOCK, READPAST)
+           WHERE m.type = 'text' AND m.deleted_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM message_search_index i WHERE i.message_id = m.id)
+           ORDER BY m.id`,
+        );
+        for (const row of rows) {
+          const tokensJson = JSON.stringify(
+            searchTokens(decryptMessageText(row.body)),
           );
+          await manager.query(
+            `IF NOT EXISTS (SELECT 1 FROM message_search_index WITH (UPDLOCK, HOLDLOCK) WHERE message_id = @0)
+               INSERT INTO message_search_index(message_id, tokens) VALUES (@0, @1)`,
+            [row.id, tokensJson],
+          );
+        }
       });
     } finally {
       this.indexing = false;
@@ -89,8 +133,7 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
         .getRepository(Message)
         .createQueryBuilder('message')
         .innerJoin('message_search_index', 'idx', 'idx.message_id = message.id')
-        .where('idx.tokens @> :tokens::text[]', { tokens })
-        .andWhere(
+        .where(
           "message.deletedAt IS NULL AND EXISTS (SELECT 1 FROM users u WHERE u.id=message.sender_id AND u.status='active')",
         )
         .andWhere(
@@ -113,6 +156,11 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
         )
         .orderBy('message.id', 'ASC')
         .take(input.limit + 1);
+      tokens.forEach((tok, idx) => {
+        query.andWhere(`idx.tokens LIKE :tok_${idx}`, {
+          [`tok_${idx}`]: `%"${tok}"%`,
+        });
+      });
       if (input.conversationId)
         query.andWhere('message.conversationId=:id', {
           id: input.conversationId,
@@ -139,7 +187,7 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
       this.conversations.requireAccess(manager, conversationId, actorId),
     );
     const pins: { message_id: string }[] = await this.db.query(
-      'SELECT message_id FROM message_pins WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 50',
+      'SELECT TOP (50) message_id FROM message_pins WHERE conversation_id = @0 ORDER BY created_at DESC',
       [conversationId],
     );
     const items = [];
@@ -173,17 +221,18 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
       );
       if (remove)
         await manager.query(
-          'DELETE FROM message_pins WHERE message_id=$1 AND conversation_id=$2',
+          'DELETE FROM message_pins WHERE message_id = @0 AND conversation_id = @1',
           [messageId, conversationId],
         );
       else {
         const [count] = (await manager.query(
-          'SELECT count(*)::int AS total FROM message_pins WHERE conversation_id=$1',
+          'SELECT CAST(COUNT(*) AS INT) AS total FROM message_pins WHERE conversation_id = @0',
           [conversationId],
         )) as { total: number }[];
         if (count!.total >= 50) fail('PIN_LIMIT', 409);
         await manager.query(
-          'INSERT INTO message_pins(message_id,conversation_id,user_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+          `IF NOT EXISTS (SELECT 1 FROM message_pins WITH (UPDLOCK, HOLDLOCK) WHERE message_id = @0 AND conversation_id = @1)
+             INSERT INTO message_pins(message_id, conversation_id, user_id) VALUES (@0, @1, @2)`,
           [messageId, conversationId, actorId],
         );
       }
@@ -208,14 +257,14 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
       actorId,
       true,
     );
-    const rows: Poll[] = await manager.query(
-      `SELECT p.* FROM group_polls p WHERE p.id=$1 AND p.conversation_id=$2
-      AND EXISTS (SELECT 1 FROM conversation_member_periods m WHERE m.conversation_id=p.conversation_id AND m.user_id=$3
-        AND m.joined_at<=p.created_at AND (m.left_at IS NULL OR m.left_at>=p.created_at)) FOR UPDATE`,
+    const rows: RawPoll[] = await manager.query(
+      `SELECT p.* FROM group_polls p WITH (UPDLOCK, ROWLOCK) WHERE p.id = @0 AND p.conversation_id = @1
+      AND EXISTS (SELECT 1 FROM conversation_member_periods m WHERE m.conversation_id = p.conversation_id AND m.user_id = @2
+        AND m.joined_at <= p.created_at AND (m.left_at IS NULL OR m.left_at >= p.created_at))`,
       [pollId, conversationId, actorId],
     );
     if (!rows[0]) fail('POLL_NOT_FOUND');
-    return { ...access, poll: rows[0] };
+    return { ...access, poll: normalizePoll(rows[0]) };
   }
   async createPoll(
     actorId: string,
@@ -233,31 +282,34 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
         true,
       );
       if (conversation.type !== 'group') fail('GROUP_REQUIRED', 400);
-      const existing: Poll[] = await manager.query(
-        'SELECT * FROM group_polls WHERE creator_id=$1 AND client_request_id=$2',
+      const existingRows: RawPoll[] = await manager.query(
+        'SELECT * FROM group_polls WHERE creator_id = @0 AND client_request_id = @1',
         [actorId, input.clientRequestId],
       );
-      if (existing[0]) {
+      if (existingRows[0]) {
+        const existing = normalizePoll(existingRows[0]);
         if (
-          existing[0].conversation_id !== conversationId ||
-          decryptMessageText(existing[0].question) !== input.question ||
-          JSON.stringify(existing[0].options.map(decryptMessageText)) !==
+          existing.conversation_id.toLowerCase() !==
+            conversationId.toLowerCase() ||
+          decryptMessageText(existing.question) !== input.question ||
+          JSON.stringify(existing.options.map(decryptMessageText)) !==
             JSON.stringify(options) ||
-          existing[0].multiple !== input.multiple
+          Boolean(existing.multiple) !== Boolean(input.multiple)
         )
           fail('POLL_IDEMPOTENCY_CONFLICT', 409);
-        return { id: existing[0].id };
+        return { id: existing.id };
       }
       const [row] = (await manager.query(
-        `INSERT INTO group_polls(conversation_id,creator_id,client_request_id,question,options,multiple,boundary_sequence)
-        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        `INSERT INTO group_polls(conversation_id, creator_id, client_request_id, question, options, multiple, boundary_sequence)
+         OUTPUT INSERTED.id
+         VALUES(@0, @1, @2, @3, @4, @5, @6)`,
         [
           conversationId,
           actorId,
           input.clientRequestId,
           encryptMessageText(input.question),
           JSON.stringify(options.map(encryptMessageText)),
-          input.multiple,
+          input.multiple ? 1 : 0,
           conversation.lastMessageSequence,
         ],
       )) as { id: string }[];
@@ -267,20 +319,27 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
   async polls(actorId: string, conversationId: string, input: PageDto) {
     return this.db.transaction(async (manager) => {
       await this.conversations.requireAccess(manager, conversationId, actorId);
-      const rows: Poll[] = await manager.query(
-        `SELECT p.* FROM group_polls p WHERE p.conversation_id=$1 AND ($3::uuid IS NULL OR p.id>$3)
-        AND EXISTS (SELECT 1 FROM users u WHERE u.id=p.creator_id AND u.status='active')
-        AND EXISTS (SELECT 1 FROM conversation_member_periods m WHERE m.conversation_id=p.conversation_id AND m.user_id=$2
-          AND m.joined_at<=p.created_at AND (m.left_at IS NULL OR m.left_at>=p.created_at)) ORDER BY p.id LIMIT $4`,
+      const rawRows: RawPoll[] = await manager.query(
+        `SELECT TOP (@3) p.* FROM group_polls p
+         WHERE p.conversation_id = @0 AND (@2 IS NULL OR p.id > CAST(@2 AS UNIQUEIDENTIFIER))
+         AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.creator_id AND u.status = 'active')
+         AND EXISTS (SELECT 1 FROM conversation_member_periods m WHERE m.conversation_id = p.conversation_id AND m.user_id = @1
+           AND m.joined_at <= p.created_at AND (m.left_at IS NULL OR m.left_at >= p.created_at))
+         ORDER BY p.id`,
         [conversationId, actorId, input.cursor ?? null, input.limit + 1],
       );
+      const rows = rawRows.map(normalizePoll);
       const items = [];
       for (const row of rows.slice(0, input.limit)) {
-        const votes: { user_id: string; options: number[] }[] =
+        const rawVotes: { user_id: string; options: string | number[] }[] =
           await manager.query(
-            "SELECT v.user_id,v.options FROM poll_votes v JOIN users u ON u.id=v.user_id AND u.status='active' WHERE poll_id=$1",
+            "SELECT v.user_id, v.options FROM poll_votes v JOIN users u ON u.id = v.user_id AND u.status = 'active' WHERE poll_id = @0",
             [row.id],
           );
+        const votes = rawVotes.map((v) => ({
+          user_id: v.user_id,
+          options: parseNumberArray(v.options),
+        }));
         items.push({
           id: row.id,
           creatorId: row.creator_id,
@@ -289,9 +348,11 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
             text: decryptMessageText(value),
             count: votes.filter((v) => v.options.includes(index)).length,
           })),
-          multiple: row.multiple,
+          multiple: Boolean(row.multiple),
           closedAt: row.closed_at,
-          selected: votes.find((v) => v.user_id === actorId)?.options ?? [],
+          selected:
+            votes.find((v) => v.user_id.toLowerCase() === actorId.toLowerCase())
+              ?.options ?? [],
           voters: votes.length,
         });
       }
@@ -322,13 +383,17 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
         fail('INVALID_VOTE', 400);
       if (!input.options.length)
         await manager.query(
-          'DELETE FROM poll_votes WHERE poll_id=$1 AND user_id=$2',
+          'DELETE FROM poll_votes WHERE poll_id = @0 AND user_id = @1',
           [id, actorId],
         );
       else
         await manager.query(
-          'INSERT INTO poll_votes(poll_id,user_id,options) VALUES($1,$2,$3) ON CONFLICT(poll_id,user_id) DO UPDATE SET options=EXCLUDED.options',
-          [id, actorId, input.options],
+          `MERGE INTO poll_votes WITH (HOLDLOCK) AS target
+           USING (SELECT @0 AS poll_id, @1 AS user_id, @2 AS options) AS source
+           ON target.poll_id = source.poll_id AND target.user_id = source.user_id
+           WHEN MATCHED THEN UPDATE SET options = source.options
+           WHEN NOT MATCHED THEN INSERT (poll_id, user_id, options) VALUES (source.poll_id, source.user_id, source.options);`,
+          [id, actorId, JSON.stringify(input.options)],
         );
       return { success: true };
     });
@@ -342,12 +407,12 @@ export class WorkspaceService implements OnModuleInit, OnModuleDestroy {
         id,
       );
       if (
-        poll.creator_id !== actorId &&
+        poll.creator_id.toLowerCase() !== actorId.toLowerCase() &&
         !['owner', 'admin'].includes(member.role)
       )
         fail('POLL_FORBIDDEN', 403);
       await manager.query(
-        'UPDATE group_polls SET closed_at=COALESCE(closed_at,now()) WHERE id=$1',
+        'UPDATE group_polls SET closed_at = COALESCE(closed_at, SYSDATETIMEOFFSET()) WHERE id = @0',
         [id],
       );
       return { success: true };

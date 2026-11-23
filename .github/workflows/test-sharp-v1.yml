@@ -49,14 +49,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker pull postgres:17-bookworm
+          docker pull mcr.microsoft.com/mssql/server:2022-latest
           export SHARP_TEST_IMAGE=$(docker image inspect --format '{{.Id}}' pingpong-api:sharp-v1-experiment)
-          export STAGING_POSTGRES_IMAGE=$(docker image inspect --format '{{.Id}}' postgres:17-bookworm)
-          export STAGING_DB_PASSWORD=$(openssl rand -hex 24)
+          export STAGING_SQLSERVER_IMAGE=$(docker image inspect --format '{{.Id}}' mcr.microsoft.com/mssql/server:2022-latest)
+          export STAGING_DB_PASSWORD=Aa1$(openssl rand -hex 24)
           export STAGING_JWT_SECRET=$(openssl rand -hex 32)
           staging=(docker compose -p pingpong-sharp-ci -f deploy/vps/compose.sharp-staging.yml)
           trap '"${staging[@]}" logs --no-color --tail=100 staging-api; "${staging[@]}" stop staging-api staging-db' EXIT
           "${staging[@]}" up -d --no-build --wait --wait-timeout 120 staging-db
+          "${staging[@]}" exec -T staging-db sh -c 'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -U sa -C -S localhost -b -Q "CREATE DATABASE pingpong_staging"'
           "${staging[@]}" run --rm -T --no-deps staging-migrate
           "${staging[@]}" up -d --no-build --no-deps --wait --wait-timeout 120 staging-api
           "${staging[@]}" exec -T staging-api node apps/api/tests/api-runtime-dependencies.cjs

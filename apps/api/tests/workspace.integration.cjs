@@ -25,7 +25,7 @@ const { Session } = require('../dist/modules/database/entities/session.entity');
 const code = (expected) => (error) => error.getResponse().code === expected;
 
 test(
-  'workspace features enforce real PostgreSQL constraints, privacy and membership',
+  'workspace features enforce real SQL Server constraints, privacy and membership',
   { skip: !process.env.WORKSPACE_TEST_DATABASE_URL },
   async () => {
     process.env.NODE_ENV = 'test';
@@ -49,6 +49,8 @@ test(
       const [admin, owner, peer, outsider, late] = users;
       for (const target of [peer, late])
         await db.getRepository(Friendship).save({
+          pairLowId: [owner.id, target.id].sort()[0],
+          pairHighId: [owner.id, target.id].sort()[1],
           requesterId: owner.id,
           recipientId: target.id,
           status: 'accepted',
@@ -86,7 +88,7 @@ test(
       const { message } = await send(owner, 'Xin chào thế giới', [peer.id]);
       assert.deepEqual(message.content.mentions, [peer.id]);
       const notices = await db.query(
-        'SELECT * FROM notifications WHERE user_id=$1 AND deduplication_key=$2',
+        'SELECT * FROM notifications WHERE user_id=@0 AND deduplication_key=@1',
         [peer.id, `mention:${message.id}`],
       );
       assert.equal(notices.length, 1);
@@ -105,15 +107,17 @@ test(
           .items.length,
         0,
       );
-      const [stored] = await db.query('SELECT body FROM messages WHERE id=$1', [
+      const [stored] = await db.query('SELECT body FROM messages WHERE id=@0', [
         message.id,
       ]);
       assert.match(stored.body, /^enc:v1:/);
       const [indexed] = await db.query(
-        'SELECT tokens FROM message_search_index WHERE message_id=$1',
+        'SELECT tokens FROM message_search_index WHERE message_id=@0',
         [message.id],
       );
-      assert.ok(indexed.tokens.every((t) => /^[a-f0-9]{64}$/.test(t)));
+      assert.ok(
+        JSON.parse(indexed.tokens).every((t) => /^[a-f0-9]{64}$/.test(t)),
+      );
       await assert.rejects(
         workspace.pin(outsider.id, conversationId, message.id, false),
         code('CONVERSATION_NOT_FOUND'),

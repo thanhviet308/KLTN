@@ -27,6 +27,15 @@ function fixture(status = 'active') {
           passwordHash: 'old-password-hash',
         };
   const repository = {
+    findOne: async ({ where }) => records.get(where.email),
+    insert: async (value) =>
+      records.set(value.email, {
+        ...value,
+        consumedAt: null,
+        delivered: false,
+        userId: null,
+        credentialHash: null,
+      }),
     findOneOrFail: async ({ where }) => records.get(where.email),
     update: async (where, changes) => {
       const record = records.get(

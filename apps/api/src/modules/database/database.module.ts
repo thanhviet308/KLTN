@@ -24,7 +24,7 @@ import { DatabaseService } from './database.service';
         } catch {
           if (dataSource.isInitialized) await dataSource.destroy();
           throw new Error(
-            'PostgreSQL initialization failed; check database configuration and availability',
+            'SQL Server initialization failed; check database configuration and availability',
           );
         }
       },

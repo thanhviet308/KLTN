@@ -24,7 +24,7 @@ import { messageTextTransformer } from '../message-encryption';
 @Check('attachments_size_valid', 'size > 0 AND size <= 104857600')
 @Check(
   'attachments_metadata_valid',
-  "length(btrim(object_key)) > 0 AND length(btrim(file_name)) > 0 AND position('/' IN mime_type) > 1",
+  "LEN(trim(object_key)) > 0 AND LEN(trim(file_name)) > 0 AND CHARINDEX('/', mime_type) > 1",
 )
 @Check(
   'attachments_message_state',
@@ -44,22 +44,25 @@ import { messageTextTransformer } from '../message-encryption';
   where: "status = 'pending'",
 })
 export class Attachment {
-  @Column({ name: 'client_request_id', type: 'uuid' }) clientRequestId!: string;
+  @Column({ name: 'client_request_id', type: 'uniqueidentifier' })
+  clientRequestId!: string;
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;
-  @Column({ name: 'uploader_id', type: 'uuid' }) uploaderId!: string;
+  @Column({ name: 'conversation_id', type: 'uniqueidentifier' })
+  conversationId!: string;
+  @Column({ name: 'uploader_id', type: 'uniqueidentifier' })
+  uploaderId!: string;
   @ManyToOne(() => ConversationMember, {
     nullable: false,
-    onDelete: 'RESTRICT',
+    onDelete: 'NO ACTION',
   })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'uploader_id', referencedColumnName: 'userId' },
   ])
   uploaderMember!: Relation<ConversationMember>;
-  @Column({ name: 'message_id', type: 'uuid', nullable: true }) messageId!:
-    string | null;
-  @ManyToOne(() => Message, { nullable: true, onDelete: 'RESTRICT' })
+  @Column({ name: 'message_id', type: 'uniqueidentifier', nullable: true })
+  messageId!: string | null;
+  @ManyToOne(() => Message, { nullable: true, onDelete: 'NO ACTION' })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'uploader_id', referencedColumnName: 'senderId' },
@@ -68,29 +71,30 @@ export class Attachment {
   message!: Relation<Message> | null;
   @Column({
     name: 'object_key',
-    type: 'varchar',
-    length: 1024,
+    type: 'nvarchar',
+    length: 850,
     unique: true,
     select: false,
   })
   objectKey!: string;
   @Column({
     name: 'file_name',
-    type: 'text',
+    type: 'nvarchar',
+    length: 'MAX',
     transformer: messageTextTransformer,
   })
   fileName!: string;
-  @Column({ name: 'mime_type', type: 'varchar', length: 127 })
+  @Column({ name: 'mime_type', type: 'nvarchar', length: 127 })
   mimeType!: string;
   @Column({ type: 'bigint' }) size!: string;
-  @Column({ type: 'varchar', length: 16, default: 'pending' }) status!:
+  @Column({ type: 'nvarchar', length: 16, default: 'pending' }) status!:
     'pending' | 'uploaded' | 'attached' | 'rejected' | 'expired';
-  @Column({ name: 'upload_expires_at', type: 'timestamptz' })
+  @Column({ name: 'upload_expires_at', type: 'datetimeoffset' })
   uploadExpiresAt!: Date;
-  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'completed_at', type: 'datetimeoffset', nullable: true })
   completedAt!: Date | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

@@ -6,9 +6,9 @@
 
 ## Chạy backend hiện tại
 
-Backend dùng NestJS + TypeORM + PostgreSQL. Đã có schema đầy đủ theo doc 02 và API đăng ký, đăng nhập, refresh, đăng xuất, lấy tài khoản hiện tại. Hướng dẫn sử dụng và bảo mật nằm trong [Users và Authentication](docs/09-users-authentication.md).
+Backend dùng NestJS + TypeORM + SQL Server. Đã có schema đầy đủ theo doc 02 và API đăng ký, đăng nhập, refresh, đăng xuất, lấy tài khoản hiện tại. Hướng dẫn sử dụng và bảo mật nằm trong [Users và Authentication](docs/09-users-authentication.md).
 
-1. Chạy PostgreSQL; tạo database `realtime_chat` và tài khoản riêng `realtime_chat_app` có quyền trên database đó.
+1. Chạy SQL Server; tạo database `pingpong` và tài khoản riêng `realtime_chat_app` có quyền trên database đó.
 2. Sao chép `apps/api/.env.example` thành `apps/api/.env`, điền mật khẩu thực vào `DATABASE_URL` (URL-encode ký tự đặc biệt) và sinh `JWT_ACCESS_SECRET` theo doc 09. Không commit `.env`.
 3. Chạy các lệnh từ gốc repository:
 
@@ -18,7 +18,7 @@ npm.cmd run db:migrate
 npm.cmd run dev:api
 ```
 
-Local đã được tạo lại tại `127.0.0.1:5432`, database `realtime_chat`, dùng tài khoản riêng `realtime_chat_app` không có quyền superuser. Mật khẩu được sinh ngẫu nhiên và chỉ lưu trong `.env`.
+Local đã được tạo lại tại `127.0.0.1:5432`, database `pingpong`, dùng tài khoản riêng `realtime_chat_app` không có quyền superuser. Mật khẩu được sinh ngẫu nhiên và chỉ lưu trong `.env`.
 
 - Liveness: `GET http://127.0.0.1:3000/api/v1/health/live`.
 - Readiness: `GET http://127.0.0.1:3000/api/v1/health/ready` kiểm tra DB thật; trả 503 nếu DB không đáp ứng.
@@ -41,7 +41,7 @@ Kiểm thử tính năng: `npm run test:chat-customization`.
 Web có trợ lý AI tóm tắt hội thoại, gợi ý trả lời và dịch tin nhắn. Cấu hình
 `GEMINI_API_KEY`, `GEMINI_MODEL` trên backend; xem [hướng dẫn AI](apps/api/tests/ai.md).
 
-TypeORM quản lý entity, relation, repository và connection pool. `pg` là driver PostgreSQL mà TypeORM sử dụng. Luôn dùng `synchronize: false`, `dropSchema: false`, `migrationsRun: false`; thay đổi schema qua migration được review, chạy riêng trước API theo [hướng dẫn TypeORM](https://typeorm.io/docs/migrations/why/).
+TypeORM quản lý entity, relation, repository và connection pool. `mssql` là driver SQL Server mà TypeORM sử dụng. Luôn dùng `synchronize: false`, `dropSchema: false`, `migrationsRun: false`; thay đổi schema qua migration được review, chạy riêng trước API theo [hướng dẫn TypeORM](https://typeorm.io/docs/migrations/why/).
 
 Xem [thiết kế database và quy trình migration](docs/08-thiet-ke-database-typeorm.md) cho quan hệ, ràng buộc, quyền truy cập và các giới hạn hiện tại.
 
@@ -94,7 +94,7 @@ Hệ thống hướng đến nhu cầu trao đổi thông tin cá nhân, học t
 | Backend                           | NestJS, TypeScript          |
 | Nhắn tin realtime                 | Socket.IO                   |
 | Gọi thoại và video                | WebRTC, LiveKit             |
-| Cơ sở dữ liệu                     | PostgreSQL                  |
+| Cơ sở dữ liệu                     | SQL Server                  |
 | Bộ nhớ đệm và trạng thái tạm thời | Redis                       |
 | Lưu trữ hình ảnh và tệp tin       | AWS S3                      |
 | AI hội thoại                      | Google Gemini API           |

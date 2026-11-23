@@ -20,15 +20,20 @@ import { User } from './user.entity';
 @Index('sessions_expiry_idx', ['expiresAt'])
 export class Session {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'user_id', type: 'uuid' }) userId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'user_id', type: 'uniqueidentifier' }) userId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'user_id' })
   user!: Relation<User>;
-  @Column({ name: 'device_name', type: 'varchar', length: 200, nullable: true })
+  @Column({
+    name: 'device_name',
+    type: 'nvarchar',
+    length: 200,
+    nullable: true,
+  })
   deviceName!: string | null;
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @Column({ name: 'expires_at', type: 'timestamptz' }) expiresAt!: Date;
-  @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'expires_at', type: 'datetimeoffset' }) expiresAt!: Date;
+  @Column({ name: 'revoked_at', type: 'datetimeoffset', nullable: true })
   revokedAt!: Date | null;
 }

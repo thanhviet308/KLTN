@@ -91,31 +91,38 @@ export class FriendshipsService {
         'Cannot send a friend request to yourself',
       );
     return this.db.transaction(async (manager) => {
-      const pairKey = [actorId, recipientId].sort().join(':');
+      const [low, high] = [
+        actorId.toLowerCase(),
+        recipientId.toLowerCase(),
+      ].sort();
+      const pairKey = `${low}:${high}`;
       // Serialize request creation/reopening even if the pair has no row yet.
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`friendship:${pairKey}`],
       );
       const users = await this.lockUsers(manager, [actorId, recipientId]);
-      const actor = users.find((user) => user.id === actorId);
+      const actor = users.find(
+        (user) => user.id.toLowerCase() === actorId.toLowerCase(),
+      );
       const repository = manager.getRepository(Friendship);
-      // Unique generated pair + ON CONFLICT serializes even when no row exists.
-      await repository
-        .createQueryBuilder()
-        .insert()
-        .values({ requesterId: actorId, recipientId, status: 'pending' })
-        .orIgnore()
-        .execute();
-      const [low, high] = [actorId, recipientId].sort();
-      const row = await repository.findOneOrFail({
+      let row = await repository.findOne({
         where: { pairLowId: low, pairHighId: high },
         lock: { mode: 'pessimistic_write' },
       });
+      if (!row) {
+        row = await repository.save({
+          requesterId: actorId,
+          recipientId,
+          pairLowId: low,
+          pairHighId: high,
+          status: 'pending',
+        });
+      }
       if (row.status === 'accepted')
         fail(409, 'ALREADY_FRIENDS', 'Users are already friends');
       if (row.status === 'pending') {
-        if (row.requesterId !== actorId)
+        if (row.requesterId.toLowerCase() !== actorId.toLowerCase())
           fail(
             409,
             'INCOMING_REQUEST_EXISTS',
@@ -135,6 +142,8 @@ export class FriendshipsService {
       const fresh = await repository.save({
         requesterId: actorId,
         recipientId,
+        pairLowId: low,
+        pairHighId: high,
         status: 'pending',
       });
       await this.writeFriendRequestNotice(
@@ -161,9 +170,12 @@ export class FriendshipsService {
         fail(404, 'FRIEND_REQUEST_NOT_FOUND', 'Friend request not found');
       // Match direct creation's lock order before locking the friendship row.
       if (action === 'accept') {
-        const [low, high] = [found.requesterId, found.recipientId].sort();
+        const [low, high] = [
+          found.requesterId.toLowerCase(),
+          found.recipientId.toLowerCase(),
+        ].sort();
         await manager.query(
-          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
           [`conversation:direct:${low}:${high}`],
         );
       }

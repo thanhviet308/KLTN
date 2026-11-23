@@ -5,7 +5,7 @@ assert.equal(process.env.NODE_ENV, 'test');
 const database = new URL(process.env.DATABASE_URL);
 assert.equal(database.hostname, 'staging-db');
 assert.equal(database.pathname, '/pingpong_staging');
-assert.equal(database.username, 'pingpong_staging');
+assert.equal(database.protocol, 'mssql:');
 const base = 'http://127.0.0.1:3000/api/v1';
 async function main() {
   for (const route of ['/health/live', '/health/ready']) {

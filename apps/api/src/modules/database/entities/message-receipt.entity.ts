@@ -16,10 +16,12 @@ import { ConversationMember } from './conversation-member.entity';
 @Check('receipts_read_time', 'read_at IS NULL OR read_at >= delivered_at')
 @Index('receipts_member_idx', ['conversationId', 'userId'])
 export class MessageReceipt {
-  @Column({ name: 'conversation_id', type: 'uuid' }) conversationId!: string;
-  @PrimaryColumn({ name: 'message_id', type: 'uuid' }) messageId!: string;
-  @PrimaryColumn({ name: 'user_id', type: 'uuid' }) userId!: string;
-  @ManyToOne(() => Message, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'conversation_id', type: 'uniqueidentifier' })
+  conversationId!: string;
+  @PrimaryColumn({ name: 'message_id', type: 'uniqueidentifier' })
+  messageId!: string;
+  @PrimaryColumn({ name: 'user_id', type: 'uniqueidentifier' }) userId!: string;
+  @ManyToOne(() => Message, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'message_id', referencedColumnName: 'id' },
@@ -27,15 +29,15 @@ export class MessageReceipt {
   message!: Relation<Message>;
   @ManyToOne(() => ConversationMember, {
     nullable: false,
-    onDelete: 'RESTRICT',
+    onDelete: 'NO ACTION',
   })
   @JoinColumn([
     { name: 'conversation_id', referencedColumnName: 'conversationId' },
     { name: 'user_id', referencedColumnName: 'userId' },
   ])
   member!: Relation<ConversationMember>;
-  @CreateDateColumn({ name: 'delivered_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'delivered_at', type: 'datetimeoffset' })
   deliveredAt!: Date;
-  @Column({ name: 'read_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'read_at', type: 'datetimeoffset', nullable: true })
   readAt!: Date | null;
 }

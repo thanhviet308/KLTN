@@ -23,6 +23,18 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: LocalTestOnly_42
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P LocalTestOnly_42 -Q 'SELECT 1' -b"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+        ports:
+          - 1433/tcp
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,6 +45,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Verify SQL Server migration and workspace integration
+        env:
+          DATABASE_URL: mssql://sa:LocalTestOnly_42@127.0.0.1:${{ job.services.sqlserver.ports['1433'] }}/pingpong_ci?encrypt=true&trustServerCertificate=true
+          SQL_CONTAINER: ${{ job.services.sqlserver.id }}
+        run: |
+          docker exec "$SQL_CONTAINER" /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P LocalTestOnly_42 -b -Q 'CREATE DATABASE pingpong_ci'
+          node apps/api/dist/modules/database/migrate.js --allow=SqlServerFoundation1790985600000
+          node apps/api/dist/modules/database/migrate.js --check
+          WORKSPACE_TEST_DATABASE_URL="$DATABASE_URL" node --test apps/api/tests/workspace.integration.cjs
       - name: Verify every new migration is reviewed
         run: bash deploy/vps/tests/migration-review.sh
       - name: Validate Blue-Green script syntax

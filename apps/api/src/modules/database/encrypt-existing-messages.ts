@@ -19,7 +19,7 @@ type StoredMessage = {
 
 type StoredMessageContent = {
   id: string;
-  content: Record<string, unknown>;
+  content: string | Record<string, unknown>;
 };
 
 const BATCH_SIZE = 500;
@@ -28,10 +28,10 @@ async function backfillMessages(): Promise<number> {
   let encrypted = 0;
   for (;;) {
     const rows: StoredMessage[] = await dataSource.query(
-      `SELECT id, body, edited_body FROM messages
+      `SELECT TOP (@0) id, body, edited_body FROM messages
        WHERE (body IS NOT NULL AND body NOT LIKE 'enc:v1:%')
           OR (edited_body IS NOT NULL AND edited_body NOT LIKE 'enc:v1:%')
-       ORDER BY id LIMIT $1`,
+       ORDER BY id`,
       [BATCH_SIZE],
     );
     if (!rows.length) break;
@@ -46,10 +46,10 @@ async function backfillMessages(): Promise<number> {
           ? row.edited_body
           : encryptMessageText(row.edited_body);
       const result: { id: string }[] = await dataSource.query(
-        `UPDATE messages SET body = $2, edited_body = $3
-         WHERE id = $1 AND body IS NOT DISTINCT FROM $4
-           AND edited_body IS NOT DISTINCT FROM $5 RETURNING id`,
-        [row.id, body, editedBody, row.body, row.edited_body],
+        `UPDATE messages SET body = @1, edited_body = @2
+         OUTPUT INSERTED.id
+         WHERE id = @0`,
+        [row.id, body, editedBody],
       );
       if (result.length) {
         encrypted++;
@@ -64,34 +64,31 @@ async function backfillMessages(): Promise<number> {
 
 async function backfillMessageContents(): Promise<number> {
   let encrypted = 0;
-  for (;;) {
-    const rows: StoredMessageContent[] = await dataSource.query(
-      `SELECT id, content FROM messages
-       WHERE content IS NOT NULL AND (
-         (content ? 'fileName' AND COALESCE(content->>'fileName', '') NOT LIKE 'enc:v1:%')
-         OR (content #> '{replyTo,excerpt}' IS NOT NULL AND COALESCE(content #>> '{replyTo,excerpt}', '') NOT LIKE 'enc:v1:%')
-         OR (jsonb_typeof(content->'latitude') = 'number' AND jsonb_typeof(content->'longitude') = 'number')
-       )
-       ORDER BY id LIMIT $1`,
-      [BATCH_SIZE],
-    );
-    if (!rows.length) break;
-    let progressed = 0;
-    for (const row of rows) {
-      if (!needsMessageContentEncryption(row.content)) continue;
-      const updated = backfillMessageContent(row.content);
-      const result: { id: string }[] = await dataSource.query(
-        `UPDATE messages SET content = $2::jsonb
-         WHERE id = $1 AND content IS NOT DISTINCT FROM $3::jsonb RETURNING id`,
-        [row.id, JSON.stringify(updated), JSON.stringify(row.content)],
-      );
-      if (result.length) {
-        encrypted++;
-        progressed++;
+  const rows: StoredMessageContent[] = await dataSource.query(
+    `SELECT id, content FROM messages WHERE content IS NOT NULL ORDER BY id`,
+  );
+  for (const row of rows) {
+    let parsed: Record<string, unknown> | null = null;
+    if (typeof row.content === 'string') {
+      try {
+        parsed = JSON.parse(row.content) as Record<string, unknown>;
+      } catch {
+        continue;
       }
+    } else if (row.content && typeof row.content === 'object') {
+      parsed = row.content;
     }
-    if (!progressed)
-      throw new Error('Message content encryption backfill made no progress');
+    if (!parsed || !needsMessageContentEncryption(parsed)) continue;
+    const updated = backfillMessageContent(parsed);
+    const result: { id: string }[] = await dataSource.query(
+      `UPDATE messages SET content = @1
+       OUTPUT INSERTED.id
+       WHERE id = @0`,
+      [row.id, JSON.stringify(updated)],
+    );
+    if (result.length) {
+      encrypted++;
+    }
   }
   return encrypted;
 }
@@ -100,9 +97,9 @@ async function backfillAttachments(): Promise<number> {
   let encrypted = 0;
   for (;;) {
     const rows: { id: string; file_name: string }[] = await dataSource.query(
-      `SELECT id, file_name FROM attachments
+      `SELECT TOP (@0) id, file_name FROM attachments
        WHERE file_name NOT LIKE 'enc:v1:%'
-       ORDER BY id LIMIT $1`,
+       ORDER BY id`,
       [BATCH_SIZE],
     );
     if (!rows.length) break;
@@ -112,8 +109,9 @@ async function backfillAttachments(): Promise<number> {
         ? row.file_name
         : encryptMessageText(row.file_name);
       const result: { id: string }[] = await dataSource.query(
-        `UPDATE attachments SET file_name = $2
-         WHERE id = $1 AND file_name = $3 RETURNING id`,
+        `UPDATE attachments SET file_name = @1
+         OUTPUT INSERTED.id
+         WHERE id = @0 AND file_name = @2`,
         [row.id, next, row.file_name],
       );
       if (result.length) {

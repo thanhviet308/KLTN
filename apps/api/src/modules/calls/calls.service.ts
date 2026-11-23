@@ -106,14 +106,11 @@ export class CallsService {
     });
     if (existing) return undefined;
     const rows: { last_message_sequence: string }[] = await manager.query(
-      `WITH updated AS (
-         UPDATE conversations
-         SET last_message_sequence = last_message_sequence + 1,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1
-         RETURNING last_message_sequence
-       )
-       SELECT last_message_sequence FROM updated`,
+      `UPDATE conversations
+       SET last_message_sequence = last_message_sequence + 1,
+           updated_at = SYSDATETIMEOFFSET()
+       OUTPUT CAST(INSERTED.last_message_sequence AS NVARCHAR(30)) AS last_message_sequence
+       WHERE id = @0`,
       [call.conversationId],
     );
     const sequence = rows[0]?.last_message_sequence;
@@ -248,7 +245,7 @@ export class CallsService {
     const result = await this.db.transaction(async (manager) => {
       const requestId = input.clientRequestId.toLowerCase();
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`call:create:${actorId}:${requestId}`],
       );
       const calls = manager.getRepository(Call);
@@ -279,7 +276,7 @@ export class CallsService {
       // The partial unique index is the final guard. This lock also serializes
       // two different request IDs while no open call row exists yet.
       await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        "EXEC sp_getapplock @Resource = @0, @LockMode = 'Exclusive', @LockOwner = 'Transaction'",
         [`call:conversation:${conversationId}`],
       );
 
@@ -491,10 +488,19 @@ export class CallsService {
           callId: input.cursor.toLowerCase(),
           userId: actorId,
         });
-        if (!cursor) fail(400, 'CURSOR_INVALID', 'Cursor is invalid');
+        const cursorCall = cursor
+          ? await manager
+              .getRepository(Call)
+              .findOneBy({ id: input.cursor.toLowerCase() })
+          : null;
+        if (!cursor || !cursorCall)
+          fail(400, 'CURSOR_INVALID', 'Cursor is invalid');
         query.andWhere(
-          '(call.createdAt, call.id) < ((SELECT created_at FROM calls WHERE id = :cursor), :cursor)',
-          { cursor: input.cursor.toLowerCase() },
+          '(call.createdAt < :cursorCreatedAt OR (call.createdAt = :cursorCreatedAt AND call.id < :cursor))',
+          {
+            cursorCreatedAt: cursorCall.createdAt,
+            cursor: input.cursor.toLowerCase(),
+          },
         );
       }
       const rows = await query.getMany();
@@ -567,7 +573,8 @@ export class CallsService {
         { callId: id, userId: actorId },
         {
           status: 'joined',
-          joinedAt: () => 'GREATEST(CURRENT_TIMESTAMP, invited_at)',
+          joinedAt: () =>
+            'CASE WHEN SYSDATETIMEOFFSET() > invited_at THEN SYSDATETIMEOFFSET() ELSE invited_at END',
           leftAt: null,
         },
       );
@@ -576,7 +583,8 @@ export class CallsService {
           { callId: id, userId: call.initiatorId, status: 'accepted' },
           {
             status: 'joined',
-            joinedAt: () => 'GREATEST(CURRENT_TIMESTAMP, invited_at)',
+            joinedAt: () =>
+              'CASE WHEN SYSDATETIMEOFFSET() > invited_at THEN SYSDATETIMEOFFSET() ELSE invited_at END',
           },
         );
       return {
@@ -768,7 +776,7 @@ export class CallsService {
         status: () =>
           "CASE WHEN status = 'joined' THEN 'left' ELSE 'cancelled' END",
         leftAt: () =>
-          "CASE WHEN status = 'joined' THEN GREATEST(CURRENT_TIMESTAMP, joined_at) ELSE left_at END",
+          "CASE WHEN status = 'joined' THEN (CASE WHEN SYSDATETIMEOFFSET() > joined_at THEN SYSDATETIMEOFFSET() ELSE joined_at END) ELSE left_at END",
       })
       .where('call_id = :id', { id: call.id })
       .andWhere("status IN ('joined', 'invited', 'accepted')")

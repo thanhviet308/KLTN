@@ -50,10 +50,12 @@ export class PasswordResetService {
     const eligible = await this.db.transaction(async (manager) => {
       const repository = manager.getRepository(PasswordReset);
       // Store the same challenge and limits even for unknown/inactive emails.
-      await repository
-        .createQueryBuilder()
-        .insert()
-        .values({
+      const existing = await repository.findOne({
+        where: { email },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!existing) {
+        await repository.insert({
           email,
           challengeId,
           codeHash: this.codeHash(challengeId, code),
@@ -62,13 +64,14 @@ export class PasswordResetService {
           windowStartedAt: now,
           sentAt: now,
           expiresAt,
-        })
-        .orIgnore()
-        .execute();
-      const current = await repository.findOneOrFail({
-        where: { email },
-        lock: { mode: 'pessimistic_write' },
-      });
+        });
+      }
+      const current =
+        existing ??
+        (await repository.findOneOrFail({
+          where: { email },
+          lock: { mode: 'pessimistic_write' },
+        }));
       const first = current.challengeId === challengeId;
       const resetWindow =
         now.getTime() - current.windowStartedAt.getTime() >= 60 * 60000;

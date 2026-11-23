@@ -249,7 +249,7 @@ export function validateDatabaseUrl(databaseUrl: unknown): string {
   try {
     const database = new URL(databaseUrl);
     if (
-      !['postgres:', 'postgresql:'].includes(database.protocol) ||
+      database.protocol !== 'mssql:' ||
       !database.hostname ||
       !database.username ||
       !database.password ||
@@ -261,7 +261,7 @@ export function validateDatabaseUrl(databaseUrl: unknown): string {
     }
   } catch {
     throw new Error(
-      'DATABASE_URL must be a PostgreSQL URL with credentials and a database name',
+      'DATABASE_URL must be an mssql:// URL with credentials and a database name',
     );
   }
 

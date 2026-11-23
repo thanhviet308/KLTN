@@ -23,32 +23,30 @@ import { User } from './user.entity';
 @Index('friendships_recipient_status_idx', ['recipientId', 'status'])
 export class Friendship {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'requester_id', type: 'uuid' }) requesterId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'requester_id', type: 'uniqueidentifier' })
+  requesterId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'requester_id' })
   requester!: Relation<User>;
-  @Column({ name: 'recipient_id', type: 'uuid' }) recipientId!: string;
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
+  @Column({ name: 'recipient_id', type: 'uniqueidentifier' })
+  recipientId!: string;
+  @ManyToOne(() => User, { nullable: false, onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'recipient_id' })
   recipient!: Relation<User>;
   @Column({
     name: 'pair_low_id',
-    type: 'uuid',
-    asExpression: 'LEAST(requester_id, recipient_id)',
-    generatedType: 'STORED',
+    type: 'uniqueidentifier',
   })
   pairLowId!: string;
   @Column({
     name: 'pair_high_id',
-    type: 'uuid',
-    asExpression: 'GREATEST(requester_id, recipient_id)',
-    generatedType: 'STORED',
+    type: 'uniqueidentifier',
   })
   pairHighId!: string;
-  @Column({ type: 'varchar', length: 16, default: 'pending' }) status!:
+  @Column({ type: 'nvarchar', length: 16, default: 'pending' }) status!:
     'pending' | 'accepted' | 'rejected' | 'cancelled' | 'removed';
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetimeoffset' })
   createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetimeoffset' })
   updatedAt!: Date;
 }

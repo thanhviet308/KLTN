@@ -1,6 +1,5 @@
 import { resolve } from 'node:path';
-import { Logger } from '@nestjs/common';
-import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
+import type { SqlServerConnectionOptions } from 'typeorm/driver/sqlserver/SqlServerConnectionOptions';
 import { User } from './entities/user.entity';
 import { Session } from './entities/session.entity';
 import { SessionRefreshToken } from './entities/session-refresh-token.entity';
@@ -24,11 +23,24 @@ import { MessageRequest } from './entities/message-request.entity';
 import { GameSession } from './entities/game-session.entity';
 import { UserNote } from './entities/user-note.entity';
 
-export function typeormOptions(databaseUrl: string): PostgresConnectionOptions {
+export function typeormOptions(
+  databaseUrl: string,
+): SqlServerConnectionOptions {
+  const url = new URL(databaseUrl);
   return {
-    type: 'postgres',
-    url: databaseUrl,
-    schema: 'public',
+    type: 'mssql',
+    host: url.hostname,
+    port: Number(url.port || 1433),
+    username: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    database: decodeURIComponent(url.pathname.slice(1)),
+    schema: 'dbo',
+    options: {
+      encrypt: true,
+      trustServerCertificate:
+        url.searchParams.get('trustServerCertificate') === 'true',
+      useUTC: true,
+    },
     entities: [
       PasswordReset,
       RegistrationVerification,
@@ -53,26 +65,16 @@ export function typeormOptions(databaseUrl: string): PostgresConnectionOptions {
       GameSession,
       UserNote,
     ],
-    migrations: [resolve(__dirname, 'migrations/*.js')],
+    migrations: [resolve(__dirname, 'migrations-sqlserver/*.js')],
     migrationsTableName: 'typeorm_migrations',
     migrationsTransactionMode: 'all',
     synchronize: false,
     migrationsRun: false,
     dropSchema: false,
-    uuidExtension: 'pgcrypto',
-    installExtensions: false,
     logging: false,
-    poolErrorHandler: () =>
-      Logger.error('PostgreSQL idle connection failed', 'Database'),
     invalidWhereValuesBehavior: { null: 'throw', undefined: 'throw' },
-    poolSize: 10,
-    extra: {
-      connectionTimeoutMillis: 30000,
-      idleTimeoutMillis: 10000,
-      statement_timeout: 5000,
-      query_timeout: 6000,
-      application_name: 'realtime-chat-api',
-      options: '-c timezone=UTC',
-    },
+    pool: { max: 10, min: 0 },
+    connectionTimeout: 30000,
+    requestTimeout: 6000,
   };
 }

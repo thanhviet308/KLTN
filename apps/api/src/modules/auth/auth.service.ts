@@ -77,12 +77,13 @@ export class AuthService {
           'Account changed; try again',
         );
       await manager.getRepository(User).update(userId, { passwordHash });
-      await manager
-        .getRepository(Session)
-        .update(
-          { userId, revokedAt: IsNull() },
-          { revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)' },
-        );
+      await manager.getRepository(Session).update(
+        { userId, revokedAt: IsNull() },
+        {
+          revokedAt: () =>
+            'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
+        },
+      );
     });
   }
   private readonly logger = new Logger(AuthService.name);
@@ -189,12 +190,10 @@ export class AuthService {
       // lock already acquired by login's transaction.
       await manager.query(
         `
-        WITH created_session AS (
-          INSERT INTO sessions (id, user_id, device_name, expires_at)
-          VALUES ($1, $2, $3, $4) RETURNING id
-        )
+        INSERT INTO sessions (id, user_id, device_name, expires_at)
+        VALUES (@0, @1, @2, @3);
         INSERT INTO session_refresh_tokens (session_id, token_hash, expires_at)
-        SELECT id, $5, $4 FROM created_session
+        VALUES (@0, @4, @3);
       `,
         [
           session.id,
@@ -254,7 +253,8 @@ export class AuthService {
       const token = await tokens.findOneByOrFail({ id: found.id });
       if (token.consumedAt) {
         await manager.getRepository(Session).update(session.id, {
-          revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+          revokedAt: () =>
+            'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
         });
         this.logger.warn({
           code: 'REFRESH_TOKEN_REUSED',
@@ -272,12 +272,14 @@ export class AuthService {
         token.expiresAt.getTime() <= Date.now()
       ) {
         await manager.getRepository(Session).update(session.id, {
-          revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+          revokedAt: () =>
+            'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
         });
         return null;
       }
       await tokens.update(token.id, {
-        consumedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+        consumedAt: () =>
+          'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
       });
       return this.issue(manager, session, user);
     });
@@ -302,7 +304,8 @@ export class AuthService {
       });
       if (session && !session.revokedAt) {
         await manager.getRepository(Session).update(session.id, {
-          revokedAt: () => 'GREATEST(CURRENT_TIMESTAMP, created_at)',
+          revokedAt: () =>
+            'CASE WHEN SYSDATETIMEOFFSET() > created_at THEN SYSDATETIMEOFFSET() ELSE created_at END',
         });
       }
     });
