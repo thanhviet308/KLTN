@@ -514,9 +514,7 @@ export function CallProvider({
         title={title}
         incoming={incoming}
         busy={busy}
-        canHangupWhileBusy={
-          connection !== 'disconnected' && !ending.current
-        }
+        canHangupWhileBusy={connection !== 'disconnected' && !ending.current}
         connection={connection}
         error={error}
         onJoin={() => {

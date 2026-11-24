@@ -171,7 +171,10 @@ export function validateEnvironment(
     input.WEBRTC_TURN_CREDENTIAL.trim()
       ? input.WEBRTC_TURN_CREDENTIAL.trim()
       : undefined;
-  if ((webrtcTurnUsername && !webrtcTurnCredential) || (!webrtcTurnUsername && webrtcTurnCredential)) {
+  if (
+    (webrtcTurnUsername && !webrtcTurnCredential) ||
+    (!webrtcTurnUsername && webrtcTurnCredential)
+  ) {
     throw new Error(
       'WEBRTC_TURN_USERNAME and WEBRTC_TURN_CREDENTIAL must be configured together',
     );
@@ -228,7 +231,9 @@ function validateIceUrlList(
 ): string | undefined {
   if (value === undefined || value === '') return undefined;
   if (typeof value !== 'string') {
-    throw new Error(`${envName} must be a comma-separated list of ICE server URLs`);
+    throw new Error(
+      `${envName} must be a comma-separated list of ICE server URLs`,
+    );
   }
   const items = value
     .split(',')

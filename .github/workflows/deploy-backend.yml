@@ -1,33 +1,90 @@
-name: Deploy backend to VPS
+name: Backend checks and VPS deployment
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/api/**'
-      - 'deploy/vps/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.dockerignore'
-      - 'eslint.config.mjs'
-      - '.github/workflows/deploy-backend.yml'
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: backend-production
-  cancel-in-progress: false
-
 jobs:
   checks:
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/ci.yml
+    name: backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      deploy: ${{ steps.scope.outputs.deploy }}
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: LocalTestOnly_42
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P LocalTestOnly_42 -Q 'SELECT 1' -b"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+        ports:
+          - 1433/tcp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '0' || '1' }}
+      - name: Check whether to deploy the backend
+        id: scope
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deploy=true
+          # Manual runs and pushes without a reachable base deploy after checks.
+          if [[ -n "$BEFORE" ]] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            if git diff --quiet "$BEFORE" "$GITHUB_SHA" -- apps/api/ deploy/vps/ packages/ package.json package-lock.json .dockerignore eslint.config.mjs .github/workflows/deploy-backend.yml; then
+              deploy=false
+            else
+              status=$?
+              [[ "$status" == 1 ]] || exit "$status"
+            fi
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Verify SQL Server migration and workspace integration
+        env:
+          DATABASE_URL: mssql://sa:LocalTestOnly_42@127.0.0.1:${{ job.services.sqlserver.ports['1433'] }}/pingpong_ci?encrypt=true&trustServerCertificate=true
+          SQL_CONTAINER: ${{ job.services.sqlserver.id }}
+        run: |
+          docker exec "$SQL_CONTAINER" /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P LocalTestOnly_42 -b -Q 'CREATE DATABASE pingpong_ci'
+          node apps/api/dist/modules/database/migrate.js --allow=SqlServerFoundation1790985600000
+          node apps/api/dist/modules/database/migrate.js --check
+          WORKSPACE_TEST_DATABASE_URL="$DATABASE_URL" node --test apps/api/tests/workspace.integration.cjs
+      - name: Verify every new migration is reviewed
+        run: bash deploy/vps/tests/migration-review.sh
+      - name: Validate Blue-Green script syntax
+        run: bash -n deploy/vps/deploy.sh && bash -n deploy/vps/switch-upstream.sh && bash -n deploy/vps/rollback.sh
+      - name: Verify fail-closed migration, health and traffic switching
+        run: bash deploy/vps/tests/deploy-failure.sh
+      - name: Verify actual Nginx switching and failed-reload recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'FROM nginx:stable-alpine\nRUN apk add --no-cache bash flock curl\n' | docker build -t pingpong-nginx-test:validation -
+          docker run --rm --network none \
+            --mount "type=bind,source=$PWD/deploy/vps,target=/fixtures,readonly" \
+            --entrypoint bash pingpong-nginx-test:validation /fixtures/tests/nginx-switch.integration.sh
 
   image:
     needs: checks
+    if: needs.checks.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -62,6 +119,9 @@ jobs:
     needs: [checks, image]
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    concurrency:
+      group: backend-production
+      cancel-in-progress: false
     environment: production
     steps:
       - uses: actions/checkout@v4

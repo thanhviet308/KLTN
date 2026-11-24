@@ -37,7 +37,8 @@ test('WebRTC ICE configuration validates STUN/TURN URLs and credentials', () => 
   );
   const environment = validateEnvironment({
     ...baseEnvironment,
-    WEBRTC_STUN_URLS: 'stun:stun.l.google.com:19302, stun:stun1.l.google.com:19302',
+    WEBRTC_STUN_URLS:
+      'stun:stun.l.google.com:19302, stun:stun1.l.google.com:19302',
     WEBRTC_TURN_URLS: 'turn:turn.example.com:3478',
     WEBRTC_TURN_USERNAME: 'turn-user',
     WEBRTC_TURN_CREDENTIAL: 'turn-pass',

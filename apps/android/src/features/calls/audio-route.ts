@@ -9,8 +9,7 @@ interface NativeAudioRoute {
 }
 
 const nativeModule = NativeModules.AudioRouteModule as
-  | NativeAudioRoute
-  | undefined;
+  NativeAudioRoute | undefined;
 
 export const AudioRoute = {
   async start(output: AudioOutput) {

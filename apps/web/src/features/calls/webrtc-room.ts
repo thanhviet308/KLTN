@@ -658,7 +658,12 @@ export class WebRtcRoom {
   }
 
   private async handleSignal(event: SignalEvent) {
-    const entry = this.ensurePeer(event.fromUserId, 'Người tham gia', true, true);
+    const entry = this.ensurePeer(
+      event.fromUserId,
+      'Người tham gia',
+      true,
+      true,
+    );
     const { pc } = entry;
     if (pc.signalingState === 'closed') return;
 

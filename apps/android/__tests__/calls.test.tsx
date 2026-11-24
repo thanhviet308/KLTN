@@ -195,12 +195,9 @@ test('accept connects with server ICE config and publishes audio/video; remote e
   });
   expect(request).toHaveBeenCalledWith('/calls/call-1/accept', {});
   const room = jest.mocked(WebRtcRoom).mock.results[0].value;
-  expect(WebRtcRoom).toHaveBeenCalledWith(
-    expect.any(Object),
-    'call-1',
-    'me',
-    [{ urls: ['stun:stun.l.google.com:19302'] }],
-  );
+  expect(WebRtcRoom).toHaveBeenCalledWith(expect.any(Object), 'call-1', 'me', [
+    { urls: ['stun:stun.l.google.com:19302'] },
+  ]);
   expect(room.connect).toHaveBeenCalled();
   expect(room.setMicrophoneEnabled).toHaveBeenCalledWith(true);
   expect(room.setCameraEnabled).toHaveBeenCalledWith(true);

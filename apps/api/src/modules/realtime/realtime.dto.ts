@@ -1,10 +1,4 @@
-import {
-  IsBoolean,
-  IsIn,
-  IsObject,
-  IsOptional,
-  IsUUID,
-} from 'class-validator';
+import { IsBoolean, IsIn, IsObject, IsOptional, IsUUID } from 'class-validator';
 import { MessageHistoryDto, SendMessageDto } from '../messages/messages.dto';
 
 export class PresenceSocketDto {

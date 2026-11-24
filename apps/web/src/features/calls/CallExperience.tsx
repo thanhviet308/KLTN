@@ -3,10 +3,7 @@ import './calls.css';
 import * as api from '../../lib/api';
 import { acquireChatSocket } from '../../lib/realtime';
 import { isEmbeddedInAppBrowser } from '../chat/location-helper';
-import {
-  extractMediaErrorInfo,
-  formatCallMediaError,
-} from './call-media';
+import { extractMediaErrorInfo, formatCallMediaError } from './call-media';
 import {
   computeCallElapsedSeconds,
   nextPipCorner,
@@ -389,7 +386,6 @@ export function CallExperience({
         return meta?.title || 'Người tham gia';
       };
 
-      let mediaRoom!: WebRtcRoom;
       const syncTracks = () => {
         if (roomRef.current !== mediaRoom) return;
         recorderRef.current?.recorder.sync();
@@ -458,7 +454,7 @@ export function CallExperience({
         setRemotePeers(peerTiles);
       };
 
-      mediaRoom = new WebRtcRoom(
+      const mediaRoom = new WebRtcRoom(
         hub.socket,
         next.id,
         user.id,

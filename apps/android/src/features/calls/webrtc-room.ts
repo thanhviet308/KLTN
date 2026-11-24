@@ -9,10 +9,7 @@ import {
 } from '@livekit/react-native-webrtc';
 
 export type CallConnectionState =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting';
+  'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
 export interface IceServerConfig {
   urls: string | string[];
@@ -402,8 +399,7 @@ export class WebRtcRoom {
 
   async switchCamera() {
     const raw = this.localVideoTrack as
-      | (MediaStreamTrack & { _switchCamera?: () => void })
-      | undefined;
+      (MediaStreamTrack & { _switchCamera?: () => void }) | undefined;
     if (raw && typeof raw._switchCamera === 'function') {
       raw._switchCamera();
       this.notify();
@@ -571,7 +567,8 @@ export class WebRtcRoom {
 
     try {
       if (event.type === 'offer' || event.type === 'answer') {
-        const sdp = typeof event.payload.sdp === 'string' ? event.payload.sdp : '';
+        const sdp =
+          typeof event.payload.sdp === 'string' ? event.payload.sdp : '';
         const offerCollision =
           event.type === 'offer' &&
           (entry.makingOffer || pc.signalingState !== 'stable');
