@@ -102,6 +102,10 @@ export class SendMessageDto {
 }
 
 export class MessageHistoryDto {
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsIn(['image', 'file'])
+  mediaType?: 'image' | 'file';
+
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value,
   )

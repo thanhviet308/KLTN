@@ -14,9 +14,10 @@ export interface Environment {
   SMTP_USER?: string;
   SMTP_PASSWORD?: string;
   SMTP_FROM?: string;
-  LIVEKIT_URL?: string;
-  LIVEKIT_API_KEY?: string;
-  LIVEKIT_API_SECRET?: string;
+  WEBRTC_STUN_URLS?: string;
+  WEBRTC_TURN_URLS?: string;
+  WEBRTC_TURN_USERNAME?: string;
+  WEBRTC_TURN_CREDENTIAL?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   SPAM_DETECTION_URL?: string;
@@ -124,11 +125,6 @@ export function validateEnvironment(
     throw new Error('DEPLOYMENT_REVISION must be a full Git commit SHA');
   }
 
-  const livekitValues = [
-    input.LIVEKIT_URL,
-    input.LIVEKIT_API_KEY,
-    input.LIVEKIT_API_SECRET,
-  ];
   const spamDetectionInput =
     input.SPAM_DETECTION_URL ??
     (mode === 'production' ? undefined : 'http://127.0.0.1:8501');
@@ -154,43 +150,31 @@ export function validateEnvironment(
       );
     }
   }
-  const configuredLivekit = livekitValues.filter(
-    (value) => typeof value === 'string' && value.length > 0,
-  ).length;
-  if (configuredLivekit !== 0 && configuredLivekit !== livekitValues.length) {
+
+  const webrtcStunUrls = validateIceUrlList(
+    input.WEBRTC_STUN_URLS,
+    ['stun:', 'stuns:'],
+    'WEBRTC_STUN_URLS',
+  );
+  const webrtcTurnUrls = validateIceUrlList(
+    input.WEBRTC_TURN_URLS,
+    ['turn:', 'turns:'],
+    'WEBRTC_TURN_URLS',
+  );
+  const webrtcTurnUsername =
+    typeof input.WEBRTC_TURN_USERNAME === 'string' &&
+    input.WEBRTC_TURN_USERNAME.trim()
+      ? input.WEBRTC_TURN_USERNAME.trim()
+      : undefined;
+  const webrtcTurnCredential =
+    typeof input.WEBRTC_TURN_CREDENTIAL === 'string' &&
+    input.WEBRTC_TURN_CREDENTIAL.trim()
+      ? input.WEBRTC_TURN_CREDENTIAL.trim()
+      : undefined;
+  if ((webrtcTurnUsername && !webrtcTurnCredential) || (!webrtcTurnUsername && webrtcTurnCredential)) {
     throw new Error(
-      'LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be configured together',
+      'WEBRTC_TURN_USERNAME and WEBRTC_TURN_CREDENTIAL must be configured together',
     );
-  }
-  let livekitUrl: string | undefined;
-  if (configuredLivekit) {
-    if (
-      livekitValues.some(
-        (value) =>
-          typeof value !== 'string' ||
-          value !== value.trim() ||
-          /\s/.test(value),
-      )
-    )
-      throw new Error('LiveKit configuration must not contain whitespace');
-    try {
-      const candidate = new URL(String(input.LIVEKIT_URL));
-      if (
-        !['ws:', 'wss:'].includes(candidate.protocol) ||
-        candidate.username ||
-        candidate.password ||
-        candidate.pathname !== '/' ||
-        candidate.search ||
-        candidate.hash ||
-        (mode === 'production' && candidate.protocol !== 'wss:')
-      )
-        throw new Error();
-      livekitUrl = candidate.href.replace(/\/$/, '');
-    } catch {
-      throw new Error(
-        'LIVEKIT_URL must be a WebSocket origin; production requires wss://',
-      );
-    }
   }
 
   return {
@@ -230,16 +214,39 @@ export function validateEnvironment(
       typeof input.SMTP_PASSWORD === 'string' ? input.SMTP_PASSWORD : undefined,
     SMTP_FROM:
       typeof input.SMTP_FROM === 'string' ? input.SMTP_FROM : undefined,
-    LIVEKIT_URL: livekitUrl,
-    LIVEKIT_API_KEY:
-      configuredLivekit && typeof input.LIVEKIT_API_KEY === 'string'
-        ? input.LIVEKIT_API_KEY
-        : undefined,
-    LIVEKIT_API_SECRET:
-      configuredLivekit && typeof input.LIVEKIT_API_SECRET === 'string'
-        ? input.LIVEKIT_API_SECRET
-        : undefined,
+    WEBRTC_STUN_URLS: webrtcStunUrls,
+    WEBRTC_TURN_URLS: webrtcTurnUrls,
+    WEBRTC_TURN_USERNAME: webrtcTurnUsername,
+    WEBRTC_TURN_CREDENTIAL: webrtcTurnCredential,
   };
+}
+
+function validateIceUrlList(
+  value: unknown,
+  allowedProtocols: string[],
+  envName: string,
+): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`${envName} must be a comma-separated list of ICE server URLs`);
+  }
+  const items = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (!items.length) return undefined;
+  for (const item of items) {
+    if (/\s/.test(item)) {
+      throw new Error(`${envName} entries must not contain whitespace`);
+    }
+    const lower = item.toLowerCase();
+    if (!allowedProtocols.some((protocol) => lower.startsWith(protocol))) {
+      throw new Error(
+        `${envName} must only contain ${allowedProtocols.join(' or ')} URLs`,
+      );
+    }
+  }
+  return items.join(',');
 }
 
 export function validateDatabaseUrl(databaseUrl: unknown): string {

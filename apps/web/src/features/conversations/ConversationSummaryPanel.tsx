@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Bell, BellOff, Pin, Search, Trash2 } from 'lucide-react';
+import * as api from '../../lib/api';
 import { Avatar } from '../../components/Avatar';
 import { UiIcon } from '../../components/UiIcon';
 import { presenceLabel, type Presence } from '../../hooks/usePresence';
-import { newestMessagesFirst, type Message } from '../../lib/chat-model';
+import {
+  newestMessagesFirst,
+  type History,
+  type Message,
+} from '../../lib/chat-model';
 import type { Peer } from '../../lib/types';
 import { MessageMedia } from '../chat/ChatMedia';
 import { ReportButton } from '../reports/ReportDialog';
@@ -64,8 +69,42 @@ export function ConversationSummaryPanel({
   useEffect(() => {
     setConfirmClear(false);
   }, [conversationId]);
-  const images = sharedOfType(sharedMessages, conversationId, 'image');
-  const files = sharedOfType(sharedMessages, conversationId, 'file');
+  const [preview, setPreview] = useState<Message[]>([]);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+  useEffect(() => {
+    let active = true;
+    const history = `/conversations/${conversationId}/messages`;
+    void Promise.all([
+      api.authenticated<History>(`${history}?mediaType=image&limit=6`),
+      api.authenticated<History>(`${history}?mediaType=file&limit=4`),
+    ])
+      .then(([images, files]) => {
+        if (!active) return;
+        setPreview([...images.items, ...files.items]);
+        setStatus('ready');
+      })
+      .catch(() => {
+        if (active) setStatus('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, [conversationId]);
+  const messages = [
+    ...new Map(
+      [...preview, ...sharedMessages].map((message) => [message.id, message]),
+    ).values(),
+  ];
+  const emptyLabel = (kind: string) =>
+    status === 'loading'
+      ? 'Đang tải…'
+      : status === 'error'
+        ? 'Không tải được danh sách. Bấm Xem tất cả để thử lại.'
+        : `Chưa có ${kind} được chia sẻ.`;
+  const images = sharedOfType(messages, conversationId, 'image');
+  const files = sharedOfType(messages, conversationId, 'file');
   return (
     <aside className="chat-summary-panel" aria-label="Tóm tắt cuộc trò chuyện">
       <div className="summary-profile">
@@ -134,9 +173,7 @@ export function ConversationSummaryPanel({
           ))}
         </div>
         {images.length === 0 && (
-          <p className="summary-empty">
-            Chưa có ảnh trong các tin nhắn đã tải.
-          </p>
+          <p className="summary-empty">{emptyLabel('ảnh')}</p>
         )}
       </section>
       <section className="summary-section">
@@ -150,9 +187,7 @@ export function ConversationSummaryPanel({
           <SharedFileRow key={message.id} message={message} />
         ))}
         {files.length === 0 && (
-          <p className="summary-empty">
-            Chưa có tệp trong các tin nhắn đã tải.
-          </p>
+          <p className="summary-empty">{emptyLabel('tệp')}</p>
         )}
       </section>
       <section className="summary-section">

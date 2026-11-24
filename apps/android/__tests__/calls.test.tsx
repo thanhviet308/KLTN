@@ -10,8 +10,8 @@ import {
   type Call,
 } from '../src/features/calls/call-model';
 import * as api from '../src/api';
-import { Room } from 'livekit-client';
-import { AudioSession } from '@livekit/react-native';
+import { WebRtcRoom } from '../src/features/calls/webrtc-room';
+import { AudioRoute } from '../src/features/calls/audio-route';
 
 jest.mock('../src/api', () => ({
   API_ORIGIN: 'https://example.test',
@@ -30,26 +30,22 @@ jest.mock('react-native-nitro-sound', () => ({
 jest.mock('../src/features/calls/CallScreen', () => ({
   CallScreen: jest.fn(() => null),
 }));
-jest.mock('@livekit/react-native', () => ({
-  AndroidAudioTypePresets: { communication: {} },
-  AudioSession: {
-    configureAudio: jest.fn().mockResolvedValue(undefined),
-    startAudioSession: jest.fn().mockResolvedValue(undefined),
-    stopAudioSession: jest.fn().mockResolvedValue(undefined),
+jest.mock('../src/features/calls/audio-route', () => ({
+  AudioRoute: {
+    start: jest.fn().mockResolvedValue(undefined),
+    selectOutput: jest.fn().mockResolvedValue(undefined),
+    stop: jest.fn().mockResolvedValue(undefined),
   },
 }));
-jest.mock('livekit-client', () => ({
-  ConnectionState: { Disconnected: 'disconnected', Connected: 'connected' },
-  RoomEvent: { ConnectionStateChanged: 'state', Disconnected: 'disconnected' },
-  Room: jest.fn().mockImplementation(() => ({
-    on: jest.fn(),
+jest.mock('../src/features/calls/webrtc-room', () => ({
+  WebRtcRoom: jest.fn().mockImplementation(() => ({
+    onConnectionStateChange: jest.fn(() => () => {}),
+    onDisconnected: jest.fn(() => () => {}),
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
     state: 'connected',
-    localParticipant: {
-      setMicrophoneEnabled: jest.fn().mockResolvedValue(undefined),
-      setCameraEnabled: jest.fn().mockResolvedValue(undefined),
-    },
+    setMicrophoneEnabled: jest.fn().mockResolvedValue(undefined),
+    setCameraEnabled: jest.fn().mockResolvedValue(undefined),
   })),
 }));
 const mockEvents: Record<string, (event: { call: Call }) => void> = {};
@@ -124,7 +120,12 @@ beforeEach(() => {
     if (path.startsWith('/conversations/'))
       return { conversation: { type: 'direct', title: null } };
     if (path.endsWith('/token'))
-      return { url: 'wss://example.test', token: 'media-token' };
+      return {
+        callId: 'call-1',
+        roomName: 'call_room',
+        callType: 'video',
+        iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
+      };
     if (path.endsWith('/accept')) return { call: active };
     if (
       path.endsWith('/end') ||
@@ -183,23 +184,26 @@ test('incoming call is visible outside chat and denied permission does not accep
   });
   expect(screen().error).toContain('cấp quyền');
   expect(request).not.toHaveBeenCalledWith('/calls/call-1/accept', {});
-  expect(Room).not.toHaveBeenCalled();
+  expect(WebRtcRoom).not.toHaveBeenCalled();
 });
 
-test('accept connects with server credentials and publishes audio/video; remote end releases media', async () => {
+test('accept connects with server ICE config and publishes audio/video; remote end releases media', async () => {
   await mount();
   await receive(incoming);
   await act(async () => {
     screen().onJoin();
   });
   expect(request).toHaveBeenCalledWith('/calls/call-1/accept', {});
-  const room = jest.mocked(Room).mock.results[0].value;
-  expect(room.connect).toHaveBeenCalledWith(
-    'wss://example.test',
-    'media-token',
+  const room = jest.mocked(WebRtcRoom).mock.results[0].value;
+  expect(WebRtcRoom).toHaveBeenCalledWith(
+    expect.any(Object),
+    'call-1',
+    'me',
+    [{ urls: ['stun:stun.l.google.com:19302'] }],
   );
-  expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true);
-  expect(room.localParticipant.setCameraEnabled).toHaveBeenCalledWith(true);
+  expect(room.connect).toHaveBeenCalled();
+  expect(room.setMicrophoneEnabled).toHaveBeenCalledWith(true);
+  expect(room.setCameraEnabled).toHaveBeenCalledWith(true);
   await receive(ended, 'call:updated');
   expect(room.disconnect).toHaveBeenCalled();
   expect(screen().room).toBeUndefined();
@@ -215,16 +219,14 @@ test('reject sends the matching server action without requesting device permissi
   });
   expect(request).toHaveBeenCalledWith('/calls/call-1/reject', {});
   expect(PermissionsAndroid.requestMultiple).not.toHaveBeenCalled();
-  expect(Room).not.toHaveBeenCalled();
+  expect(WebRtcRoom).not.toHaveBeenCalled();
 });
 
 test('a stalled microphone can be cancelled while the call is connecting', async () => {
-  const createRoom = jest.mocked(Room).getMockImplementation()!;
-  jest.mocked(Room).mockImplementationOnce(() => {
-    const room = createRoom();
-    room.localParticipant.setMicrophoneEnabled = jest.fn(
-      () => new Promise<never>(() => {}),
-    );
+  const createRoom = jest.mocked(WebRtcRoom).getMockImplementation()!;
+  jest.mocked(WebRtcRoom).mockImplementationOnce((...args) => {
+    const room = createRoom(...args);
+    room.setMicrophoneEnabled = jest.fn(() => new Promise<never>(() => {}));
     return room;
   });
   jest.useFakeTimers();
@@ -245,11 +247,11 @@ test('a stalled microphone can be cancelled while the call is connecting', async
 });
 
 test('a stalled microphone reaches a retryable error after the deadline', async () => {
-  const createRoom = jest.mocked(Room).getMockImplementation()!;
-  jest.mocked(Room).mockImplementationOnce(() => {
-    const room = createRoom();
+  const createRoom = jest.mocked(WebRtcRoom).getMockImplementation()!;
+  jest.mocked(WebRtcRoom).mockImplementationOnce((...args) => {
+    const room = createRoom(...args);
     jest
-      .spyOn(room.localParticipant, 'setMicrophoneEnabled')
+      .spyOn(room, 'setMicrophoneEnabled')
       .mockImplementation(() => new Promise<never>(() => {}));
     return room;
   });
@@ -284,14 +286,18 @@ test('remote hangup during token request cannot start a microphone or camera', a
   await act(async () => {
     screen().onJoin();
   });
-  expect(AudioSession.configureAudio).toHaveBeenCalled();
-  expect(AudioSession.startAudioSession).not.toHaveBeenCalled();
+  expect(AudioRoute.start).not.toHaveBeenCalled();
   await receive(ended, 'call:updated');
   await act(async () => {
-    resolveToken({ url: 'wss://example.test', token: 'media-token' });
+    resolveToken({
+      callId: 'call-1',
+      roomName: 'call_room',
+      callType: 'video',
+      iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
+    });
   });
-  expect(Room).not.toHaveBeenCalled();
-  expect(AudioSession.startAudioSession).not.toHaveBeenCalled();
+  expect(WebRtcRoom).not.toHaveBeenCalled();
+  expect(AudioRoute.start).not.toHaveBeenCalled();
 });
 
 test('a double tap creates one outgoing call and audio calls never enable the camera', async () => {
@@ -323,9 +329,9 @@ test('a double tap creates one outgoing call and audio calls never enable the ca
       ([path]) => path === '/conversations/chat-1/calls',
     ),
   ).toHaveLength(1);
-  const room = jest.mocked(Room).mock.results[0].value;
-  expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true);
-  expect(room.localParticipant.setCameraEnabled).not.toHaveBeenCalled();
+  const room = jest.mocked(WebRtcRoom).mock.results[0].value;
+  expect(room.setMicrophoneEnabled).toHaveBeenCalledWith(true);
+  expect(room.setCameraEnabled).not.toHaveBeenCalled();
   await act(async () => {
     screen().onHangup();
   });

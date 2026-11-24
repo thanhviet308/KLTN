@@ -60,30 +60,111 @@ export const GAME_CATALOG: Record<
   string,
   { name: string; subtitle: string; badge: string; groupOnly?: boolean }
 > = {
-  caro: {
-    name: 'Cờ Caro 5 nước',
-    subtitle: 'Đấu trí 1v1 trên bàn cờ 15×15',
-    badge: '1v1 · Chiến thuật',
+  memory_match: {
+    name: 'Lật Hình Trí Nhớ',
+    subtitle: 'Trí nhớ & Quan sát',
+    badge: '4×4 · Lật thẻ bài',
   },
-  chess: {
-    name: 'Cờ Vua Quốc Tế',
-    subtitle: 'Đấu trí chiến thuật 64 ô kinh điển',
-    badge: '1v1 · Kinh điển',
+  treasure_hunt: {
+    name: 'Săn Kho Báu Né Bom',
+    subtitle: 'Phiêu lưu & Dò mìn',
+    badge: '6×6 · Đào kho báu',
+  },
+  rps_showdown: {
+    name: 'Oẳn Tù Tì Đại Chiến',
+    subtitle: 'Đấu tâm lý 5 hiệp',
+    badge: 'BO5 · Phản xạ & Tâm lý',
+  },
+  pirate_roulette: {
+    name: 'Hải Tặc Đâm Thùng',
+    subtitle: 'Tiệc tùng & Hồi hộp',
+    badge: '20 khe · Thử vận may',
+  },
+  sudoku_duel: {
+    name: 'Giải Mã Sudoku Đôi',
+    subtitle: 'Giải đố & Logic số',
+    badge: '4×4 · Đấu trí logic',
   },
   xiangqi: {
-    name: 'Cờ Tướng',
-    subtitle: 'Tranh tài điều binh khiển tướng qua sông',
-    badge: '1v1 · Trí tuệ',
+    name: 'Cờ tướng',
+    subtitle: 'Kỳ đạo phương Đông',
+    badge: '10×9 · Cờ truyền thống',
+  },
+  chess: {
+    name: 'Cờ vua',
+    subtitle: 'Trí tuệ quốc tế',
+    badge: '8×8 · Cờ quốc tế',
+  },
+  caro: {
+    name: 'Caro 5 quân',
+    subtitle: 'Chiến thuật cổ điển',
+    badge: '15×15 · Xếp 5 quân',
   },
   othello: {
-    name: 'Cờ Lật (Othello)',
-    subtitle: 'Lật cờ chiếm góc trên bàn 8×8',
-    badge: '1v1 · Tốc độ',
+    name: 'Cờ lật Othello',
+    subtitle: 'Kẹp & lật quân',
+    badge: '8×8 · Lật cờ',
+  },
+  checkers: {
+    name: 'Cờ đam',
+    subtitle: 'Nhảy chéo bắt quân',
+    badge: '8×8 · Nhảy chéo',
+  },
+  co_ganh: {
+    name: 'Cờ gánh',
+    subtitle: 'Dân gian Việt Nam',
+    badge: '5×5 · Dân gian',
+  },
+  connect_four: {
+    name: 'Bốn quân liên tiếp',
+    subtitle: 'Thả đĩa xếp hàng',
+    badge: '6×7 · Thả đĩa',
   },
   connect4: {
-    name: 'Thả Cờ 4 Hàng',
-    subtitle: 'Thả quân nối 4 ô liên tiếp',
-    badge: '1v1 · Nhanh gọn',
+    name: 'Bốn quân liên tiếp',
+    subtitle: 'Thả đĩa xếp hàng',
+    badge: '6×7 · Thả đĩa',
+  },
+  tic_tac_toe: {
+    name: 'Cờ 3×3',
+    subtitle: 'Đối kháng siêu tốc',
+    badge: '3×3 · Siêu tốc',
+  },
+  group_bomb_pass: {
+    name: 'Chuyền Bom Hẹn Giờ',
+    subtitle: 'Tiệc tùng nhóm · Cắt dây bom',
+    badge: 'Nhóm · 16 dây ngòi nổ',
+    groupOnly: true,
+  },
+  group_truth_dare: {
+    name: 'Sự Thật Hay Thử Thách',
+    subtitle: 'Khuấy động phòng chat nhóm',
+    badge: 'Nhóm · Truth or Dare',
+    groupOnly: true,
+  },
+  group_lucky_wheel: {
+    name: 'Đua Nhân Phẩm Nhóm',
+    subtitle: 'Thử vận may tập thể',
+    badge: 'Nhóm · 16 Rương bí ẩn',
+    groupOnly: true,
+  },
+  group_spy_hunt: {
+    name: 'Truy Tìm Gián Điệp',
+    subtitle: 'Suy luận & Tình báo nhóm',
+    badge: 'Nhóm · Căn cứ 5×5',
+    groupOnly: true,
+  },
+  group_heist_vault: {
+    name: 'Phi Vụ Phá Két Sắt',
+    subtitle: 'Giải mã 4 vòng khóa số',
+    badge: 'Nhóm · 4 Khóa mật mã',
+    groupOnly: true,
+  },
+  group_quiz_arena: {
+    name: 'Đấu Trường Đố Vui Nhóm',
+    subtitle: 'Trắc nghiệm tốc độ 5 hiệp',
+    badge: 'Nhóm · 5 Câu hỏi nhanh',
+    groupOnly: true,
   },
   wordchain: {
     name: 'Đấu Trường Nối Từ',

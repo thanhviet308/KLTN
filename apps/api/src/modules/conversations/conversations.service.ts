@@ -484,9 +484,9 @@ export class ConversationsService {
     const convIdsJson = JSON.stringify(
       members.map((member) => member.conversationId),
     );
-    const unreadRows: { conversationId: string; count: number }[] =
-      members.length
-        ? await this.db.query(
+    const [unreadRows, previews] = members.length
+      ? await Promise.all([
+          this.db.query<{ conversationId: string; count: number }[]>(
             `
         SELECT m.conversation_id AS "conversationId", CAST(COUNT(*) AS INT) AS count
         FROM messages m
@@ -503,25 +503,22 @@ export class ConversationsService {
         GROUP BY m.conversation_id
       `,
             [convIdsJson, actorId],
-          )
-        : [];
-    const unreadById = new Map(
-      unreadRows.map((row) => [row.conversationId.toLowerCase(), row.count]),
-    );
-    const previews: {
-      conversationId: string;
-      id: string;
-      senderId: string;
-      senderName: string;
-      sequence: string;
-      type: string;
-      body: string | null;
-      content: Message['content'];
-      createdAt: Date;
-      deletedAt: Date | null;
-    }[] = members.length
-      ? await this.db.query(
-          `
+          ),
+          this.db.query<
+            {
+              conversationId: string;
+              id: string;
+              senderId: string;
+              senderName: string;
+              sequence: string;
+              type: string;
+              body: string | null;
+              content: Message['content'];
+              createdAt: Date;
+              deletedAt: Date | null;
+            }[]
+          >(
+            `
       SELECT latest.*, sender.display_name AS "senderName"
       FROM (SELECT CAST([value] AS UNIQUEIDENTIFIER) AS conversation_id FROM OPENJSON(@0)) AS requested
       CROSS APPLY (
@@ -544,9 +541,13 @@ export class ConversationsService {
       ) latest
       JOIN users sender ON sender.id = latest."senderId"
     `,
-          [convIdsJson, actorId],
-        )
-      : [];
+            [convIdsJson, actorId],
+          ),
+        ])
+      : [[], []];
+    const unreadById = new Map(
+      unreadRows.map((row) => [row.conversationId.toLowerCase(), row.count]),
+    );
     const previewById = new Map(
       previews.map(({ conversationId, ...preview }) => {
         const body = decryptMessageText(preview.body);

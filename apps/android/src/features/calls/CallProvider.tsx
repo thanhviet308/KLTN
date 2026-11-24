@@ -13,12 +13,11 @@ import {
   Vibration,
   type Permission,
 } from 'react-native';
-import { AudioSession, AndroidAudioTypePresets } from '@livekit/react-native';
-import { ConnectionState, Room, RoomEvent } from 'livekit-client';
 import Sound from 'react-native-nitro-sound';
 import * as api from '../../api';
 import { acquireChatSocket } from '../../realtime';
 import { clientMessageId } from '../../utils';
+import { AudioRoute } from './audio-route';
 import {
   applyCall,
   canJoin,
@@ -29,11 +28,12 @@ import {
   type CallType,
 } from './call-model';
 import { CallScreen } from './CallScreen';
+import {
+  WebRtcRoom,
+  type CallConnectionState,
+  type MediaCredentials,
+} from './webrtc-room';
 
-interface MediaCredentials {
-  url: string;
-  token: string;
-}
 interface CallResponse {
   call: Call;
   media?: MediaCredentials;
@@ -67,8 +67,6 @@ function failureMessage(error: unknown) {
   if (error instanceof api.ApiError) {
     if (error.code === 'CALL_ALREADY_OPEN')
       return 'Cuộc trò chuyện đang có cuộc gọi. Hãy thử lại sau.';
-    if (error.code === 'LIVEKIT_NOT_CONFIGURED')
-      return 'Máy chủ chưa được cấu hình gọi thoại/video.';
     if (error.status === 0) return 'Mất kết nối mạng. Vui lòng thử lại.';
     if (error.status === 409)
       return 'Trạng thái cuộc gọi đã thay đổi. Hãy thử lại.';
@@ -87,13 +85,15 @@ export function CallProvider({
   children: React.ReactNode;
 }) {
   const [call, setCall] = useState<Call>();
-  const [room, setRoom] = useState<Room>();
-  const [connection, setConnection] = useState(ConnectionState.Disconnected);
+  const [room, setRoom] = useState<WebRtcRoom>();
+  const [connection, setConnection] =
+    useState<CallConnectionState>('disconnected');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [title, setTitle] = useState('Cuộc gọi');
   const current = useRef<Call | undefined>(undefined);
-  const media = useRef<Room | undefined>(undefined);
+  const media = useRef<WebRtcRoom | undefined>(undefined);
+  const mediaSocketRelease = useRef<(() => void) | undefined>(undefined);
   const operation = useRef<symbol | undefined>(undefined);
   const ending = useRef(false);
   const alive = useRef(true);
@@ -102,26 +102,22 @@ export function CallProvider({
   const cleanup = useRef(Promise.resolve());
   const titleConversationRef = useRef<string | undefined>(undefined);
 
-  const prepareAudio = useCallback(async (type: CallType) => {
+  const prepareAudio = useCallback(async () => {
     await Promise.allSettled([Sound.stopRecorder(), Sound.stopPlayer()]);
-    await AudioSession.configureAudio({
-      android: {
-        audioTypeOptions: AndroidAudioTypePresets.communication,
-        preferredOutputList:
-          type === 'video' ? ['speaker', 'earpiece'] : ['earpiece', 'speaker'],
-      },
-    });
   }, []);
 
   const closeMedia = useCallback(async (forceStopAudio = true) => {
     generation.current++;
     const old = media.current;
     media.current = undefined;
+    const releaseSocket = mediaSocketRelease.current;
+    mediaSocketRelease.current = undefined;
     if (alive.current) {
       setRoom(undefined);
-      setConnection(ConnectionState.Disconnected);
+      setConnection('disconnected');
     }
     if (!old && !forceStopAudio) {
+      releaseSocket?.();
       await cleanup.current;
       return;
     }
@@ -131,7 +127,8 @@ export function CallProvider({
         try {
           await old?.disconnect();
         } finally {
-          await AudioSession.stopAudioSession();
+          releaseSocket?.();
+          await AudioRoute.stop();
         }
       })
       .catch(() => {});
@@ -181,58 +178,59 @@ export function CallProvider({
         current.current?.id === next.id &&
         canJoin(current.current, user.id);
       if (!valid()) return;
-      // Prepare the audio route while the server issues the room token (or reuse bundled token).
+      // Prepare audio while fetching ICE config (or reuse bundled config).
       const [credentials, audio] = await Promise.allSettled([
         initialMedia
           ? Promise.resolve(initialMedia)
           : api.authenticated<MediaCredentials>(`/calls/${next.id}/token`, {}),
-        audioPreparation ?? prepareAudio(next.type),
+        audioPreparation ?? prepareAudio(),
       ]);
       if (!valid()) return;
       if (credentials.status === 'rejected') throw credentials.reason;
       if (audio.status === 'rejected') throw audio.reason;
-      const activeRoom = new Room({
-        adaptiveStream: { pixelDensity: 'screen' },
-        dynacast: true,
-      });
+      const signalingSocket = acquireChatSocket(onExpired);
+      mediaSocketRelease.current = signalingSocket.release;
+      const activeRoom = new WebRtcRoom(
+        signalingSocket,
+        next.id,
+        user.id,
+        credentials.value.iceServers ?? [],
+      );
       media.current = activeRoom;
-      activeRoom.on(RoomEvent.ConnectionStateChanged, state => {
+      activeRoom.onConnectionStateChange(state => {
         if (valid()) setConnection(state);
       });
-      activeRoom.on(RoomEvent.Disconnected, () => {
+      activeRoom.onDisconnected(() => {
         if (valid()) {
           setRoom(undefined);
           setError(
             'Đã ngắt kết nối âm thanh/video. Bạn có thể kết nối lại hoặc kết thúc cuộc gọi.',
           );
-          void AudioSession.stopAudioSession();
+          void AudioRoute.stop();
         }
       });
       try {
-        await AudioSession.startAudioSession();
+        await AudioRoute.start(next.type === 'video' ? 'speaker' : 'earpiece');
         if (!valid()) {
-          await AudioSession.stopAudioSession();
+          await AudioRoute.stop();
           return;
         }
-        await activeRoom.connect(
-          credentials.value.url,
-          credentials.value.token,
-        );
+        await activeRoom.connect();
         if (!valid()) {
           await activeRoom.disconnect();
           return;
         }
         setConnection(activeRoom.state);
-        if (activeRoom.state === ConnectionState.Connected) {
+        if (activeRoom.state === 'connected') {
           setRoom(activeRoom);
         }
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           const mediaTasks: Promise<unknown>[] = [
-            activeRoom.localParticipant.setMicrophoneEnabled(true),
+            activeRoom.setMicrophoneEnabled(true),
           ];
           if (next.type === 'video') {
-            mediaTasks.push(activeRoom.localParticipant.setCameraEnabled(true));
+            mediaTasks.push(activeRoom.setCameraEnabled(true));
           }
           await Promise.race([
             Promise.all(mediaTasks),
@@ -253,7 +251,7 @@ export function CallProvider({
           await activeRoom.disconnect();
           return;
         }
-        if (activeRoom.state !== ConnectionState.Connected)
+        if (activeRoom.state !== 'connected')
           throw new Error(
             'Kết nối âm thanh/video đã bị ngắt. Hãy thử kết nối lại.',
           );
@@ -264,7 +262,7 @@ export function CallProvider({
         throw failure;
       }
     },
-    [closeMedia, prepareAudio, user.id],
+    [closeMedia, onExpired, prepareAudio, user.id],
   );
 
   const run = useCallback(
@@ -303,7 +301,7 @@ export function CallProvider({
         await permissions(type);
         if (!alive.current || (current.current && isOpen(current.current)))
           return;
-        const audioPrep = prepareAudio(type);
+        const audioPrep = prepareAudio();
         const result = await api.authenticated<CallResponse>(
           `/conversations/${conversation.id}/calls`,
           { type, clientRequestId: clientMessageId() },
@@ -337,7 +335,7 @@ export function CallProvider({
         !isOpen(current.current)
       )
         return;
-      const audioPrep = prepareAudio(next.type);
+      const audioPrep = prepareAudio();
       const result = isInvited(current.current, user.id)
         ? await api.authenticated<CallResponse>(`/calls/${next.id}/accept`, {})
         : await api.authenticated<CallResponse>(`/calls/${next.id}`);
@@ -517,7 +515,7 @@ export function CallProvider({
         incoming={incoming}
         busy={busy}
         canHangupWhileBusy={
-          connection !== ConnectionState.Disconnected && !ending.current
+          connection !== 'disconnected' && !ending.current
         }
         connection={connection}
         error={error}

@@ -42,7 +42,7 @@ test('iPhone permission denial explains how to enable mic and camera cleanly', (
   assert.match(message, /iPhone\/Safari/i);
 });
 
-test('hardware busy errors work even when wrapped in LiveKit Error rather than DOMException', () => {
+test('hardware busy errors work even when wrapped in plain Error rather than DOMException', () => {
   const message = formatCallMediaError({
     failure: Object.assign(new Error('Could not start video source'), {
       name: 'TrackStartError',

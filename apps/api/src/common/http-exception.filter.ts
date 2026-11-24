@@ -45,7 +45,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
         'MAIL_NOT_CONFIGURED',
         'MAIL_DELIVERY_FAILED',
         'AUTH_BUSY',
-        'LIVEKIT_NOT_CONFIGURED',
         'UPLOAD_BUSY',
         'AI_NOT_CONFIGURED',
         'AI_UNAVAILABLE',

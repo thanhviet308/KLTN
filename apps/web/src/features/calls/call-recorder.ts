@@ -1,4 +1,4 @@
-import type { Room } from 'livekit-client';
+import type { WebRtcRoom } from './webrtc-room';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -19,7 +19,7 @@ export class CallRecorder {
   private readonly timer: ReturnType<typeof setTimeout>;
 
   constructor(
-    private readonly room: Room,
+    private readonly room: WebRtcRoom,
     onFailure: (message: string) => void,
   ) {
     const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find(
@@ -82,16 +82,7 @@ export class CallRecorder {
 
   sync() {
     if (this.stopped) return;
-    const tracks = new Set<MediaStreamTrack>();
-    for (const participant of [
-      this.room.localParticipant,
-      ...this.room.remoteParticipants.values(),
-    ]) {
-      for (const publication of participant.audioTrackPublications.values()) {
-        const track = publication.track?.mediaStreamTrack;
-        if (track && track.readyState === 'live') tracks.add(track);
-      }
-    }
+    const tracks = new Set<MediaStreamTrack>(this.room.getAllLiveAudioTracks());
     for (const [track, source] of this.sources) {
       if (!tracks.has(track)) {
         source.disconnect();

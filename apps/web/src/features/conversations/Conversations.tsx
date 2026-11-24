@@ -1934,6 +1934,7 @@ export function Conversations({
       </div>
       {selected && !creating && !showInfo && (
         <ConversationSummaryPanel
+          key={`${selected.id}:${selected.membership.clearedAfterSequence}`}
           conversationId={selected.id}
           heading={heading}
           peer={selectedPeer ?? undefined}

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { LocalVideoTrack, Room } from 'livekit-client';
 import './calls.css';
 import * as api from '../../lib/api';
 import { acquireChatSocket } from '../../lib/realtime';
@@ -7,7 +6,6 @@ import { isEmbeddedInAppBrowser } from '../chat/location-helper';
 import {
   extractMediaErrorInfo,
   formatCallMediaError,
-  isOverconstrainedMediaError,
 } from './call-media';
 import {
   computeCallElapsedSeconds,
@@ -25,6 +23,7 @@ import { startIncomingCallRingtone } from '../../lib/notification-sounds';
 import type { Peer } from '../../lib/types';
 import { clearAiCache, resolveAiEnabled } from '../ai/ai-model';
 import { CallRecorder } from './call-recorder';
+import { WebRtcRoom, type WebRtcMediaConfig } from './webrtc-room';
 
 api.onSessionClear(clearAiCache);
 
@@ -46,13 +45,7 @@ interface Call {
 
 interface CallResponse {
   call: Call;
-}
-
-interface TokenResponse {
-  url: string;
-  token: string;
-  expiresAt: string;
-  callType: 'audio' | 'video';
+  media?: WebRtcMediaConfig;
 }
 
 export interface CallConversationMeta {
@@ -116,18 +109,6 @@ function describeMediaFailure(
   });
 }
 
-async function enableCameraTrack(localParticipant: Room['localParticipant']) {
-  try {
-    await localParticipant.setCameraEnabled(true);
-  } catch (failure) {
-    if (!isOverconstrainedMediaError(failure)) throw failure;
-    await localParticipant.setCameraEnabled(true, {
-      facingMode: 'user',
-      resolution: { width: 640, height: 480, frameRate: 24 },
-    });
-  }
-}
-
 function callErrorMessage(
   failure: unknown,
   callType: 'audio' | 'video' = 'video',
@@ -139,12 +120,12 @@ function callErrorMessage(
     name === 'ConnectionError' ||
     detail.includes('signal') ||
     detail.includes('websocket') ||
+    detail.includes('webrtc') ||
     detail.includes('unauthorized') ||
     detail.includes('401') ||
-    detail.includes('livekit') ||
     (detail.includes('connect') && !detail.includes('disconnect'))
   ) {
-    return 'Không thể kết nối LiveKit. Hãy kiểm tra URL, API key và API secret có thuộc cùng một project.';
+    return 'Không thể kết nối cuộc gọi WebRTC. Hãy kiểm tra kết nối mạng và thử lại.';
   }
   return describeMediaFailure(callType, failure);
 }
@@ -168,7 +149,7 @@ export function CallExperience({
   conversationMeta?: Record<string, CallConversationMeta>;
 }) {
   const [call, setCall] = useState<Call>();
-  const [room, setRoom] = useState<Room>();
+  const [room, setRoom] = useState<WebRtcRoom>();
   const [tracks, setTracks] = useState<MediaTrackItem[]>([]);
   const [remotePeers, setRemotePeers] = useState<RemoteParticipantTile[]>([]);
   const [busy, setBusy] = useState(false);
@@ -191,7 +172,8 @@ export function CallExperience({
 
   const windowRef = useRef<HTMLElement | null>(null);
   const currentCall = useRef<Call | undefined>(undefined);
-  const roomRef = useRef<Room | undefined>(undefined);
+  const roomRef = useRef<WebRtcRoom | undefined>(undefined);
+  const roomSocketReleaseRef = useRef<(() => void) | undefined>(undefined);
   const facingModeRef = useRef<'user' | 'environment'>('user');
   const fallbackActiveAt = useRef<number | null>(null);
   const chromeTimerRef = useRef<number | undefined>(undefined);
@@ -303,11 +285,14 @@ export function CallExperience({
     }
     const activeRoom = roomRef.current;
     roomRef.current = undefined;
+    const releaseSocket = roomSocketReleaseRef.current;
+    roomSocketReleaseRef.current = undefined;
     setRoom(undefined);
     setTracks([]);
     setRemotePeers([]);
     setReconnecting(false);
     if (activeRoom) await activeRoom.disconnect();
+    releaseSocket?.();
   }, []);
 
   useEffect(() => {
@@ -362,32 +347,38 @@ export function CallExperience({
       if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
       void recorderRef.current?.recorder.stop().catch(() => {});
       void roomRef.current?.disconnect();
+      roomSocketReleaseRef.current?.();
+      roomSocketReleaseRef.current = undefined;
     },
     [],
   );
 
   const refreshVideoDevices = useCallback(async () => {
     try {
-      const { Room: LiveKitRoom } = await import('livekit-client');
-      const devices = await LiveKitRoom.getLocalDevices('videoinput', false);
-      setVideoDevices(devices);
+      if (
+        typeof navigator === 'undefined' ||
+        !navigator.mediaDevices?.enumerateDevices
+      ) {
+        setVideoDevices([]);
+        return;
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setVideoDevices(devices.filter((item) => item.kind === 'videoinput'));
     } catch {
       setVideoDevices([]);
     }
   }, []);
 
   const connectMedia = useCallback(
-    async (next: Call) => {
-      const { Room, RoomEvent, Track } = await import('livekit-client');
-      const credentials = await api.authenticated<TokenResponse>(
-        `/calls/${next.id}/token`,
-        {},
-      );
-      const mediaRoom = new Room({
-        adaptiveStream: true,
-        dynacast: true,
-        disconnectOnPageLeave: true,
-      });
+    async (next: Call, initialMedia?: WebRtcMediaConfig) => {
+      await closeMedia();
+      const credentials =
+        initialMedia ??
+        (await api.authenticated<WebRtcMediaConfig>(
+          `/calls/${next.id}/token`,
+          {},
+        ));
+      const hub = acquireChatSocket(user.id);
 
       const resolvePeerName = (identity: string, participantName?: string) => {
         if (participantName?.trim()) return participantName.trim();
@@ -398,85 +389,68 @@ export function CallExperience({
         return meta?.title || 'Người tham gia';
       };
 
+      let mediaRoom!: WebRtcRoom;
       const syncTracks = () => {
         if (roomRef.current !== mediaRoom) return;
         recorderRef.current?.recorder.sync();
 
         const values: MediaTrackItem[] = [];
-        const localParticipant = mediaRoom.localParticipant;
-        let localAudioMuted = true;
+        const localAudioMuted = !mediaRoom.isAudioEnabled;
 
-        for (const publication of localParticipant.trackPublications.values()) {
-          if (publication.kind === Track.Kind.Audio && !publication.isMuted) {
-            localAudioMuted = false;
-          }
-          if (
-            publication.track?.kind === Track.Kind.Video &&
-            !publication.isMuted
-          ) {
-            values.push({
-              key: `local:${publication.trackSid}`,
-              track: publication.track,
-              local: true,
-              kind: 'video',
-              participantIdentity: localParticipant.identity || user.id,
-              participantName: user.displayName || 'Bạn',
-              isMirrored: facingModeRef.current !== 'environment',
-              isSpeaking: localParticipant.isSpeaking,
-              audioMuted: localAudioMuted,
-            });
-          }
+        if (mediaRoom.localVideo && mediaRoom.isVideoEnabled) {
+          values.push({
+            key: `local:${mediaRoom.localVideo.id}`,
+            track: mediaRoom.localVideo,
+            local: true,
+            kind: 'video',
+            participantIdentity: user.id,
+            participantName: user.displayName || 'Bạn',
+            isMirrored: facingModeRef.current !== 'environment',
+            isSpeaking: false,
+            audioMuted: localAudioMuted,
+          });
         }
 
         const peerTiles: RemoteParticipantTile[] = [];
-        for (const participant of mediaRoom.remoteParticipants.values()) {
-          const displayName = resolvePeerName(
-            participant.identity,
-            participant.name,
+        for (const peer of mediaRoom.getRemotePeers()) {
+          const displayName = resolvePeerName(peer.userId, peer.displayName);
+          const hasRemoteVideo = Boolean(
+            peer.videoTrack &&
+            peer.videoTrack.readyState === 'live' &&
+            peer.videoEnabled,
           );
-          let hasRemoteVideo = false;
-          let remoteAudioMuted = true;
+          const remoteAudioMuted = !peer.audioEnabled;
 
-          for (const publication of participant.trackPublications.values()) {
-            if (publication.kind === Track.Kind.Audio && !publication.isMuted) {
-              remoteAudioMuted = false;
-            }
+          if (hasRemoteVideo && peer.videoTrack) {
+            values.push({
+              key: `remote:${peer.userId}:${peer.videoTrack.id}`,
+              track: peer.videoTrack,
+              local: false,
+              kind: 'video',
+              participantIdentity: peer.userId,
+              participantName: displayName,
+              isMirrored: false,
+              isSpeaking: false,
+              audioMuted: remoteAudioMuted,
+            });
           }
-
-          for (const publication of participant.trackPublications.values()) {
-            if (!publication.track) continue;
-            if (publication.track.kind === Track.Kind.Video) {
-              if (publication.isMuted) continue;
-              hasRemoteVideo = true;
-              values.push({
-                key: `remote:${participant.identity}:${publication.trackSid}`,
-                track: publication.track,
-                local: false,
-                kind: 'video',
-                participantIdentity: participant.identity,
-                participantName: displayName,
-                isMirrored: false,
-                isSpeaking: participant.isSpeaking,
-                audioMuted: remoteAudioMuted,
-              });
-            } else if (publication.track.kind === Track.Kind.Audio) {
-              values.push({
-                key: `remote:${participant.identity}:${publication.trackSid}`,
-                track: publication.track,
-                local: false,
-                kind: 'audio',
-                participantIdentity: participant.identity,
-                participantName: displayName,
-              });
-            }
+          if (peer.audioTrack && peer.audioTrack.readyState === 'live') {
+            values.push({
+              key: `remote:${peer.userId}:${peer.audioTrack.id}`,
+              track: peer.audioTrack,
+              local: false,
+              kind: 'audio',
+              participantIdentity: peer.userId,
+              participantName: displayName,
+            });
           }
 
           peerTiles.push({
-            identity: participant.identity,
+            identity: peer.userId,
             name: displayName,
             hasVideo: hasRemoteVideo,
             audioMuted: remoteAudioMuted,
-            isSpeaking: participant.isSpeaking,
+            isSpeaking: false,
           });
         }
 
@@ -484,77 +458,51 @@ export function CallExperience({
         setRemotePeers(peerTiles);
       };
 
-      mediaRoom.on(RoomEvent.TrackSubscribed, syncTracks);
-      mediaRoom.on(RoomEvent.TrackUnsubscribed, syncTracks);
-      mediaRoom.on(RoomEvent.TrackPublished, syncTracks);
-      mediaRoom.on(RoomEvent.TrackUnpublished, syncTracks);
-      mediaRoom.on(RoomEvent.TrackMuted, syncTracks);
-      mediaRoom.on(RoomEvent.TrackUnmuted, syncTracks);
-      mediaRoom.on(RoomEvent.LocalTrackPublished, syncTracks);
-      mediaRoom.on(RoomEvent.LocalTrackUnpublished, syncTracks);
-      mediaRoom.on(RoomEvent.ParticipantConnected, syncTracks);
-      mediaRoom.on(RoomEvent.ParticipantDisconnected, syncTracks);
-      mediaRoom.on(RoomEvent.ActiveSpeakersChanged, syncTracks);
-      mediaRoom.on(RoomEvent.MediaDevicesChanged, () => {
-        void refreshVideoDevices();
-      });
-      mediaRoom.on(RoomEvent.Reconnecting, () => {
-        if (roomRef.current === mediaRoom) setReconnecting(true);
-      });
-      mediaRoom.on(RoomEvent.Reconnected, () => {
-        if (roomRef.current === mediaRoom) {
-          setReconnecting(false);
-          syncTracks();
-        }
-      });
-      mediaRoom.on(RoomEvent.Disconnected, () => {
-        if (roomRef.current === mediaRoom) {
-          recorderRef.current?.recorder.invalidate(
-            'Kết nối cuộc gọi bị ngắt; không tạo bản tóm tắt thiếu nội dung.',
-          );
-          void closeMedia();
-        }
-        if (roomRef.current === mediaRoom) roomRef.current = undefined;
-        setTracks([]);
-        setRemotePeers([]);
-        setReconnecting(false);
-        setRoom((active) => (active === mediaRoom ? undefined : active));
-      });
+      mediaRoom = new WebRtcRoom(
+        hub.socket,
+        next.id,
+        user.id,
+        credentials.iceServers,
+        {
+          onStateChange: syncTracks,
+          onReconnectingChange: (state) => {
+            if (roomRef.current === mediaRoom) setReconnecting(state);
+          },
+          onDisconnected: () => {
+            if (roomRef.current === mediaRoom) {
+              recorderRef.current?.recorder.invalidate(
+                'Kết nối cuộc gọi bị ngắt; không tạo bản tóm tắt thiếu nội dung.',
+              );
+              roomRef.current = undefined;
+            }
+            setTracks([]);
+            setRemotePeers([]);
+            setReconnecting(false);
+            setRoom((active) => (active === mediaRoom ? undefined : active));
+          },
+        },
+        () => {
+          void refreshVideoDevices();
+        },
+      );
 
       roomRef.current = mediaRoom;
-      try {
-        await mediaRoom.connect(credentials.url, credentials.token);
-      } catch (failure) {
-        if (roomRef.current === mediaRoom) roomRef.current = undefined;
-        await mediaRoom.disconnect();
-        throw failure;
-      }
-
-      setReconnecting(false);
-      setRoom(mediaRoom);
-      syncTracks();
-      await mediaRoom.startAudio().catch(() => {});
-
-      if (!mediaEnvironment().mediaSupported) {
-        setMicrophone(false);
-        setCamera(false);
-        const missing: ('microphone' | 'camera')[] =
-          credentials.callType === 'video'
-            ? ['microphone', 'camera']
-            : ['microphone'];
-        setError(
-          describeMediaFailure(credentials.callType, undefined, missing),
-        );
-        syncTracks();
-        return;
-      }
+      roomSocketReleaseRef.current = hub.release;
 
       const unavailable: ('microphone' | 'camera')[] = [];
       let lastMediaFailure: unknown;
-      if (credentials.callType === 'video') {
+      if (!mediaEnvironment().mediaSupported) {
+        setMicrophone(false);
+        setCamera(false);
+        unavailable.push(
+          ...(credentials.callType === 'video'
+            ? (['microphone', 'camera'] as const)
+            : (['microphone'] as const)),
+        );
+      } else if (credentials.callType === 'video') {
         let combinedSucceeded = false;
         try {
-          await mediaRoom.localParticipant.enableCameraAndMicrophone();
+          await mediaRoom.enableCameraAndMicrophone();
           combinedSucceeded = true;
           setMicrophone(true);
           setCamera(true);
@@ -563,7 +511,7 @@ export function CallExperience({
         }
         if (!combinedSucceeded) {
           try {
-            await mediaRoom.localParticipant.setMicrophoneEnabled(true);
+            await mediaRoom.setMicrophoneEnabled(true);
             setMicrophone(true);
           } catch (failure) {
             lastMediaFailure = failure;
@@ -571,7 +519,7 @@ export function CallExperience({
             unavailable.push('microphone');
           }
           try {
-            await enableCameraTrack(mediaRoom.localParticipant);
+            await mediaRoom.setCameraEnabled(true);
             setCamera(true);
           } catch (failure) {
             lastMediaFailure = failure;
@@ -583,7 +531,7 @@ export function CallExperience({
       } else {
         setCamera(false);
         try {
-          await mediaRoom.localParticipant.setMicrophoneEnabled(true);
+          await mediaRoom.setMicrophoneEnabled(true);
           setMicrophone(true);
         } catch (failure) {
           lastMediaFailure = failure;
@@ -591,6 +539,19 @@ export function CallExperience({
           unavailable.push('microphone');
         }
       }
+
+      try {
+        await mediaRoom.connect();
+      } catch (failure) {
+        if (roomRef.current === mediaRoom) roomRef.current = undefined;
+        roomSocketReleaseRef.current = undefined;
+        await mediaRoom.disconnect();
+        hub.release();
+        throw failure;
+      }
+
+      setReconnecting(false);
+      setRoom(mediaRoom);
       syncTracks();
       if (unavailable.length)
         setError(
@@ -626,7 +587,7 @@ export function CallExperience({
         );
         currentCall.current = result.call;
         setCall(result.call);
-        await connectMedia(result.call);
+        await connectMedia(result.call, result.media);
       } catch (failure) {
         if (
           failure instanceof api.ApiError &&
@@ -789,7 +750,7 @@ export function CallExperience({
       );
       currentCall.current = result.call;
       setCall(result.call);
-      await connectMedia(result.call);
+      await connectMedia(result.call, result.media);
     } catch (failure) {
       setError(callErrorMessage(failure, call.type));
     } finally {
@@ -808,8 +769,7 @@ export function CallExperience({
       return;
     }
     try {
-      await room.localParticipant.setMicrophoneEnabled(enabled);
-      if (enabled) void room.startAudio().catch(() => {});
+      await room.setMicrophoneEnabled(enabled);
       setMicrophone(enabled);
       setError('');
     } catch (failure) {
@@ -829,12 +789,8 @@ export function CallExperience({
       return;
     }
     try {
-      if (enabled) {
-        await enableCameraTrack(room.localParticipant);
-        void refreshVideoDevices();
-      } else {
-        await room.localParticipant.setCameraEnabled(false);
-      }
+      await room.setCameraEnabled(enabled);
+      if (enabled) void refreshVideoDevices();
       setCamera(enabled);
       setError('');
     } catch (failure) {
@@ -846,21 +802,15 @@ export function CallExperience({
   const switchCamera = useCallback(async () => {
     if (!room || call?.type !== 'video' || !camera) return;
     try {
-      const { Track } = await import('livekit-client');
-      const videoPub = Array.from(
-        room.localParticipant.trackPublications.values(),
-      ).find((pub) => pub.track?.kind === Track.Kind.Video);
-      const localVideo = videoPub?.track as LocalVideoTrack | undefined;
-
       if (!isLikelyMobileDevice() && videoDevices.length > 1) {
-        const activeId = room.getActiveDevice('videoinput');
+        const activeId = room.getActiveVideoDeviceId();
         const currentIndex = videoDevices.findIndex(
           (item) => item.deviceId === activeId,
         );
         const nextDevice =
           videoDevices[(currentIndex + 1) % videoDevices.length];
         if (nextDevice?.deviceId) {
-          await room.switchActiveDevice('videoinput', nextDevice.deviceId);
+          await room.switchCameraDevice(nextDevice.deviceId);
           facingModeRef.current = 'user';
           setFacingMode('user');
           setError('');
@@ -870,19 +820,17 @@ export function CallExperience({
 
       const nextFacing: 'user' | 'environment' =
         facingMode === 'user' ? 'environment' : 'user';
-      if (localVideo) {
-        await localVideo.restartTrack({ facingMode: nextFacing });
-        facingModeRef.current = nextFacing;
-        setFacingMode(nextFacing);
-        setTracks((previous) =>
-          previous.map((item) =>
-            item.local && item.kind === 'video'
-              ? { ...item, isMirrored: nextFacing !== 'environment' }
-              : item,
-          ),
-        );
-        setError('');
-      }
+      await room.switchCameraFacing(nextFacing);
+      facingModeRef.current = nextFacing;
+      setFacingMode(nextFacing);
+      setTracks((previous) =>
+        previous.map((item) =>
+          item.local && item.kind === 'video'
+            ? { ...item, isMirrored: nextFacing !== 'environment' }
+            : item,
+        ),
+      );
+      setError('');
     } catch (failure) {
       setError(describeMediaFailure('video', failure, ['camera']));
     }

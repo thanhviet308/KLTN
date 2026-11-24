@@ -1,4 +1,10 @@
-import { IsBoolean, IsOptional, IsUUID } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsObject,
+  IsOptional,
+  IsUUID,
+} from 'class-validator';
 import { MessageHistoryDto, SendMessageDto } from '../messages/messages.dto';
 
 export class PresenceSocketDto {
@@ -30,4 +36,47 @@ export class ReceiptSocketDto extends ConversationSocketDto {
 export class TypingSocketDto extends ConversationSocketDto {
   @IsBoolean()
   typing!: boolean;
+}
+
+export class WebRtcJoinSocketDto {
+  @IsUUID('all')
+  callId!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  audioEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  videoEnabled?: boolean;
+}
+
+export class WebRtcLeaveSocketDto {
+  @IsUUID('all')
+  callId!: string;
+}
+
+export class WebRtcMediaStateSocketDto {
+  @IsUUID('all')
+  callId!: string;
+
+  @IsBoolean()
+  audioEnabled!: boolean;
+
+  @IsBoolean()
+  videoEnabled!: boolean;
+}
+
+export class WebRtcSignalSocketDto {
+  @IsUUID('all')
+  callId!: string;
+
+  @IsUUID('all')
+  targetUserId!: string;
+
+  @IsIn(['offer', 'answer', 'ice-candidate'])
+  type!: 'offer' | 'answer' | 'ice-candidate';
+
+  @IsObject()
+  payload!: Record<string, unknown>;
 }

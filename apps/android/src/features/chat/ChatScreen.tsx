@@ -48,7 +48,6 @@ import {
   GAME_CATALOG,
   mergeMessages,
   parseGameInviteBody,
-  shortTime,
 } from '../../utils';
 import { styles } from '../../styles';
 import { ConversationInfo } from './ConversationInfo';
@@ -64,6 +63,8 @@ import {
 import { CallSummaryCard, type CallSummaryEntry } from './CallSummaryCard';
 import { ChatComposer, type ChatComposerHandle } from './ChatComposer';
 import { useCalls } from '../calls/CallProvider';
+import { GameModal } from '../games/GameModal';
+import { GAME_INFO, type CaroSession } from '../games/game-rules';
 import { ChatHistoryCache, isFreshHistory } from './chat-history-cache';
 
 async function requestMicrophonePermission() {
@@ -193,6 +194,8 @@ export function Chat({
   const [actionTarget, setActionTarget] = useState<api.Message>();
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [mediaSheetOpen, setMediaSheetOpen] = useState(false);
+  const [gameOpen, setGameOpen] = useState(false);
+  const [currentGame, setCurrentGame] = useState<CaroSession | null>(null);
   const [reactions, setReactions] = useState<
     Record<string, { emoji: string; count: number; reacted: boolean }[]>
   >({});
@@ -275,6 +278,20 @@ export function Chat({
     setCallSummaries({});
     voicePendingRef.current.clear();
     callSummaryPendingRef.current.clear();
+    let activeFetch = true;
+    setCurrentGame(null);
+    setGameOpen(false);
+    void api
+      .authenticated<{ game: CaroSession | null }>(
+        `/conversations/${conversation.id}/games/current`,
+      )
+      .then(res => {
+        if (activeFetch && mountedRef.current) setCurrentGame(res.game);
+      })
+      .catch(() => {});
+    return () => {
+      activeFetch = false;
+    };
   }, [conversation.id]);
 
   const accept = useCallback((incoming: api.Message[]) => {
@@ -608,6 +625,20 @@ export function Chat({
           applyClearedHistory(event.clearedAfterSequence);
       },
     );
+    const offGame = socket.on(
+      'game:updated',
+      (result?: { game?: CaroSession }) => {
+        if (!result?.game || result.game.conversationId !== conversation.id)
+          return;
+        setCurrentGame(result.game);
+        if (
+          result.game.status === 'invited' &&
+          result.game.oUserId === user.id
+        ) {
+          setGameOpen(true);
+        }
+      },
+    );
     const offTyping = socket.on(
       'typing:update',
       (event: {
@@ -663,6 +694,7 @@ export function Chat({
       offDeleted();
       offReactions();
       offCleared();
+      offGame();
       offTyping();
       socket.release();
       socketRef.current = undefined;
@@ -1189,6 +1221,10 @@ export function Chat({
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (gameOpen) {
+        setGameOpen(false);
+        return true;
+      }
       if (infoOpen) {
         setInfoOpen(false);
         return true;
@@ -1204,7 +1240,7 @@ export function Chat({
       return false;
     });
     return () => sub.remove();
-  }, [infoOpen, searchOpen]);
+  }, [gameOpen, infoOpen, searchOpen]);
 
   useEffect(() => {
     return () => {
@@ -1617,6 +1653,48 @@ export function Chat({
           </Pressable>
         </Pressable>
       )}
+      {!gameOpen &&
+        currentGame &&
+        (currentGame.status === 'invited' ||
+          currentGame.status === 'active') && (
+          <View style={styles.gameLiveBanner}>
+            <View style={styles.gameLiveDot} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text numberOfLines={1} style={styles.gameLiveTitle}>
+                {GAME_INFO[currentGame.gameType]?.name ?? 'Trò chơi'}
+              </Text>
+              <Text numberOfLines={1} style={styles.gameLiveSubtitle}>
+                {currentGame.status === 'invited'
+                  ? GAME_INFO[currentGame.gameType]?.groupOnly
+                    ? currentGame.xUserId === user.id
+                      ? 'Đang chờ thành viên nhóm tham gia…'
+                      : `${memberName(currentGame.xUserId)} vừa mở phòng chơi nhóm!`
+                    : currentGame.oUserId === user.id
+                      ? `${memberName(currentGame.xUserId)} đang mời bạn vào bàn`
+                      : `Đang chờ ${memberName(currentGame.oUserId)} tham gia…`
+                  : (currentGame.xUserId === user.id ? 'X' : 'O') ===
+                      currentGame.turn
+                    ? 'Đến lượt của bạn đi!'
+                    : `Lượt của ${memberName(
+                        currentGame.xUserId === user.id
+                          ? currentGame.oUserId
+                          : currentGame.xUserId,
+                      )}`}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setGameOpen(true)}
+              style={styles.gameLiveBtn}
+            >
+              <Text style={styles.gameLiveBtnText}>
+                {currentGame.status === 'invited' &&
+                currentGame.xUserId !== user.id
+                  ? 'Tham gia'
+                  : 'Mở bàn'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
       {loading ? (
         <Centered label="Đang tải tin nhắn…" />
       ) : displayedMessages.length === 0 ? (
@@ -1916,6 +1994,62 @@ export function Chat({
                               >
                                 {gameMeta?.subtitle ?? gameInvite.text}
                               </Text>
+                              <Pressable
+                                onPress={() => {
+                                  const isThisGame =
+                                    !!currentGame &&
+                                    (!gameInvite.gameId ||
+                                      currentGame.id === gameInvite.gameId);
+                                  if (
+                                    isThisGame &&
+                                    currentGame.status === 'invited' &&
+                                    !mine
+                                  ) {
+                                    setGameOpen(true);
+                                    void api
+                                      .authenticated<{ game: CaroSession }>(
+                                        `/games/${currentGame.id}/accept`,
+                                        undefined,
+                                        'POST',
+                                      )
+                                      .then(res => setCurrentGame(res.game))
+                                      .catch(fail);
+                                  } else {
+                                    setGameOpen(true);
+                                  }
+                                }}
+                                style={[
+                                  styles.gameInviteActionBtn,
+                                  mine && styles.gameInviteActionBtnMine,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.gameInviteActionText,
+                                    mine && styles.gameInviteActionTextMine,
+                                  ]}
+                                >
+                                  {!!currentGame &&
+                                  (!gameInvite.gameId ||
+                                    currentGame.id === gameInvite.gameId) &&
+                                  currentGame.status === 'invited' &&
+                                  !mine
+                                    ? '⚡ Chấp nhận & chơi'
+                                    : !!currentGame &&
+                                        (!gameInvite.gameId ||
+                                          currentGame.id ===
+                                            gameInvite.gameId) &&
+                                        currentGame.status === 'invited'
+                                      ? '⏳ Phòng chờ'
+                                      : !!currentGame &&
+                                          (!gameInvite.gameId ||
+                                            currentGame.id ===
+                                              gameInvite.gameId) &&
+                                          currentGame.status === 'active'
+                                        ? '▶ Vào bàn chơi'
+                                        : '▶ Mở bàn chơi'}
+                                </Text>
+                              </Pressable>
                             </View>
                           ) : (
                             <Text
@@ -1930,8 +2064,8 @@ export function Chat({
                           )}
                         </>
                       )}
-                      <View style={styles.messageTimeRow}>
-                        {!!item.editedAt && !item.deletedAt && (
+                      {!!item.editedAt && !item.deletedAt && (
+                        <View style={styles.messageTimeRow}>
                           <Text
                             style={[
                               styles.editedLabel,
@@ -1940,16 +2074,8 @@ export function Chat({
                           >
                             đã sửa
                           </Text>
-                        )}
-                        <Text
-                          style={[
-                            styles.bubbleTime,
-                            mine && styles.bubbleTimeMine,
-                          ]}
-                        >
-                          {shortTime(item.createdAt)}
-                        </Text>
-                      </View>
+                        </View>
+                      )}
                     </Pressable>
                   </SwipeableMessageBubble>
                   {!!normalizedSearch && (
@@ -2039,7 +2165,7 @@ export function Chat({
                 </>
               );
               return (
-                <>
+                <View>
                   {showTimeDivider && !normalizedSearch && (
                     <View style={styles.timeDividerRow}>
                       <View style={styles.timeDividerLine} />
@@ -2069,7 +2195,7 @@ export function Chat({
                       </View>
                     )}
                   </View>
-                </>
+                </View>
               );
             }}
           />
@@ -2362,6 +2488,16 @@ export function Chat({
                 act: () => void chooseFile().catch(fail),
               },
               {
+                icon: '🎮',
+                label:
+                  currentGame &&
+                  (currentGame.status === 'invited' ||
+                    currentGame.status === 'active')
+                    ? 'Trò chơi trong chat (Đang chơi)'
+                    : 'Trò chơi trong chat',
+                act: () => setGameOpen(true),
+              },
+              {
                 icon: '📍',
                 label: 'Chia sẻ vị trí hiện tại',
                 act: () => void shareLocation(),
@@ -2447,6 +2583,16 @@ export function Chat({
           </Pressable>
         </Pressable>
       </Modal>
+      <GameModal
+        conversationId={conversation.id}
+        isGroup={conversation.type === 'group'}
+        names={memberName}
+        onClose={() => setGameOpen(false)}
+        onExpired={onExpired}
+        onGameChange={setCurrentGame}
+        userId={user.id}
+        visible={gameOpen}
+      />
     </KeyboardAvoidingView>
   );
 }

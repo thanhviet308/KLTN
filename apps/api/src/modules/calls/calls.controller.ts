@@ -20,7 +20,7 @@ import { CallsService } from './calls.service';
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- DTO runtime metadata.
 import { AcceptCallDto, CreateCallDto } from './calls.dto';
 
-const uuid = () => new ParseUUIDPipe({ version: '4' });
+const uuid = () => new ParseUUIDPipe();
 
 @Controller()
 export class CallsController {

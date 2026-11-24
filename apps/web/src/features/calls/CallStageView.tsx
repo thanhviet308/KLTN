@@ -1,5 +1,4 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import type { LocalTrack, RemoteTrack } from 'livekit-client';
 import {
   ArrowLeftRight,
   CornerUpRight,
@@ -31,7 +30,7 @@ import {
 
 export interface MediaTrackItem {
   key: string;
-  track: RemoteTrack | LocalTrack;
+  track: MediaStreamTrack;
   local: boolean;
   kind: 'audio' | 'video';
   participantIdentity: string;
@@ -72,8 +71,11 @@ function AttachedTrack({
 }) {
   const holder = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const element = item.track.attach();
+    const element = document.createElement(
+      item.kind === 'video' ? 'video' : 'audio',
+    );
     element.autoplay = true;
+    element.srcObject = new MediaStream([item.track]);
     if (element instanceof HTMLVideoElement) {
       element.playsInline = true;
       element.setAttribute('playsinline', '');
@@ -83,10 +85,10 @@ function AttachedTrack({
     holder.current?.prepend(element);
     void element.play().catch(() => {});
     return () => {
-      item.track.detach(element);
+      element.srcObject = null;
       element.remove();
     };
-  }, [item.track, item.local]);
+  }, [item.track, item.kind, item.local]);
 
   const isPip = roleClass === 'is-pip';
   const isPrimary = roleClass === 'is-primary';

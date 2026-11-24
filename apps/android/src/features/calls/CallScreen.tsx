@@ -7,15 +7,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import {
-  RoomContext,
-  VideoTrack,
-  isTrackReference,
-  useTracks,
-} from '@livekit/react-native';
-import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
+import { RTCView } from '@livekit/react-native-webrtc';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AudioRoute } from './audio-route';
 import { isOpen, type Call } from './call-model';
+import type { CallConnectionState, WebRtcRoom } from './webrtc-room';
 
 const statusLabels: Record<Call['status'], string> = {
   ringing: 'Đang đổ chuông…',
@@ -89,25 +85,22 @@ function MediaControls({
   video,
   onError,
 }: {
-  room: Room;
+  room: WebRtcRoom;
   video: boolean;
   onError: (message: string) => void;
 }) {
-  const [mic, setMic] = useState(room.localParticipant.isMicrophoneEnabled);
-  const [camera, setCamera] = useState(room.localParticipant.isCameraEnabled);
-  const [facing, setFacing] = useState<'user' | 'environment'>('user');
+  const [mic, setMic] = useState(room.isMicrophoneEnabled);
+  const [camera, setCamera] = useState(room.isCameraEnabled);
   const [speaker, setSpeaker] = useState(video);
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
     const sync = () => {
-      setMic(room.localParticipant.isMicrophoneEnabled);
-      setCamera(room.localParticipant.isCameraEnabled);
+      setMic(room.isMicrophoneEnabled);
+      setCamera(room.isCameraEnabled);
     };
-    room.on(RoomEvent.TrackMuted, sync).on(RoomEvent.TrackUnmuted, sync);
-    return () => {
-      room.off(RoomEvent.TrackMuted, sync).off(RoomEvent.TrackUnmuted, sync);
-    };
+    sync();
+    return room.subscribe(sync);
   }, [room]);
 
   async function change(work: () => Promise<void>) {
@@ -132,7 +125,7 @@ function MediaControls({
         disabled={working}
         onPress={() => {
           void change(async () => {
-            await room.localParticipant.setMicrophoneEnabled(!mic);
+            await room.setMicrophoneEnabled(!mic);
             setMic(!mic);
           });
         }}
@@ -145,7 +138,7 @@ function MediaControls({
           disabled={working}
           onPress={() => {
             void change(async () => {
-              await room.localParticipant.setCameraEnabled(!camera);
+              await room.setCameraEnabled(!camera);
               setCamera(!camera);
             });
           }}
@@ -158,21 +151,7 @@ function MediaControls({
           disabled={working}
           onPress={() => {
             void change(async () => {
-              const nextFacing = facing === 'user' ? 'environment' : 'user';
-              const pub = room.localParticipant.getTrackPublication(
-                Track.Source.Camera,
-              );
-              const videoTrack = pub?.videoTrack;
-              if (videoTrack) {
-                const rawTrack = videoTrack.mediaStreamTrack as
-                  { _switchCamera?: () => void } | undefined;
-                if (typeof rawTrack?._switchCamera === 'function') {
-                  rawTrack._switchCamera();
-                } else {
-                  await videoTrack.restartTrack({ facingMode: nextFacing });
-                }
-                setFacing(nextFacing);
-              }
+              await room.switchCamera();
             });
           }}
         />
@@ -184,10 +163,7 @@ function MediaControls({
         disabled={working}
         onPress={() => {
           void change(async () => {
-            const { AudioSession } = await import('@livekit/react-native');
-            await AudioSession.selectAudioOutput(
-              speaker ? 'earpiece' : 'speaker',
-            );
+            await AudioRoute.selectOutput(speaker ? 'earpiece' : 'speaker');
             setSpeaker(!speaker);
           });
         }}
@@ -197,17 +173,23 @@ function MediaControls({
 }
 
 function VideoStage({
+  room,
   title,
   topOffset,
   bottomOffset,
 }: {
+  room: WebRtcRoom;
   title: string;
   topOffset: number;
   bottomOffset: number;
 }) {
-  const tracks = useTracks([Track.Source.Camera]).filter(isTrackReference);
-  const localTrack = tracks.find(t => t.participant.isLocal);
-  const remoteTracks = tracks.filter(t => !t.participant.isLocal);
+  const [, setVersion] = useState(0);
+  useEffect(() => room.subscribe(() => setVersion(v => v + 1)), [room]);
+
+  const localStreamUrl = room.localStreamUrl;
+  const remotePeers = room
+    .getRemotePeers()
+    .filter(peer => peer.hasVideo && peer.streamUrl);
   const [cornerIdx, setCornerIdx] = useState(0);
   const corner = CORNERS[cornerIdx % CORNERS.length];
 
@@ -220,7 +202,7 @@ function VideoStage({
 
   return (
     <View style={s.stage}>
-      {remoteTracks.length === 0 ? (
+      {remotePeers.length === 0 ? (
         <View style={s.waitingStage}>
           <View style={s.avatarLarge}>
             <Text style={s.avatarLargeText}>
@@ -229,10 +211,10 @@ function VideoStage({
           </View>
           <Text style={s.waitingHint}>Đang chờ hình ảnh từ đối phương…</Text>
         </View>
-      ) : remoteTracks.length === 1 ? (
-        <VideoTrack
+      ) : remotePeers.length === 1 ? (
+        <RTCView
           objectFit="contain"
-          trackRef={remoteTracks[0]}
+          streamURL={remotePeers[0].streamUrl}
           zOrder={0}
           style={s.remoteFullVideo}
         />
@@ -243,20 +225,17 @@ function VideoStage({
             { paddingTop: topOffset, paddingBottom: bottomOffset },
           ]}
         >
-          {remoteTracks.map(track => (
-            <View
-              key={`${track.participant.identity}:${track.source}`}
-              style={s.groupTile}
-            >
-              <VideoTrack
+          {remotePeers.map(peer => (
+            <View key={peer.userId} style={s.groupTile}>
+              <RTCView
                 objectFit="contain"
-                trackRef={track}
+                streamURL={peer.streamUrl}
                 zOrder={0}
                 style={s.remoteFullVideo}
               />
               <View style={s.tileBadge}>
                 <Text numberOfLines={1} style={s.tileBadgeText}>
-                  {track.participant.name || 'Thành viên'}
+                  {peer.displayName || 'Thành viên'}
                 </Text>
               </View>
             </View>
@@ -264,16 +243,17 @@ function VideoStage({
         </View>
       )}
 
-      {localTrack && (
+      {localStreamUrl && (
         <Pressable
           accessibilityHint="Chạm để đổi góc hiển thị camera của bạn"
           accessibilityLabel="Camera của bạn, chạm để đổi góc"
           onPress={() => setCornerIdx(prev => (prev + 1) % CORNERS.length)}
           style={[s.pipTile, pipPosition]}
         >
-          <VideoTrack
+          <RTCView
+            mirror
             objectFit="cover"
-            trackRef={localTrack}
+            streamURL={localStreamUrl}
             zOrder={1}
             style={s.pipVideo}
           />
@@ -300,12 +280,12 @@ export function CallScreen({
   onDismiss,
 }: {
   call?: Call;
-  room?: Room;
+  room?: WebRtcRoom;
   title: string;
   incoming: boolean;
   busy: boolean;
   canHangupWhileBusy: boolean;
-  connection: ConnectionState;
+  connection: CallConnectionState;
   error: string;
   onJoin: () => void;
   onHangup: () => void;
@@ -338,15 +318,14 @@ export function CallScreen({
       ? statusLabels[call.status]
       : incoming && !room
         ? 'Cuộc gọi đến…'
-        : connection === ConnectionState.Reconnecting ||
-            connection === ConnectionState.SignalReconnecting
+        : connection === 'reconnecting'
           ? 'Mất mạng, đang kết nối lại…'
           : call.status === 'ringing'
             ? 'Đang đổ chuông…'
             : room
               ? duration
               : busy
-                ? connection === ConnectionState.Connected
+                ? connection === 'connected'
                   ? 'Đang thiết lập âm thanh…'
                   : 'Đang kết nối…'
                 : 'Chưa kết nối âm thanh/video';
@@ -362,9 +341,10 @@ export function CallScreen({
     >
       <View style={s.screen}>
         {room ? (
-          <RoomContext.Provider value={room}>
+          <>
             {isVideo ? (
               <VideoStage
+                room={room}
                 title={title}
                 topOffset={insets.top + 82}
                 bottomOffset={insets.bottom + 128}
@@ -435,7 +415,7 @@ export function CallScreen({
                 />
               </View>
             </View>
-          </RoomContext.Provider>
+          </>
         ) : (
           <View
             style={[

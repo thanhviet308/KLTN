@@ -23,17 +23,9 @@ test('recorder mixes local and remote tracks, follows track changes, and stops e
   let closed = 0;
   const local = { readyState: 'live' };
   const remote = { readyState: 'live' };
-  const publication = (track) => ({ track: { mediaStreamTrack: track } });
+  let activeTracks = [local, remote];
   const room = {
-    localParticipant: {
-      audioTrackPublications: new Map([['local', publication(local)]]),
-    },
-    remoteParticipants: new Map([
-      [
-        'remote',
-        { audioTrackPublications: new Map([['remote', publication(remote)]]) },
-      ],
-    ]),
+    getAllLiveAudioTracks: () => activeTracks,
   };
   t.mock.method(globalThis, 'setTimeout', () => 1);
   t.mock.method(globalThis, 'clearTimeout', () => {});
@@ -100,7 +92,7 @@ test('recorder mixes local and remote tracks, follows track changes, and stops e
     nodes.map((node) => node.track),
     [local, remote],
   );
-  room.remoteParticipants.clear();
+  activeTracks = [local];
   recorder.sync();
   assert.equal(nodes[1].disconnected, true);
   const first = recorder.stop();

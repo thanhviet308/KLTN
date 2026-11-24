@@ -17,32 +17,39 @@ const baseEnvironment = {
   JWT_ACCESS_SECRET: 'a'.repeat(64),
 };
 
-test('LiveKit configuration is all-or-none and requires a WebSocket origin', () => {
+test('WebRTC ICE configuration validates STUN/TURN URLs and credentials', () => {
   assert.throws(
     () =>
-      validateEnvironment({ ...baseEnvironment, LIVEKIT_URL: 'wss://test' }),
-    /must be configured together/,
+      validateEnvironment({
+        ...baseEnvironment,
+        WEBRTC_STUN_URLS: 'https://invalid.example',
+      }),
+    /stun: or stuns:/,
   );
   assert.throws(
     () =>
       validateEnvironment({
         ...baseEnvironment,
-        LIVEKIT_URL: 'https://test.livekit.cloud',
-        LIVEKIT_API_KEY: 'key',
-        LIVEKIT_API_SECRET: 'secret',
+        WEBRTC_TURN_URLS: 'turn:turn.example.com:3478',
+        WEBRTC_TURN_USERNAME: 'user-only',
       }),
-    /WebSocket origin/,
+    /must be configured together/,
   );
   const environment = validateEnvironment({
     ...baseEnvironment,
-    LIVEKIT_URL: 'wss://test.livekit.cloud',
-    LIVEKIT_API_KEY: 'key',
-    LIVEKIT_API_SECRET: 'secret',
+    WEBRTC_STUN_URLS: 'stun:stun.l.google.com:19302, stun:stun1.l.google.com:19302',
+    WEBRTC_TURN_URLS: 'turn:turn.example.com:3478',
+    WEBRTC_TURN_USERNAME: 'turn-user',
+    WEBRTC_TURN_CREDENTIAL: 'turn-pass',
   });
-  assert.equal(environment.LIVEKIT_URL, 'wss://test.livekit.cloud');
+  assert.equal(
+    environment.WEBRTC_STUN_URLS,
+    'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302',
+  );
+  assert.equal(environment.WEBRTC_TURN_URLS, 'turn:turn.example.com:3478');
 });
 
-test('call token is short-lived and scoped to the stored room', async () => {
+test('call media config returns default free STUN servers and optional TURN config', async () => {
   const manager = {
     getRepository: (entity) => ({
       findOne: async () => {
@@ -62,9 +69,9 @@ test('call token is short-lived and scoped to the stored room', async () => {
   };
   const db = { transaction: async (action) => action(manager) };
   const values = {
-    LIVEKIT_URL: 'wss://test.livekit.cloud',
-    LIVEKIT_API_KEY: 'test-key',
-    LIVEKIT_API_SECRET: 'a-secure-test-secret',
+    WEBRTC_TURN_URLS: 'turn:turn.example.com:3478',
+    WEBRTC_TURN_USERNAME: 'turn-user',
+    WEBRTC_TURN_CREDENTIAL: 'turn-pass',
   };
   const service = new CallsService(
     db,
@@ -73,20 +80,20 @@ test('call token is short-lived and scoped to the stored room', async () => {
   );
 
   const result = await service.token('user-id', 'call-id');
-  const claims = JSON.parse(
-    Buffer.from(result.token.split('.')[1], 'base64url').toString(),
-  );
 
-  assert.equal(result.url, values.LIVEKIT_URL);
+  assert.equal(result.callId, 'call-id');
+  assert.equal(result.roomName, 'server-owned-room');
   assert.equal(result.callType, 'video');
-  assert.equal(claims.sub, 'user-id');
-  assert.equal(claims.video.room, 'server-owned-room');
-  assert.equal(claims.video.roomJoin, true);
-  assert.equal(claims.video.canPublish, true);
-  assert.equal(claims.video.canSubscribe, true);
-  assert.equal(claims.video.canPublishData, false);
-  assert.equal(claims.exp - claims.nbf, 600);
-  assert.ok(!result.token.includes(values.LIVEKIT_API_SECRET));
+  assert.ok(Array.isArray(result.iceServers));
+  assert.equal(result.iceServers.length, 2);
+  assert.deepEqual(result.iceServers[0], {
+    urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'],
+  });
+  assert.deepEqual(result.iceServers[1], {
+    urls: ['turn:turn.example.com:3478'],
+    username: 'turn-user',
+    credential: 'turn-pass',
+  });
 });
 
 test('a terminal call creates one chat history message with duration', async () => {

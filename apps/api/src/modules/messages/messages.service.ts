@@ -801,8 +801,12 @@ export class MessagesService {
             conversationId,
           }),
         actorId,
-        true,
+        input.mediaType === undefined,
       );
+      if (input.mediaType)
+        query.andWhere('message.type = :mediaType', {
+          mediaType: input.mediaType,
+        });
       const forward = input.direction === 'forward';
       if (input.cursor !== undefined)
         query.andWhere(

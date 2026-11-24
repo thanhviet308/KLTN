@@ -289,7 +289,7 @@
 }
 
 .home-shell .chat-message.mine:not(.call-event) {
-  padding-right: 22px;
+  padding-right: 6px;
 }
 
 .home-shell .chat-message:not(.mine) {
@@ -2833,6 +2833,10 @@
 
   .home-shell .chat-message.continues-group {
     margin-bottom: 2px;
+  }
+
+  .home-shell .chat-message.mine:not(.call-event) {
+    padding-right: 10px;
   }
 
   .home-shell .chat-message:not(.mine) {

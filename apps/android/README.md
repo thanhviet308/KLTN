@@ -7,7 +7,7 @@
 - lịch sử tin nhắn, gửi text, reconnect WebSocket và đồng bộ bù theo sequence;
 - ACK đọc tin mới nhất khi đang mở hội thoại;
 - đăng xuất và thu hồi refresh token.
-- gọi thoại/video 1–1 với Web hoặc Android qua LiveKit, nhận/từ chối/kết thúc;
+- gọi thoại/video 1–1 hoặc nhóm nhỏ với Web hoặc Android qua WebRTC thuần (Signaling qua Socket.IO), nhận/từ chối/kết thúc;
 - bật/tắt micro và camera, chuyển loa trong/ngoài, xem lịch sử cuộc gọi trong chat.
 
 ## Gọi thoại và video

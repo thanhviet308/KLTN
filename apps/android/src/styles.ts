@@ -658,7 +658,7 @@ export const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 13,
     paddingTop: 8,
-    paddingBottom: 7,
+    paddingBottom: 8,
   },
   bubblePeer: {
     backgroundColor: '#fffdf9',
@@ -2696,6 +2696,68 @@ export const styles = StyleSheet.create({
   },
   gameInviteDescMine: {
     color: '#fbe6d7',
+  },
+  gameInviteActionBtn: {
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#b75020',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gameInviteActionBtnMine: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+  },
+  gameInviteActionText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  gameInviteActionTextMine: {
+    color: '#fff8f2',
+  },
+  gameLiveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 6,
+    marginBottom: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 14,
+    backgroundColor: '#fff8ef',
+    borderWidth: 1,
+    borderColor: '#e8cfb4',
+  },
+  gameLiveDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#16a34a',
+  },
+  gameLiveTitle: {
+    color: '#2c1e15',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  gameLiveSubtitle: {
+    color: '#7a5f49',
+    fontSize: 11.5,
+  },
+  gameLiveBtn: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#b75020',
+  },
+  gameLiveBtnText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '800',
   },
   sentStatusText: {
     color: '#8d7866',

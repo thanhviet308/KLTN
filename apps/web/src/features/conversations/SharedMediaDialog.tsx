@@ -28,7 +28,7 @@ export function SharedMediaDialog({
     setError('');
     try {
       const page = await api.authenticated<History>(
-        `/conversations/${conversationId}/messages?direction=backward&limit=50${before ? `&cursor=${encodeURIComponent(before)}` : ''}`,
+        `/conversations/${conversationId}/messages?direction=backward&mediaType=${type}&limit=50${before ? `&cursor=${encodeURIComponent(before)}` : ''}`,
       );
       if (!alive.current) return;
       setMessages((previous) => [
@@ -83,12 +83,8 @@ export function SharedMediaDialog({
           ),
         )}
       </div>
-      {!busy && matching.length === 0 && (
-        <p>
-          {cursor
-            ? 'Chưa có trong phần lịch sử này. Bạn có thể tải thêm.'
-            : 'Chưa có nội dung được chia sẻ.'}
-        </p>
+      {!busy && !error && matching.length === 0 && (
+        <p>Chưa có nội dung được chia sẻ.</p>
       )}
       {error && <p role="alert">{error}</p>}
       {busy && <p role="status">Đang tải…</p>}
@@ -98,7 +94,7 @@ export function SharedMediaDialog({
           className="secondary"
           onClick={() => void load(cursor ?? undefined)}
         >
-          {error ? 'Thử lại' : 'Tải thêm lịch sử'}
+          {error ? 'Thử lại' : 'Tải thêm'}
         </button>
       )}
     </dialog>

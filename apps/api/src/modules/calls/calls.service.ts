@@ -17,7 +17,17 @@ import type { AcceptCallDto, CreateCallDto } from './calls.dto';
 import { RealtimeEvents } from '../realtime/realtime-events.module';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment';
-import { AccessToken } from 'livekit-server-sdk';
+
+const DEFAULT_STUN_URLS = [
+  'stun:stun.l.google.com:19302',
+  'stun:stun1.l.google.com:19302',
+];
+
+export interface IceServerConfig {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
 
 const RING_TTL_MS = 45_000;
 
@@ -56,13 +66,14 @@ export class CallsService {
     result: { call: ReturnType<CallsService['view']> },
     message?: ReturnType<CallsService['messageView']>,
   ) {
+    const actorLower = actorId.toLowerCase();
     this.events.publish({
       name,
       actorId,
       conversationId: result.call.conversationId,
       targetUserIds: result.call.participants
         .map((participant) => participant.userId)
-        .filter((userId) => userId !== actorId),
+        .filter((userId) => userId.toLowerCase() !== actorLower),
       payload: result,
     });
     if (message) this.publishMessage(message);
@@ -381,12 +392,12 @@ export class CallsService {
     });
     if (result.created) {
       const published = this.publish('call:incoming', actorId, result.result);
-      const media = await this.issueMediaToken(
-        actorId,
+      const media = this.issueMediaConfig(
+        result.result.call.id,
         result.roomName,
         result.callType,
       );
-      return media ? { ...published, media } : published;
+      return { ...published, media };
     }
     if (result.message)
       return this.publish(
@@ -407,60 +418,68 @@ export class CallsService {
     return value.result;
   }
 
-  private async issueMediaToken(
-    actorId: string,
+  private buildIceServers(): IceServerConfig[] {
+    const rawStun = this.config.get('WEBRTC_STUN_URLS', { infer: true });
+    const stunUrls = rawStun
+      ? rawStun
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : DEFAULT_STUN_URLS;
+    const servers: IceServerConfig[] = [];
+    if (stunUrls.length) {
+      servers.push({ urls: stunUrls });
+    }
+    const rawTurn = this.config.get('WEBRTC_TURN_URLS', { infer: true });
+    const turnUrls = rawTurn
+      ? rawTurn
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
+    if (turnUrls.length) {
+      const username = this.config.get('WEBRTC_TURN_USERNAME', { infer: true });
+      const credential = this.config.get('WEBRTC_TURN_CREDENTIAL', {
+        infer: true,
+      });
+      servers.push({
+        urls: turnUrls,
+        ...(username && credential ? { username, credential } : {}),
+      });
+    }
+    return servers;
+  }
+
+  private issueMediaConfig(
+    callId: string,
     roomName: string,
     callType: 'audio' | 'video',
   ) {
-    const livekitUrl = this.config.get('LIVEKIT_URL', { infer: true });
-    const apiKey = this.config.get('LIVEKIT_API_KEY', { infer: true });
-    const apiSecret = this.config.get('LIVEKIT_API_SECRET', { infer: true });
-    if (!livekitUrl || !apiKey || !apiSecret) return undefined;
     const ttlSeconds = 10 * 60;
-    const accessToken = new AccessToken(apiKey, apiSecret, {
-      identity: actorId,
-      ttl: ttlSeconds,
-    });
-    accessToken.addGrant({
-      room: roomName,
-      roomJoin: true,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: false,
-    });
     return {
-      url: livekitUrl,
-      token: await accessToken.toJwt(),
-      expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+      callId,
+      roomName,
       callType,
+      iceServers: this.buildIceServers(),
+      expiresAt: new Date(Date.now() + ttlSeconds * 1000),
     };
   }
 
   async token(actorId: string, id: string) {
-    const livekitUrl = this.config.get('LIVEKIT_URL', { infer: true });
-    const apiKey = this.config.get('LIVEKIT_API_KEY', { infer: true });
-    const apiSecret = this.config.get('LIVEKIT_API_SECRET', { infer: true });
-    if (!livekitUrl || !apiKey || !apiSecret)
-      fail(
-        503,
-        'LIVEKIT_NOT_CONFIGURED',
-        'LiveKit is not configured on this server',
-      );
-
     const authorization = await this.db.transaction(async (manager) => {
       const { call, participant } = await this.lockedCall(manager, id, actorId);
       if (!['ringing', 'active'].includes(call.status))
         fail(409, 'CALL_STATE_CONFLICT', 'Call is no longer active');
       if (!['accepted', 'joined'].includes(participant.status))
         fail(409, 'CALL_NOT_ACCEPTED', 'Accept the call before joining media');
-      return { roomName: call.roomName, type: call.type };
+      return { id: call.id, roomName: call.roomName, type: call.type };
     });
 
-    return (await this.issueMediaToken(
-      actorId,
+    return this.issueMediaConfig(
+      authorization.id,
       authorization.roomName,
       authorization.type,
-    ))!;
+    );
   }
 
   async list(actorId: string, input: PageDto) {
@@ -594,12 +613,12 @@ export class CallsService {
       };
     });
     const published = this.publish('call:updated', actorId, value.result);
-    const media = await this.issueMediaToken(
-      actorId,
+    const media = this.issueMediaConfig(
+      value.result.call.id,
       value.roomName,
       value.callType,
     );
-    return media ? { ...published, media } : published;
+    return { ...published, media };
   }
 
   async reject(actorId: string, id: string) {

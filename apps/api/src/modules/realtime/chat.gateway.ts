@@ -13,6 +13,8 @@ import type { Namespace, Socket } from 'socket.io';
 import { DataSource, In } from 'typeorm';
 import { User } from '../database/entities/user.entity';
 import { Friendship } from '../database/entities/friendship.entity';
+import { Call } from '../database/entities/call.entity';
+import { CallParticipant } from '../database/entities/call-participant.entity';
 import type { Environment } from '../../config/environment';
 import { Public } from '../auth/auth.decorators';
 import { AuthService } from '../auth/auth.service';
@@ -26,16 +28,32 @@ import {
   SyncSocketDto,
   TypingSocketDto,
   PresenceSocketDto,
+  WebRtcJoinSocketDto,
+  WebRtcLeaveSocketDto,
+  WebRtcMediaStateSocketDto,
+  WebRtcSignalSocketDto,
 } from './realtime.dto';
 
 interface Connection {
   token: string;
   userId: string;
+  displayName: string;
   expiresAt: number;
   window: number;
   requests: number;
   pending: number;
+  signalWindow: number;
+  signalRequests: number;
+  signalPending: number;
   rooms: Set<string>;
+}
+
+interface CallPeerState {
+  socketId: string;
+  userId: string;
+  displayName: string;
+  audioEnabled: boolean;
+  videoEnabled: boolean;
 }
 
 function reject(status: number, code: string, message: string): never {
@@ -60,6 +78,7 @@ export class ChatGateway
   private readonly logger = new Logger(ChatGateway.name);
   private server!: Namespace;
   private readonly connections = new Map<string, Connection>();
+  private readonly callPeers = new Map<string, Map<string, CallPeerState>>();
   private readonly queue: ChatEvent[] = [];
   private draining = false;
   private closing = false;
@@ -156,10 +175,14 @@ export class ChatGateway
     this.connections.set(socket.id, {
       token,
       userId: principal.user.id,
+      displayName: principal.user.displayName,
       expiresAt: claims.exp * 1000,
       window: Date.now(),
       requests: 0,
       pending: 0,
+      signalWindow: Date.now(),
+      signalRequests: 0,
+      signalPending: 0,
       rooms: new Set(),
     });
     // Middleware may finish after the transport closes, before Nest disconnect hooks.
@@ -282,6 +305,7 @@ export class ChatGateway
     const connection = this.connections.get(socket.id);
     if (!connection) return;
     this.connections.delete(socket.id);
+    this.leaveAllWebRtcCalls(socket.id);
     if (!this.isUserOnline(connection.userId)) {
       const activeAt = new Date();
       void this.touchActivity(connection.userId, activeAt)
@@ -512,6 +536,238 @@ export class ChatGateway
     });
   }
 
+  private async runSignal<T extends object>(
+    socket: Socket,
+    payload: unknown,
+    dto: new () => T,
+    action: (
+      userId: string,
+      input: T,
+      connection: Connection,
+    ) => Promise<unknown>,
+  ) {
+    const connection = this.connections.get(socket.id);
+    let acquired = false;
+    try {
+      if (!connection)
+        reject(401, 'AUTH_REQUIRED', 'Connection is unauthenticated');
+      if (Date.now() >= connection.expiresAt)
+        reject(401, 'AUTH_REQUIRED', 'Session expired');
+      if (Date.now() - connection.signalWindow >= 60000) {
+        connection.signalWindow = Date.now();
+        connection.signalRequests = 0;
+      }
+      if (++connection.signalRequests > 600 || connection.signalPending >= 32)
+        reject(429, 'RATE_LIMITED', 'Too many WebRTC signaling requests');
+      connection.signalPending++;
+      acquired = true;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+        reject(400, 'INVALID_PAYLOAD', 'Payload must be an object');
+      const input = plainToInstance(dto, payload);
+      const errors = await validate(input, {
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        forbidUnknownValues: true,
+      });
+      if (errors.length)
+        reject(400, 'INVALID_PAYLOAD', 'Payload validation failed');
+      return {
+        ok: true as const,
+        data: await action(connection.userId, input, connection),
+      };
+    } catch (error) {
+      if (error instanceof HttpException && error.getStatus() === 401)
+        setImmediate(() => socket.disconnect(true));
+      return this.error(error);
+    } finally {
+      if (connection && acquired) connection.signalPending--;
+    }
+  }
+
+  private emitToSocket(socketId: string, event: string, payload: unknown) {
+    if (this.closing || !this.server?.sockets) return;
+    const target = this.server.sockets.get(socketId);
+    if (target?.connected && typeof target.emit === 'function') {
+      target.emit(event, payload);
+    }
+  }
+
+  private leaveWebRtcCall(callId: string, socketId: string) {
+    const room = this.callPeers.get(callId);
+    if (!room) return;
+    let removedUserId: string | undefined;
+    for (const [userId, peer] of room) {
+      if (peer.socketId === socketId) {
+        room.delete(userId);
+        removedUserId = userId;
+        break;
+      }
+    }
+    if (!removedUserId) return;
+    if (room.size === 0) {
+      this.callPeers.delete(callId);
+      return;
+    }
+    for (const peer of room.values()) {
+      this.emitToSocket(peer.socketId, 'webrtc:peer-left', {
+        callId,
+        userId: removedUserId,
+      });
+    }
+  }
+
+  private leaveAllWebRtcCalls(socketId: string) {
+    for (const callId of [...this.callPeers.keys()]) {
+      this.leaveWebRtcCall(callId, socketId);
+    }
+  }
+
+  @SubscribeMessage('webrtc:join')
+  webrtcJoin(socket: Socket, payload: unknown) {
+    return this.runSignal(
+      socket,
+      payload,
+      WebRtcJoinSocketDto,
+      async (rawUserId, input, connection) => {
+        await this.auth.authenticate(connection.token);
+        const userId = rawUserId.toLowerCase();
+        const callId = input.callId.toLowerCase();
+        const call = await this.db.getRepository(Call).findOne({
+          where: { id: callId },
+          select: { id: true, status: true },
+        });
+        if (!call || !['ringing', 'active'].includes(call.status)) {
+          reject(409, 'CALL_STATE_CONFLICT', 'Call is no longer active');
+        }
+        const participant = await this.db
+          .getRepository(CallParticipant)
+          .findOne({
+            where: { callId, userId },
+            select: { callId: true, userId: true, status: true },
+          });
+        if (
+          !participant ||
+          !['accepted', 'joined'].includes(participant.status)
+        ) {
+          reject(403, 'CALL_FORBIDDEN', 'Not authorized to join this call');
+        }
+
+        let room = this.callPeers.get(callId);
+        if (!room) {
+          room = new Map<string, CallPeerState>();
+          this.callPeers.set(callId, room);
+        }
+
+        const existingPeers = [...room.values()]
+          .filter((peer) => peer.userId !== userId)
+          .map((peer) => ({
+            userId: peer.userId,
+            displayName: peer.displayName,
+            audioEnabled: peer.audioEnabled,
+            videoEnabled: peer.videoEnabled,
+          }));
+
+        const nextState: CallPeerState = {
+          socketId: socket.id,
+          userId,
+          displayName: connection.displayName,
+          audioEnabled: input.audioEnabled ?? true,
+          videoEnabled: input.videoEnabled ?? false,
+        };
+        room.set(userId, nextState);
+
+        for (const peer of room.values()) {
+          if (peer.userId === userId) continue;
+          this.emitToSocket(peer.socketId, 'webrtc:peer-joined', {
+            callId,
+            userId: nextState.userId,
+            displayName: nextState.displayName,
+            audioEnabled: nextState.audioEnabled,
+            videoEnabled: nextState.videoEnabled,
+          });
+        }
+
+        return { callId, peers: existingPeers };
+      },
+    );
+  }
+
+  @SubscribeMessage('webrtc:leave')
+  webrtcLeave(socket: Socket, payload: unknown) {
+    return this.runSignal(
+      socket,
+      payload,
+      WebRtcLeaveSocketDto,
+      async (_userId, input) => {
+        const callId = input.callId.toLowerCase();
+        this.leaveWebRtcCall(callId, socket.id);
+        return { callId };
+      },
+    );
+  }
+
+  @SubscribeMessage('webrtc:media-state')
+  webrtcMediaState(socket: Socket, payload: unknown) {
+    return this.runSignal(
+      socket,
+      payload,
+      WebRtcMediaStateSocketDto,
+      async (rawUserId, input) => {
+        const userId = rawUserId.toLowerCase();
+        const callId = input.callId.toLowerCase();
+        const room = this.callPeers.get(callId);
+        const me = room?.get(userId);
+        if (!room || !me || me.socketId !== socket.id) {
+          return { callId, delivered: 0 };
+        }
+        me.audioEnabled = input.audioEnabled;
+        me.videoEnabled = input.videoEnabled;
+        let delivered = 0;
+        for (const peer of room.values()) {
+          if (peer.userId === userId) continue;
+          this.emitToSocket(peer.socketId, 'webrtc:media-state', {
+            callId,
+            userId,
+            audioEnabled: input.audioEnabled,
+            videoEnabled: input.videoEnabled,
+          });
+          delivered++;
+        }
+        return { callId, delivered };
+      },
+    );
+  }
+
+  @SubscribeMessage('webrtc:signal')
+  webrtcSignal(socket: Socket, payload: unknown) {
+    return this.runSignal(
+      socket,
+      payload,
+      WebRtcSignalSocketDto,
+      async (rawUserId, input) => {
+        const userId = rawUserId.toLowerCase();
+        const callId = input.callId.toLowerCase();
+        const targetUserId = input.targetUserId.toLowerCase();
+        const room = this.callPeers.get(callId);
+        const me = room?.get(userId);
+        if (!room || !me || me.socketId !== socket.id) {
+          reject(403, 'CALL_NOT_JOINED', 'Join the call before signaling');
+        }
+        const target = room.get(targetUserId);
+        if (!target) {
+          return { callId, delivered: false };
+        }
+        this.emitToSocket(target.socketId, 'webrtc:signal', {
+          callId,
+          fromUserId: userId,
+          type: input.type,
+          payload: input.payload,
+        });
+        return { callId, delivered: true };
+      },
+    );
+  }
+
   private async drain() {
     if (this.draining || this.closing) return;
     this.draining = true;
@@ -520,7 +776,7 @@ export class ChatGateway
       while (!this.closing && (event = this.queue.shift())) {
         const current = event;
         const targets = current.targetUserIds
-          ? new Set(current.targetUserIds)
+          ? new Set(current.targetUserIds.map((item) => item.toLowerCase()))
           : undefined;
         // Inbox notifications must also reach members who have not loaded or
         // subscribed to this conversation yet. authorizedEvent below still
@@ -528,19 +784,25 @@ export class ChatGateway
         const inboxEvent = current.name === 'message:created';
         const ids = targets
           ? [...this.connections]
-              .filter(([, connection]) => targets.has(connection.userId))
+              .filter(([, connection]) =>
+                targets.has(connection.userId.toLowerCase()),
+              )
               .map(([id]) => id)
           : inboxEvent
             ? [...this.connections.keys()]
             : [
                 ...(this.server.adapter.rooms.get(
-                  `conversation:${current.conversationId}`,
+                  `conversation:${current.conversationId.toLowerCase()}`,
                 ) ?? []),
               ];
         for (const id of ids) {
           const socket = this.server.sockets.get(id);
           const connection = this.connections.get(id);
-          if (!socket || !connection || current.actorId === connection.userId)
+          if (
+            !socket ||
+            !connection ||
+            current.actorId?.toLowerCase() === connection.userId.toLowerCase()
+          )
             continue;
           try {
             await this.auth.authenticate(connection.token);
@@ -614,6 +876,7 @@ export class ChatGateway
     this.queue.length = 0;
     this.server?.disconnectSockets(true);
     this.connections.clear();
+    this.callPeers.clear();
     await this.deliveryTask;
   }
 }

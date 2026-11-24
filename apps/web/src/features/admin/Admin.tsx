@@ -1043,7 +1043,7 @@ export function Admin({ user, onBack }: { user?: User; onBack: () => void }) {
                     <div>
                       <h2>Hạ tầng AI, Cuộc gọi &amp; Lưu trữ</h2>
                       <p>
-                        Hiệu suất dịch vụ trợ lý AI, đàm thoại WebRTC/LiveKit và
+                        Hiệu suất dịch vụ trợ lý AI, đàm thoại WebRTC và
                         dung lượng tệp mã hóa.
                       </p>
                     </div>
